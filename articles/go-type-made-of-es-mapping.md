@@ -8,9 +8,9 @@ published: false
 
 ## Overview
 
-Elasticsearch の JSON を Go で取り扱うためのヘルパーと、mapping からの型を生成する code genrator を作りました。
+[Elasticsearch] の JSON を Go で取り扱うためのヘルパーと、mapping からの型を生成する code genrator を作りました。
 
-[Explicit Mapping](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/explicit-mapping.html)で運用する Index のみを想定対象とし、
+[Explicit Mapping]で運用する Index のみを想定対象とし、
 
 - いくつかのヘルパータイプを用意し
   - \*\[\]T を内部に持つことで、Elasticsearch が許容する`null` / `undefined` / `T[]` / `T`を全て格納できる型
@@ -27,12 +27,11 @@ Elasticsearch の JSON を Go で取り扱うためのヘルパーと、mapping 
 - Go programming language をある程度使ったことがある
   - `encode/json`の挙動を知っている
   - type parameters を使ったことがある。
-    - これについては他の減で出も構いません。単に、type parameters 風の記法を使ってこの記事が掛かれるというだけです。
 - Elasticsearch をある程度使ったことがある
   - REST API などを通じて、PUT(ドキュメント作成)/ UPDATE をしたことがある
-  - Query DSL を組んで検索をしたことがある
+  - [Query DSL] を組んで検索をしたことがある
 
-ここで Elasticsearch が何であるかについて詳しくは語りません。語れるほど知っていません。
+ここで Elasticsearch が何であるかについて詳しくは語りません。(特に詳しくありませんので）
 
 ## 成果物
 
@@ -100,7 +99,7 @@ generate-es-type -prefix-with-index-name -i ./example.json -out-high ./example_h
 
 It generates:
 
-```go
+```go: example_high.go
 package example
 
 import (
@@ -158,7 +157,7 @@ func (t ExampleDate) String() string {
 
 and
 
-```go
+```go: example_raw.go
 package example
 
 import (
@@ -186,25 +185,29 @@ func (t ExampleRaw) ToPlain() Example {
 
 ## きっかけ
 
-仕事で[Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html)を操作する TypeScript の Node.js アプリを書いています。
+仕事で Elasticsearch とやり取りする Node.js(Typescript)のアプリを組んでいます。
 
-最近になって(仕事以外で)Go をたくさん書くようになって、ずいぶん気に入りました。Go で既存のアプリを書きなおしたい・・・と考えるのですが、以下のようにいろいろと作業が必要な点がありました。
+最近になって Go を日常的に書くようになったのですが、Node.js アプリの時にしたいくつかの失敗を Go のライブラリを書くネタついでに解決しようというワケです。
 
-## 前提
+## Rationale
 
-Elasticsearch は[データ構造を定義せずに JSON などでドキュメントを格納することができます](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping.html#mapping-dynamic)が、対照に、[事前にデータ構造を部分的、あるいは完全に定義する](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/explicit-mapping.html)こともとできます。
+- [Elasticsearch]は分散全文検索エンジンであり、 JSON を多用する
+  - Elasticsearch は REST API などを通じて JSON でドキュメントを格納できる。
+  - 検索も同様に JSON で表現できる [Query DSL] によって行うことができる。
+  - ドキュメントは [Field data type(s)] によってフィールドの意味を定義することができる
+- Elasticsearch はフィールドの type が T であるとき、格納できる値がそれ以上に多種ある;
+  - `T` / [`T[]` / `T[][]` (ネストした T のアレイ)](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)
+  - [`null` / `null[]`](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/null-value.html)
+  - `undefined` (=キーが存在しない)
+- 他方、Go では、これに対して十分な JSON のサポートをデフォルトでは持たない。
+  - JSON の取り扱いは std では[encoding/json]を通じて行う
+    - `Marshal`/`Unmarshal`などで struct から json への encode/decode が可能である
+    - `Marshaler`/`Unmarshaler`/`TextMarshaler`/`TextUnmarshaler` interface を通じてある type がどのように encode/decode されるかを定義できる。
+  - `encoding/json` では JSON(というか javascript)における`undefined`と`null`をだし分けられない。
+  - Elasticsearch が持つ Geopoint などの特殊な型については当然定義されたものはない。
+  - 上記の多様な型を通常の T を型に持つフィールドに格納できない。
 
-前者については採用するとここで語るべきことは何もないのでこの記事は後者の、特に`"dynamic": "strict"`場合についてのみ取り扱います。
-
-## Elasticsearch に格納する JSON を取り扱いの困難さ
-
-### 問題点 1: null / undefined が区別される
-
-Elasticsearch の[REST での Update は明確に undefined と null の区別します](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-update.html#_update_part_of_a_document)
-
-しかし、Go は普通、このような null / undefined を分けて表現する方法を持たないため、User code での工夫が求められます。
-
-:::details undefined を表現する方法がないことを示す encoding/json からの引用
+:::details undefined と null をだし分けられない
 https://pkg.go.dev/encoding/json@go1.19.3
 
 > Array and slice values encode as JSON arrays, except that []byte encodes as a base64-encoded string, and a nil slice encodes as the null JSON value.
@@ -213,7 +216,10 @@ https://pkg.go.dev/encoding/json@go1.19.3
 
 > Interface values encode as the value contained in the interface. A nil interface value encodes as the null JSON value.
 
-引用の通り、undefined にするための方法は特に示されていません。
+- 引用の通り、`null`は pointer type で nil の場合、もしくは UnmarshalJSON で`[]byte("null")`を返すことで出力できます。
+- `undefined`を表現するためには struct tag で`omitempty`設定し、フィールドが struct 以外の型かつ zero value にします。
+  - [Marshal 中でフィールドがスキップされるような処理になります](https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/encode.go;l=748;drc=8c17505da792755ea59711fc8349547a4f24b5c5;bpv=1;bpt=1)
+  - [Array の場合は rv.Len() == 0 の場合のみです。](https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/encode.go;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;l=339)
 
 UnmarhsalJSON メソッドで空のバイト列(` []byte(``) `)などを返すとエラーです。
 
@@ -223,48 +229,68 @@ https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent
 
 返すことが許されるのは、有効な JSON 文字列のみです。
 
-また、`omitempty`タグを設定した場合、[MarshalJSON がそもそも呼ばれないの](https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/encode.go;l=748;drc=8c17505da792755ea59711fc8349547a4f24b5c5;bpv=1;bpt=1)で、このメソッドで挙動をコントロールすることはできないようです。
+型のみ(= UnmarshalJSON のみ)によって`undefined` / `null`を表現し分けることは、std の範疇ではできないようです。
 
 :::
 
-### 問題点 2: フィールドは`null` / `null[]` / `T` / `T[]`のすべてが格納可能
+また、検索クエリもなかなかトリッキーで、例えば
 
-あるフィールドの型を`T`とするとき、そのフィールドは[`null`, `null[]`](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/null-value.html), `T`, [`T[]`, `T[][]`](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)のいずれも格納可能です。
+- Nested / Object 型の場合サブフィールドはドットでつなげていく。例えば
 
-こちらも同じく Go の通常`[]T`と`T`を同じフィールドに格納する方法を持ちません。
+```json: mapping.json
+{
+	"mappings": {
+		"dynamic": "strict",
+		"properties": {
+			"name": {
+				"type": "nested",
+				"properties": {
+					"first": { "type": "text" },
+					"last": { "type": "text" }
+				}
+			}
+		}
+	}
+}
+```
 
-### 問題点 3: 複数の記法を許容する型
+```json: query.json
+{
+  "query": {
+    "bool": {
+      "must": [
+        { "match": { "name.first": "Alice" }},
+        { "match": { "name.first": "Smith" }},
+      ]
+    }
+  }
+}
+```
 
-複数の mapping type で複数の記法を許すものがあります。Go の built-in type は複数入力を許すものは通常ありません。
+- Mappings の中に[Fields](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/multi-fields.html)を持つ type(`keyword`など)や、search-as-you-type なども同様に、ドットでサブフィールドを検索するようなことができる。
 
-例として:
+- Elasticsearch のドキュメントの JSON を Encode / Decode するための型
+- 検索クエリの _strongly typed_ なヘルパー
 
-- [boolean](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/boolean.html)は`true`/`false`/`"true"`/`"false"`/`""`(false 扱い)のいずれかでよい(https://www.elastic.co/guide/en/elasticsearch/reference/8.4/boolean.html)は
-- [date](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date.html)はデフォルトでは`YYYY-MM-dd'T'HH:mm:ss.SSSZ` or `YYYY-MM-dd` or `Unix milli seconds`のいずれか
-- [geopoint](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-point.html)は 6 つの異なる記法のいずれか
-  - GeoJSON
-  - Well-Known Text
-  - {"lat": 123, "lon": 456}
-  - \[`lon`, `lat`\]
-  - `"lat,lon"`
-  - Geohash
+を作れば Elasticsearch を取り扱う事が楽になり、アプリの業務に集中できるようになることが予測されます。
 
-## 既存のライブラリ
+今回実現したのは前者までで、後者は今後やるかもしれない・・・という状態です。
 
-https://pkg.go.dev/ と google で軽く検索をかけた限り、似たようなことをやっているライブラリは、少なくとも Go にはありませんでした。あったら悲しくなります。
+## 課題
 
-すくなくとも問題 1 は取り扱っているものがある気がしますが、2 と同時となると特殊な用途になりそう・・・なのであまり探していません。
+前述した取り組むべき課題をまとめます。
 
-[公式の go-elasticsearch クライアント](https://github.com/elastic/go-elasticsearch)で TypedApi なるものが実装されていたので少し期待しましたが、これはあくまで`_source`フィールドなどには触らないようですし、型付けを強制したりもしません。
+- [x] Elasticsearch のドキュメントの JSON を Encode / Decode するための型。
+  - `null` / `undefined`をだし分けらる型がないこと
+  - Date / Geopoint / Boolean など、複数の記法を許す field mapping type を Unmarshal/Marshal できる型がないこと
+  - 上記の問題から派生しますが、アプリケーション固有のルールとして必ず初期値が入っているフィールドなどが`null` / `undefined`を許容する必要はありませんので、`T`もしくは`[]T`となるように都合をつける方法を追加するとより良い。
+- [ ] ETA TBD: 検索クエリの _strongly typed_ なヘルパー
 
 ## 解決法
 
-### 解決法 1: \*[]T を利用して undefined / null / T[] / T を表現する
+### \*[]T を利用して undefined / null / T[] / T を表現する
 
-- Elasticsearch のドキュメントを読むと、`undefined / null / T[] / T`以外にも`null[]`や`(T | null)[]`、`T[][]`が許容されているなど、もっといろいろあるのですが今回はそれらは考慮から外すことにしました。
-  - これは単に「私(筆者)のユースケース上それらが出てこないから」です
-
-`*T`が`T`が`ある状態`と`ない状態`を表現するならば、`**T`はない状態を二つ表現することができます。C 言語などでよく見た(?)ダブルポインター方式です。
+`*T`が`T`がデータが`ある状態`と`ない状態`を表現するならば、`**T`はない状態を二つ表現することができます。C 言語などでよく見た(?)ダブルポインター方式です。筆者のユースケースでは `T[][]`と `null[]`のパターンは出てこないので無視します。(T | null)[]のパターンもまた無視しますが、これは有用そうなケースも想像できますのでそのうちサポートするかもしれません。
 
 ここで、slice(`[]T`)も nil を取ることができることを思い出してください。今回取りたいデータは`nil slice`と空の`slice`を区別して表現する必要がありますので、`**[]T`の代わりに`*[]T`で要件を満たすことになります。
 
@@ -286,45 +312,66 @@ func (f Field[T]) IsUndefined() bool {
 
 のようにすると、上記すべてのヴァリアントを表現可能となります。
 
-:::details Defined Type(type Field[T any] \*[]T)ではない理由
+### 複数の記法を許す field mapping type
 
-defined type だと、defined type の defined type を作った時メソッドの解結先が base type になってしまうからです。(この場合は`*[]T`)
+もうこれに関しては気合です。ドキュメントを読んで実装していきます。
 
-// TODO: リファレンスを追加する
+例えば
 
-```go
-package main
+- [boolean](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/boolean.html)
+  - `true`/`false`/`"true"`/`"false"`/`""`(false 扱い)
+- [date](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date.html)
+  - デフォルトでは`YYYY-MM-dd'T'HH:mm:ss.SSSZ` or `YYYY-MM-dd` or `Unix milli seconds`
+  - 任意で複数のフォーマットを指定できる
+- [geopoint](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-point.html)
+  - GeoJSON
+  - Well-Known Text
+  - {"lat": 123, "lon": 456}
+  - \[`lon`, `lat`\]
+  - `"lat,lon"`
+  - Geohash
 
-import (
-	"fmt"
-	"time"
-)
+のような感じで、特定の型は複数の記法を許容します。特に geopoint が最もヴァリアントが多く、6 種の記法を許容します。
 
-type foo time.Time
+Boolean の場合は以下の用に実装します。
 
-func (f foo) String() string {
-	return "nah"
+```go: boolean.go
+type Boolean bool
+
+func (b Boolean) MarshalJSON() ([]byte, error) {
+	return json.Marshal(bool(b))
 }
 
-type bar foo
+func (b *Boolean) UnmarshalJSON(data []byte) error {
+	switch strings.Trim(string(data), " ") {
+	case `true`, `"true"`:
+		*b = Boolean(true)
+		return nil
+	case `false`, `"false"`, `""`:
+		*b = Boolean(false)
+		return nil
+	}
 
-func main() {
-	// nah
-	fmt.Printf("%s\n", foo(time.Now()).String())
-	// bar(time.Now()).String undefined (type bar has no field or method String
-	fmt.Printf("%s\n", bar(time.Now()).String())
+    return fmt.Errorf("unknown: %s", string(data))
+}
+
+func (b Boolean) String() string {
+	if bool(b) {
+		return "true"
+	} else {
+		return "false"
+	}
 }
 ```
 
-これは Embed した場合でも同じ挙動をします
+現時点の実装では型としてはひとつの記法にしか Marshal できなような形で実装されていますが、Unmarhsal 時にフォーマットを記憶するように実装してもいいかもしれません。
 
-```go
-// こういうとき
-type foo struct {
-	time.Time
-}
+[elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html
+[explicit mapping]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/explicit-mapping.html
+[query dsl]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/query-dsl.html
+[field data type(s)]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping-types.html
+[encoding/json]: https://pkg.go.dev/encoding/json@go1.19.3#Unmarshaler
 
-type bar foo
 ```
 
-:::
+```

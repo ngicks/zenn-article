@@ -1,0 +1,27 @@
+{
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.unicodeHighlight.ambiguousCharacters": false,
+    "editor.unicodeHighlight.invisibleCharacters": false,
+    "editor.wordWrap": "on",
+    "editor.quickSuggestions": {
+      "comments": "off",
+      "strings": "off",
+      "other": "off"
+    },
+    "cSpell.fixSpellingWithRenameProvider": true,
+    "cSpell.advanced.feature.useReferenceProviderWithRename": true,
+    "cSpell.advanced.feature.useReferenceProviderRemove": "/^#+\\s/"
+  },
+  "cSpell.words": [
+    "esjson",
+    "estype",
+    "Milli",
+    "millis",
+    "ngicks",
+    "struct",
+    "typeparamcommon",
+    "Unmarshal",
+    "Unmarshaler"
+  ]
+}
