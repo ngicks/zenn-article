@@ -204,7 +204,7 @@ type BusinessDoc struct {
 
 このように struct tag を全部のフィールドに定義しないといけないのでどこかでミスしそうだし、プロジェクト毎に Date とか Boolean のようなヘルパータイプを定義するのは大変
 
-````go: 別の例.go
+```go: 別の例.go
 type Stock struct {
   StoredAt ISODatetimeOrUnixMilli `json:"started_at"`
   IsSold   Boolean                `json:"is_sold"`
@@ -227,9 +227,9 @@ func (b *Boolean) UnmarshalJSON(data []byte) error {
 }
 ```
 
-ついでにいうとdateはフォーマット任意かつ複数指定できるので一般化しようとするとなかなか面倒なコードを書くことになります。
+ついでにいうと date はフォーマット任意かつ複数指定できるので一般化しようとするとなかなか面倒なコードを書くことになります。
 
-ということでcode generatorを作ることにします。
+ということで code generator を作ることにします。
 
 ## Rationale
 
@@ -237,8 +237,8 @@ func (b *Boolean) UnmarshalJSON(data []byte) error {
   - Elasticsearch は REST API などを通じて JSON でドキュメントを格納できる。
   - 検索も同様に JSON で表現できる [Query DSL] によって行うことができる。
   - ドキュメントは [Field data type(s)] によってフィールドの意味を定義することができる
-    - [date] / [date_nanos]はフォーマットをmappingによって設定できる
-    - [constant_keyword](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/keyword.html#keyword)はmappingによって固定値を設定する
+    - [date] / [date_nanos]はフォーマットを mapping によって設定できる
+    - [constant_keyword](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/keyword.html#keyword)は mapping によって固定値を設定する
 - Elasticsearch はフィールドの type が T であるとき、格納できる値がそれ以上に多種ある;
   - `T` / [`T[]` / `T[][]` (ネストした T のアレイ)](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)
   - [`null` / `null[]`](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/null-value.html)
@@ -296,7 +296,7 @@ https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent
     }
   }
 }
-````
+```
 
 のような mapping があった時、
 
