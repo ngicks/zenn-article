@@ -28,7 +28,7 @@ published: false
 ## 想定読者
 
 - [Go programming language](https://go.dev/) をある程度使ったことがある
-  - [`encoding/json`]の挙動を知っている
+  - [encoding/json]の挙動を知っている
 - [Elasticsearch] をある程度使ったことがある
   - REST API などを通じて、PUT(ドキュメント作成)/ UPDATE をしたことがある
   - [Query DSL] を組んで検索をしたことがある
