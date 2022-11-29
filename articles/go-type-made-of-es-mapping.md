@@ -8,30 +8,37 @@ published: false
 
 ## Overview
 
-[Elasticsearch] の JSON を Go で取り扱うためのヘルパーと、mapping からの型を生成する code genrator を作りました。
+- [Elasticsearch]にドキュメントとして格納される JSON を取り扱うための型
+- [Query DSL]の強い型付けのヘルパー
+
+の作成を目指し、前者である mapping からの[Go]の型を生成する code generator を作りました。
 
 [Explicit Mapping]で運用する Index のみを想定対象とし、
 
 - いくつかのヘルパータイプを用意し
-  - \*\[\]T を内部に持つことで、Elasticsearch が許容する`null` / `undefined` / `T[]` / `T`を全て格納できる型
+  - `*[]T` を内部に持つことで、Elasticsearch が許容する`null` / `undefined` / `T[]` / `T`を全て格納できる型
   - Geopoint や Boolean のような複数のデータフォーマットを許容する mapping type と対応した型
 - mapping をデコードするための型を定義し
 - mapping を解析して text/template などでコードを生成する
 
 ことでこれを実現しました。
 
-自分で使うかもわからないため、力尽きる可能性が高く、供養代わりに記事にしています。
+自分で使うかもわからないため、力尽きる可能性もあるため、供養代わりに記事にしています。
 
 ## 想定読者
 
-- Go programming language をある程度使ったことがある
-  - `encode/json`の挙動を知っている
-  - type parameters を使ったことがある。
-- Elasticsearch をある程度使ったことがある
+- [Go programming language](https://go.dev/) をある程度使ったことがある
+  - [`encoding/json`]の挙動を知っている
+- [Elasticsearch] をある程度使ったことがある
   - REST API などを通じて、PUT(ドキュメント作成)/ UPDATE をしたことがある
   - [Query DSL] を組んで検索をしたことがある
 
 ここで Elasticsearch が何であるかについて詳しくは語りません。(特に詳しくありませんので）
+
+## 本記事のすること
+
+最初に成果物である code generator のサンプルを乗せ、開発に至った経緯、開発する妥当性について説明します。
+その後、実装のポイントに関して説明します。
 
 ## 成果物
 
@@ -185,9 +192,44 @@ func (t ExampleRaw) ToPlain() Example {
 
 ## きっかけ
 
-仕事で Elasticsearch とやり取りする Node.js(Typescript)のアプリを組んでいます。
+仕事で Elasticsearch とやり取りする Node.js(TypeScript)のアプリを組んでいます。
 
-最近になって Go を日常的に書くようになったのですが、Node.js アプリの時にしたいくつかの失敗を Go のライブラリを書くネタついでに解決しようというワケです。
+最近になって Go を日常的に書くようになったのですが、Go でまた Mapping から大量のフィールドを定義していくのはとてつもなく面倒だし、
+
+```go: 例.go
+type BusinessDoc struct {
+  TradeName string `json:"trade_name"`
+}
+```
+
+このように struct tag を全部のフィールドに定義しないといけないのでどこかでミスしそうだし、プロジェクト毎に Date とか Boolean のようなヘルパータイプを定義するのは大変
+
+````go: 別の例.go
+type Stock struct {
+  StoredAt ISODatetimeOrUnixMilli `json:"started_at"`
+  IsSold   Boolean                `json:"is_sold"`
+}
+
+// Elasticsearch default date type!
+// that can be ISO datetime or long value representing unix epoch millis.
+type ISODatetimeOrUnixMilli time.Time
+
+func (d *ISODatetimeOrUnixMilli) UnmarshalJSON(data []byte) error {
+  // do some decode here.
+}
+
+// Elasticsearch boolean type!
+// which can be unmarshalled from JSON boolean literal or "true" / "false" / "" string literals!
+type Boolean bool
+
+func (b *Boolean) UnmarshalJSON(data []byte) error {
+  // do some decode here.
+}
+```
+
+ついでにいうとdateはフォーマット任意かつ複数指定できるので一般化しようとするとなかなか面倒なコードを書くことになります。
+
+ということでcode generatorを作ることにします。
 
 ## Rationale
 
@@ -195,6 +237,8 @@ func (t ExampleRaw) ToPlain() Example {
   - Elasticsearch は REST API などを通じて JSON でドキュメントを格納できる。
   - 検索も同様に JSON で表現できる [Query DSL] によって行うことができる。
   - ドキュメントは [Field data type(s)] によってフィールドの意味を定義することができる
+    - [date] / [date_nanos]はフォーマットをmappingによって設定できる
+    - [constant_keyword](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/keyword.html#keyword)はmappingによって固定値を設定する
 - Elasticsearch はフィールドの type が T であるとき、格納できる値がそれ以上に多種ある;
   - `T` / [`T[]` / `T[][]` (ネストした T のアレイ)](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)
   - [`null` / `null[]`](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/null-value.html)
@@ -233,26 +277,28 @@ https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent
 
 :::
 
-また、検索クエリもなかなかトリッキーで、例えば
+また、検索クエリもなかなかトリッキーで
 
 - Nested / Object 型の場合サブフィールドはドットでつなげていく。例えば
 
 ```json: mapping.json
 {
-	"mappings": {
-		"dynamic": "strict",
-		"properties": {
-			"name": {
-				"type": "nested",
-				"properties": {
-					"first": { "type": "text" },
-					"last": { "type": "text" }
-				}
-			}
-		}
-	}
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "name": {
+        "type": "nested",
+        "properties": {
+          "first": { "type": "text" },
+          "last": { "type": "text" }
+        }
+      }
+    }
+  }
 }
-```
+````
+
+のような mapping があった時、
 
 ```json: query.json
 {
@@ -260,19 +306,24 @@ https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent
     "bool": {
       "must": [
         { "match": { "name.first": "Alice" }},
-        { "match": { "name.first": "Smith" }},
+        { "match": { "name.last": "Smith" }},
       ]
     }
   }
 }
 ```
 
+のように、Query に指定する場合はドットで結合したフィールドを指定します。
+
 - Mappings の中に[Fields](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/multi-fields.html)を持つ type(`keyword`など)や、search-as-you-type なども同様に、ドットでサブフィールドを検索するようなことができる。
 
+### つまり
+
 - Elasticsearch のドキュメントの JSON を Encode / Decode するための型
+  - mapping から生成する必要のある型があるので code generator
 - 検索クエリの _strongly typed_ なヘルパー
 
-を作れば Elasticsearch を取り扱う事が楽になり、アプリの業務に集中できるようになることが予測されます。
+を作れば Elasticsearch を取り扱う事が楽になり、アプリの業務に集中できるようになります。
 
 今回実現したのは前者までで、後者は今後やるかもしれない・・・という状態です。
 
@@ -283,6 +334,7 @@ https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent
 - [x] Elasticsearch のドキュメントの JSON を Encode / Decode するための型。
   - `null` / `undefined`をだし分けらる型がないこと
   - Date / Geopoint / Boolean など、複数の記法を許す field mapping type を Unmarshal/Marshal できる型がないこと
+  - date はフォーマットによって型が変わるのでそれ専用の型と code generator が必要なこと
   - 上記の問題から派生しますが、アプリケーション固有のルールとして必ず初期値が入っているフィールドなどが`null` / `undefined`を許容する必要はありませんので、`T`もしくは`[]T`となるように都合をつける方法を追加するとより良い。
 - [ ] ETA TBD: 検索クエリの _strongly typed_ なヘルパー
 
@@ -312,6 +364,8 @@ func (f Field[T]) IsUndefined() bool {
 
 のようにすると、上記すべてのヴァリアントを表現可能となります。
 
+実際の実装は[こちら](https://github.com/ngicks/elastic-type/blob/928188a8e60148e2c337495f31e7b719896f5e96/es_type/field.go)
+
 ### 複数の記法を許す field mapping type
 
 もうこれに関しては気合です。ドキュメントを読んで実装していきます。
@@ -331,9 +385,9 @@ func (f Field[T]) IsUndefined() bool {
   - `"lat,lon"`
   - Geohash
 
-のような感じで、特定の型は複数の記法を許容します。特に geopoint が最もヴァリアントが多く、6 種の記法を許容します。
+のような感じで、特定の型は複数の記法を許容します。date は上限はわかりませんが、任意で複数のフォーマットを指定できます。 geopoint は歴史的経緯で 6 種の記法を許容します。
 
-Boolean の場合は以下の用に実装します。
+例えば Boolean の場合は以下の用に実装します。
 
 ```go: boolean.go
 type Boolean bool
@@ -364,14 +418,32 @@ func (b Boolean) String() string {
 }
 ```
 
+のような感じで Marshaler / Unmarshaler interface を実装することで、`encoding/json`にエンコードしてもらえるようにします。
+実際の実装は[こちら](https://github.com/ngicks/elastic-type/blob/928188a8e60148e2c337495f31e7b719896f5e96/es_type/boolean.go)
+
 現時点の実装では型としてはひとつの記法にしか Marshal できなような形で実装されていますが、Unmarhsal 時にフォーマットを記憶するように実装してもいいかもしれません。
+
+### 複数のフォーマットを許容する date 型を作る
+
+// つくる
+
+### アプリ固有ルールを設定できるようにする
+
+// する
+
+## Code generator
+
+// 色々説明する
+
+## Conclusion
+
+// おわりに
 
 [elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html
 [explicit mapping]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/explicit-mapping.html
 [query dsl]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/query-dsl.html
+[go]: https://go.dev/
 [field data type(s)]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping-types.html
 [encoding/json]: https://pkg.go.dev/encoding/json@go1.19.3#Unmarshaler
-
-```
-
-```
+[date]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date.html
+[date_nanos]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date_nanos.html
