@@ -206,7 +206,7 @@ type BusinessDoc struct {
 
 ```go: 別の例.go
 type Stock struct {
-  StoredAt ISODatetimeOrUnixMilli `json:"started_at"`
+  StoredAt ISODatetimeOrUnixMilli `json:"stored_at"`
   IsSold   Boolean                `json:"is_sold"`
 }
 
@@ -249,7 +249,9 @@ func (b *Boolean) UnmarshalJSON(data []byte) error {
     - `Marshaler`/`Unmarshaler`/`TextMarshaler`/`TextUnmarshaler` interface を通じてある type がどのように encode/decode されるかを定義できる。
   - `encoding/json` では JSON(というか javascript)における`undefined`と`null`をだし分けられない。
   - Elasticsearch が持つ Geopoint などの特殊な型については当然定義されたものはない。
-  - 上記の多様な型を通常の T を型に持つフィールドに格納できない。
+  - 上記のような `T` | `T[]` | `undefined` | `null`を全て格納できる型がない。
+  - Unmarshal でデータを代入するには export されている必要があるので、一般的な JSON のキーの命名規則と一致しないことが多く、struct tag を書く必要がある
+    - `encoding/json`など、reflect を使うため
 
 :::details undefined と null をだし分けられない
 https://pkg.go.dev/encoding/json@go1.19.3
@@ -262,16 +264,12 @@ https://pkg.go.dev/encoding/json@go1.19.3
 
 - 引用の通り、`null`は pointer type で nil の場合、もしくは UnmarshalJSON で`[]byte("null")`を返すことで出力できます。
 - `undefined`を表現するためには struct tag で`omitempty`設定し、フィールドが struct 以外の型かつ zero value にします。
+
   - [Marshal 中でフィールドがスキップされるような処理になります](https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/encode.go;l=748;drc=8c17505da792755ea59711fc8349547a4f24b5c5;bpv=1;bpt=1)
   - [Array の場合は rv.Len() == 0 の場合のみです。](https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/encode.go;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;l=339)
 
-UnmarhsalJSON メソッドで空のバイト列(` []byte(``) `)などを返すとエラーです。
-
-https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/encode.go;l=480;drc=8c17505da792755ea59711fc8349547a4f24b5c5;bpv=1;bpt=1
-
-https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent.go;l=52;drc=8c17505da792755ea59711fc8349547a4f24b5c5;bpv=1;bpt=1
-
-返すことが許されるのは、有効な JSON 文字列のみです。
+- UnmarhsalJSON メソッドで空のバイト列(` []byte(``) `)などを返すとエラーです。
+  - [この記述](https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent.go;l=17;drc=8c17505da792755ea59711fc8349547a4f24b5c5)からわかるように、返すことが許されるのは、有効な JSON 文字列のみです。
 
 型のみ(= UnmarshalJSON のみ)によって`undefined` / `null`を表現し分けることは、std の範疇ではできないようです。
 
@@ -335,6 +333,7 @@ https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent
   - `null` / `undefined`をだし分けらる型がないこと
   - Date / Geopoint / Boolean など、複数の記法を許す field mapping type を Unmarshal/Marshal できる型がないこと
   - date はフォーマットによって型が変わるのでそれ専用の型と code generator が必要なこと
+  - mapping の properties から Go の一般的な命名規則で名づけられたフィールドを持った型を生成する必要があること
   - 上記の問題から派生しますが、アプリケーション固有のルールとして必ず初期値が入っているフィールドなどが`null` / `undefined`を許容する必要はありませんので、`T`もしくは`[]T`となるように都合をつける方法を追加するとより良い。
 - [ ] ETA TBD: 検索クエリの _strongly typed_ なヘルパー
 
@@ -342,7 +341,11 @@ https://cs.opensource.google/go/go/+/refs/tags/go1.19.3:src/encoding/json/indent
 
 ### \*[]T を利用して undefined / null / T[] / T を表現する
 
-`*T`が`T`がデータが`ある状態`と`ない状態`を表現するならば、`**T`はない状態を二つ表現することができます。C 言語などでよく見た(?)ダブルポインター方式です。筆者のユースケースでは `T[][]`と `null[]`のパターンは出てこないので無視します。(T | null)[]のパターンもまた無視しますが、これは有用そうなケースも想像できますのでそのうちサポートするかもしれません。
+`*T`が`T`がデータが`ある状態`と`ない状態`を表現するならば、`**T`はない状態を二つ表現することができます。C 言語などでよく見た(?)ダブルポインター方式です。
+
+![](/images/go-type-made-of-es-mapping/nil-tree.drawio.png)
+
+筆者のユースケースでは `T[][]`と `null[]`のパターンは出てこないので無視します。`(T | null)[]`のパターンもまた無視しますが、これは有用そうなケースも想像できますのでそのうちサポートするかもしれません。
 
 ここで、slice(`[]T`)も nil を取ることができることを思い出してください。今回取りたいデータは`nil slice`と空の`slice`を区別して表現する必要がありますので、`**[]T`の代わりに`*[]T`で要件を満たすことになります。
 
@@ -354,15 +357,15 @@ type Field[T any] struct {
 }
 
 func (f Field[T]) IsNull() bool {
-     return val != nil && *val == nil
+     return f.inner != nil && *f.inner == nil
 }
 
 func (f Field[T]) IsUndefined() bool {
-    return val == nil
+    return f.inner == nil
 }
 ```
 
-のようにすると、上記すべてのヴァリアントを表現可能となります。
+のようにすると、上記すべてのヴァリアントを表現可能となります。ただし、struct 型にするため`encoding/json`.Marshal で処理するとき、omitempty でフィールドを省略してもらうことはできませんので、後述の専用の Marshaler が必要になります。
 
 実際の実装は[こちら](https://github.com/ngicks/elastic-type/blob/928188a8e60148e2c337495f31e7b719896f5e96/es_type/field.go)
 
