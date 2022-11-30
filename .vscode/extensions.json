@@ -1,3 +1,11 @@
 {
-  "recommendations": ["streetsidesoftware.code-spell-checker"]
+  "recommendations": [
+    "hediet.vscode-drawio",
+    "mhutchie.git-graph",
+    "donjayamanne.githistory",
+    "golang.go",
+    "shd101wyy.markdown-preview-enhanced",
+    "negokaz.zenn-editor",
+    "streetsidesoftware.code-spell-checker"
+  ]
 }
