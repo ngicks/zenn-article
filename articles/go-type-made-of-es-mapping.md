@@ -240,7 +240,7 @@ func (b *Boolean) UnmarshalJSON(data []byte) error {
     - [date] / [date_nanos]はフォーマットを mapping によって設定できる
     - [constant_keyword](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/keyword.html#keyword)は mapping によって固定値を設定する
 - Elasticsearch はフィールドの type が T であるとき、格納できる値がそれ以上に多種ある;
-  - `T` / [`T[]` / `T[][]` (ネストした T のアレイ)](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)
+  - `T` / [`T[]` / `T[][]` (ネストした T のアレイ), (null | T)[]](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)
   - [`null` / `null[]`](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/null-value.html)
   - `undefined` (=キーが存在しない)
 - 他方、Go では、これに対して十分な JSON のサポートをデフォルトでは持たない。
@@ -341,13 +341,28 @@ https://pkg.go.dev/encoding/json@go1.19.3
 
 ### \*[]T を利用して undefined / null / T[] / T を表現する
 
-`*T`が`T`がデータが`ある状態`と`ない状態`を表現するならば、`**T`はない状態を二つ表現することができます。C 言語などでよく見た(?)ダブルポインター方式です。
+Goは全ての変数がzero valueで初期化されるためデータが「ない」状態を表現することは、ポインターなしではできません。
+
+```go: 特にNumeric typeのとき顕著ですよね.go
+var someNum int
+otherNum := 0
+fmt.Println(someNum) // `0`
+fmt.Println(someNum == otherNum) // `true`
+
+var someStr string
+otherStr := ""
+fmt.Println(someStr) // ``
+fmt.Println(someStr == otherStr) // `true`
+```
+
+`*T`にした場合、`nil | T`の二つの表現できます。`**T`にすれば`nil | *nil | T`を表現できます。C 言語などでよく見た(?)ダブルポインター方式です。
 
 ![](/images/go-type-made-of-es-mapping/nil-tree.drawio.png)
 
-筆者のユースケースでは `T[][]`と `null[]`のパターンは出てこないので無視します。`(T | null)[]`のパターンもまた無視しますが、これは有用そうなケースも想像できますのでそのうちサポートするかもしれません。
+筆者のユースケースでは `T[][]`と `null[]`のパターンは出てこないので無視することにします。
+`(T | null)[]`のパターンもまた無視しますが、これはもしかしたら有用かもしれないので今後検討するかもしれません。
 
-ここで、slice(`[]T`)も nil を取ることができることを思い出してください。今回取りたいデータは`nil slice`と空の`slice`を区別して表現する必要がありますので、`**[]T`の代わりに`*[]T`で要件を満たすことになります。
+ここで、slice(`[]T`)も nil を取ることができることを思い出してください(zero valueもnilですね。) 今回取りたいデータは`nil slice`と空の`slice`を区別して表現する必要がありますので、`*[]T`を`**T`の代わりに使うこととします。
 
 `undefined`は`zero value`, `null`は意図的に`nil`をセットしたものとして、
 
@@ -356,20 +371,20 @@ type Field[T any] struct {
 	inner *[]T
 }
 
-func (f Field[T]) IsNull() bool {
-     return f.inner != nil && *f.inner == nil
+func (f Field[T]) IsUndefined() bool {
+  return f.inner == nil
 }
 
-func (f Field[T]) IsUndefined() bool {
-    return f.inner == nil
+func (f Field[T]) IsNull() bool {
+  return f.inner != nil && *f.inner == nil
 }
 ```
 
-のようにすると、上記すべてのヴァリアントを表現可能となります。ただし、struct 型にするため`encoding/json`.Marshal で処理するとき、omitempty でフィールドを省略してもらうことはできませんので、後述の専用の Marshaler が必要になります。
+のようにすると、上記4つのヴァリアントを表現可能となります。ただし、struct 型にするため`encoding/json`.Marshal で処理するとき、omitempty でフィールドを省略してもらうことはできませんので、後述の専用の Marshaler が必要になります。
 
 実際の実装は[こちら](https://github.com/ngicks/elastic-type/blob/928188a8e60148e2c337495f31e7b719896f5e96/es_type/field.go)
 
-### 複数の記法を許す field mapping type
+### 複数の記法を許す field data typeに対応した型を作る
 
 もうこれに関しては気合です。ドキュメントを読んで実装していきます。
 
@@ -390,15 +405,35 @@ func (f Field[T]) IsUndefined() bool {
 
 のような感じで、特定の型は複数の記法を許容します。date は上限はわかりませんが、任意で複数のフォーマットを指定できます。 geopoint は歴史的経緯で 6 種の記法を許容します。
 
-例えば Boolean の場合は以下の用に実装します。
+実際に[field data type(s)]のページをそれぞれ見た限り、以下が特別なUnmarshalerの実装を必要としているようでした:
+
+- [x] boolean
+- [x] date for built-in es date formats
+- [ ] histogram
+- [x] geopoint
+- [x] geoshape
+- [ ] join
+- [ ] ranges
+- [ ] rank_feature/rank_features
+- [ ] point
+  - basically same as geopoint, but fewer supported data notations.
+- [ ] shape
+  - basically same as geoshape.
+- [ ] version
+
+README.mdからのコピペです。チェックのついたものに関しては一応の実装が終わっています。dateに関してはesがビルトインでサポートしているフォーマット名で指定できるフォーマット(例えば`strict_date_optional_time`や`basic_date_time`のような)のみの話で、それ以外のYYYY-MM-dd形式で指定するフォーマットは後述のcode generatorを使います。
+
+実装の仕方の例として Boolean の簡易版を以下に示します。
 
 ```go: boolean.go
 type Boolean bool
 
+// MarshalJSON implements Marshaler.
 func (b Boolean) MarshalJSON() ([]byte, error) {
 	return json.Marshal(bool(b))
 }
 
+// UnmarshalJSON implements Unmarshaler.
 func (b *Boolean) UnmarshalJSON(data []byte) error {
 	switch strings.Trim(string(data), " ") {
 	case `true`, `"true"`:
@@ -409,7 +444,7 @@ func (b *Boolean) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-    return fmt.Errorf("unknown: %s", string(data))
+  return fmt.Errorf("unknown: %s", string(data))
 }
 
 func (b Boolean) String() string {
@@ -422,13 +457,16 @@ func (b Boolean) String() string {
 ```
 
 のような感じで Marshaler / Unmarshaler interface を実装することで、`encoding/json`にエンコードしてもらえるようにします。
+
 実際の実装は[こちら](https://github.com/ngicks/elastic-type/blob/928188a8e60148e2c337495f31e7b719896f5e96/es_type/boolean.go)
 
 現時点の実装では型としてはひとつの記法にしか Marshal できなような形で実装されていますが、Unmarhsal 時にフォーマットを記憶するように実装してもいいかもしれません。
 
-### 複数のフォーマットを許容する date 型を作る
+### 複数のフォーマットを許容する date 型のコードジェネレーターを作る
 
-// つくる
+- まず
+
+### mappingから型を作る
 
 ### アプリ固有ルールを設定できるようにする
 
