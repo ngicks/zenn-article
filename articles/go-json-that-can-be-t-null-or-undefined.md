@@ -17,7 +17,9 @@ Go では、`null | T`もしくは`undefined | T`を表現するのに、`*T`を
 TypeScript のアプリでは入力 JSON を`JSON.parse`でパーズし、入力フォーマットの interface を定義し、[ts-auto-guard](https://github.com/rhys-vdw/ts-auto-guard)で生成した typeguard を使うことで厳密な入力値の validation をおこなっていました。
 では Go ではどうするのでしょうか？
 
-この記事では便利にこの問題を解決する方法を考えライブラリとして実装します。
+この記事では便利にこの問題を解決する方法を考えライブラリとして実装しました。
+
+https://github.com/ngicks/undefinedablejson
 
 ## Prerequisites
 
@@ -55,7 +57,7 @@ json schema や OpenAPI spec の json schema 部分を読み込んで validation
 
 validation は json schema などで十分可能ではありますが、逆に json を出力際にキーをスキップしたり、null にしたりなどを任意に行うには struct のインスタンス以外の追加のデータが必要なままです。
 
-## 解決したい課題
+## 解決したい課題: T | undefined | null を表現する type がないこと
 
 ここで解決したい課題は以下となります。
 
@@ -166,7 +168,7 @@ Bar is null!
 
 ### encode 時の null 埋め、キーの削除 - jwriter による
 
-[github.com/mailru/easyjson](https://github.com/mailru/easyjson)の`jwriter`を利用することで、json の encode に好きな処理をフックすることができます。
+[github.com/mailru/easyjson](https://github.com/mailru/easyjson)の`jwriter`を利用することで、json の encode 処理を手書きするのがずいぶん楽になりますので、好きな処理を盛り込めます。
 
 ```go
 func getFieldName(field reflect.StructField) string {
@@ -254,11 +256,11 @@ func (u Undefined[T]) IsNull() bool {
 }
 ```
 
+これは Go の言語仕様で明確に禁止されています。
+
 > A receiver base type cannot be a pointer or interface type
 >
 > https://go.dev/ref/spec#Method_declarations
-
-これは Go の言語仕様で明確に禁止されています。
 
 ### 解法: boolean flag で defined を表現する。
 
@@ -273,7 +275,7 @@ type NullBool struct {
 }
 ```
 
-これに`type param [T]`をつけ足して 2 段重ねにするだけ目的を達成できそうですね。`*T`に引っ張られて簡単なことを見落としていました。
+これに`type param [T]`をつけ足して 2 段重ねにするだけ目的を達成できそうですね。単純な解法ですが、`*T`に引っ張られて見落としていました。
 
 ということで定義は以下のようになります。
 
@@ -298,30 +300,6 @@ func (o Option[T]) Value() *T {
 		return nil
 	}
 	return &o.v
-}
-
-func (o Option[T]) Equal(other Option[T]) bool {
-	if o.IsNone() || other.IsNone() {
-		return o.some == other.some
-	}
-
-	// Try type assert first.
-	// reflect.ValueOf escapes value into heap (currently).
-	//
-	// check for *T so that we can find method implemented for *T not only ones for T.
-	eq, ok := any(&o.v).(Equality[T])
-	if ok {
-		return eq.Equal(other.v)
-	}
-
-	rv := reflect.ValueOf(o.v)
-
-	if !rv.Type().Comparable() {
-		return false
-	}
-
-	otherRv := reflect.ValueOf(other.v)
-	return rv.Interface() == otherRv.Interface()
 }
 
 func (o Option[T]) MarshalJSON() ([]byte, error) {
@@ -393,6 +371,8 @@ func (f Undefinedable[T]) Value() *T {
 
 ### 専用の Marshaller を作る。
 
+上記の`Undefinedable[T]`は struct であるので、前期の通り omitempty によるスキップ動作が起きません。そこで、専用の Marshaller を作成して`undefined`時に skip 可能にします。
+
 #### ナイーブな発想版
 
 単純な発想によれば、reflect によって field の値を読み取りながら、上記の Undefinedable[T]の場合かつ Undefined の時だけ field をスキップする挙動で目的は達せます。
@@ -448,7 +428,9 @@ func MarshalFieldsJSON(v any) ([]byte, error) {
 }
 ```
 
-#### json.Marshal がサポートする struct tag をサポートする
+この方法は reflect の使用などのせいで実行時の効率は悪いですがほとんどの処理を json.Marshal に委譲できるのでメンテが楽という利点があります。json string の escape も jwriter に委譲します。
+
+#### json.Marshal と同じ struct tag をサポートする
 
 ##### json.Marshal の struct tag
 
@@ -675,11 +657,9 @@ func MarshalFieldsJSON(v any) ([]byte, error) {
 }
 ```
 
-実装しながらこの処理 reflect を含んでるからコンパイラに最適化されないんじゃないか？と疑問に思い、`encoding/json`を読み進めるとフィールドをどう処理するかっていう処理を[sync.Map でキャッシュしていますね。](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=370;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)
+実装しながらこの処理 reflect を含んでるからコンパイラに最適化されないんじゃないか？と疑問に思い、`encoding/json`を読み進めるとフィールドをどう処理するかっていう処理を[sync.Map でキャッシュしていますね。](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=370;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)　実際に reflect 処理を含んでいたら最適化がかからないかは今後の調査事項とさせていただきます。
 
-非同期的に同時に呼び出されてもいいような複雑な処理を含んでいますがその部分を簡易的に実装して以下のライブラリとして公開しました。
-
-https://github.com/ngicks/undefinedablejson
+非同期的に同時に呼び出されてもいいような複雑な処理を含んでいますがその部分を[簡易的に実装](https://github.com/ngicks/undefinedablejson/blob/main/serde.go#L125-L138)しました。
 
 ## おわりに
 
