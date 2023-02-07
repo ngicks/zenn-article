@@ -425,7 +425,7 @@ func (f Undefinedable[T]) Value() *T {
 
 ### 専用の Marshaller を作る。
 
-上記の`Undefinedable[T]`は struct であるので、前期の通り omitempty によるスキップ動作が起きません。そこで、専用の Marshaller を作成して`undefined`時に skip 可能にします。
+上記の`Undefinedable[T]`は struct であるので、前記の通り omitempty によるスキップ動作が起きません。そこで、専用の Marshaller を作成して`undefined`時に skip 可能にします。
 
 #### ナイーブな発想版
 
