@@ -8,7 +8,7 @@ published: false
 
 ## Overview
 
-Go で JSON を扱うとき、Elasticsearch の update api に渡す JSON のような `null` と `undefined` をだし分けられるデータ構造や、それに対応する JSON marshaller が欲しくて軽く探したところ、見つからなかったので興味本位で作ってみました。
+Go で JSON を扱うとき、Elasticsearch の update api に渡す JSON のような `null` と `undefined` をだし分けられるデータ構造や、それに対応する JSON marshaller が Go には std ではなく、軽く探したところ見つからなかったので、興味本位で作ってみました。
 
 成果物はこちらです。
 
@@ -18,13 +18,19 @@ https://github.com/ngicks/undefinedablejson
 
 - どういう事で困っていたのか
 - 既存の方法にはどういうものがあったのか
-- 実装の仕方を通じて`encoding/json`について
+- 実装を通じて`encoding/json`について得られた知見
 
 などを書いていきます。
 
 ## 前提知識
 
 - 特にないですが [Go programming language](https://go.dev/) の細かい説明はしないので、ある程度知っている人じゃないと意味が分からないかもしれません。
+
+## 環境
+
+環境は Go 1.18 以上、少なくとも Go 1.20 まで、です。
+
+ドキュメント、ソースコードは全て[Go 1.20](https://tip.golang.org/doc/go1.20)のものを参照していますが、ドキュメントそのものは長く変わっていませんのでそれより以前のバージョンでも同様であると予想します。また、`Go 1.18` で追加された generics を利用したソースコードを書きますので、記事中のサンプルコードは `Go 1.18` 以降でのみ動きます。
 
 ## 対象読者
 
@@ -33,13 +39,13 @@ https://github.com/ngicks/undefinedablejson
 
 ## 背景
 
-筆者は業務で TypeScript をよく書きます。Go はほぼ完全に趣味でしか使っていないですが、業務でねじ込めそうなところがあればできる限りねじ込んでいこうとしているところです。そこで困るのが、TypeScript では難なくできていたことが Go でできないことがあることで、導入をそこでためらわせられたくないので解決方法を日頃考えています。
+筆者は業務で TypeScript をよく書きます。Go はほぼ完全に趣味でしか使っていないですが、業務でねじ込めそうなところがあればできる限りねじ込んでいこうとしているところです。そこで困るのが、TypeScript では難なくできていたことが Go でできないことがあることで、導入をそこで待ったをかけられたくないので解決方法を日頃考えています。
 
 TypeScript のアプリでは入力 JSON を`JSON.parse`でパーズし、入力フォーマットの `interface` を定義し、[ts-auto-guard](https://github.com/rhys-vdw/ts-auto-guard)で生成した typeguard を使うことで型的な整合性のチェックをし、その後アプリの validation ロジックを手組して厳密な validation を実現していました。
 
 TypeScript は有効な JavaScript を全てをうまく取り扱えるように努力がされているため、当然 JavaScript の`undefined`と`null`という二つの「データがない状態」を使うことができました。ただ、「データがない状態」が特別な努力なく複数種類ある言語は知っている限り珍しいため、これらを使いこなしたコードを書いてしまうと他の言語への移植で少し困ります。
 
-Go でも当然、「データがない状態」の表現は存在しますが、それには通常(知っている限り)`*T`というポインターを使います。当然 2 種類はありません。そこでいくつかの困りごとが発見されました。
+Go でも当然、「データがない状態」の表現は存在しますが、それには知っている限り type `T` への pointer type`*T`を使います。当然 2 種類はありません。そこでいくつかの困りごとが発見されました。
 
 ### 困りごと
 
@@ -52,9 +58,9 @@ Go の struct に JSON から変換/逆変換を行うときに struct 上では
 
 ### `undefined`と`null`を分けて扱うシステムがあった
 
-HTTP で JSON を送る UPDATE や PATCH のとき、`undefined`(=キーが存在しない)のとき field をスキップ、`null`のとき field をクリアするか`null`で上書き、`T`の時`T`で上書き、という挙動をさせる API があることがあり、筆者もそのような API を構築することがあります。
+HTTP で JSON を送る UPDATE や PATCH のとき、`undefined`(=キーが存在しない)のとき field をスキップ、`null`のとき field をクリアするか`null`で上書き、`T`の時`T`で上書き、という挙動をさせる API があります。筆者もそういった API を書くことがあります。
 
-実例としては、Elasticsearch の update api では [partial document を送ること](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-update.html#_update_part_of_a_document)でドキュメントの各 field を更新でき、`null` をセットすることで field を `null` で上書きできます。
+広く使われている実例としては、[Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/elasticsearch-intro.html) があります。Elasticsearch の update api では [partial document を送ること](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-update.html#_update_part_of_a_document)でドキュメントの各 field を更新でき、`null` をセットすることで field を `null` で上書きできます。
 
 ### validation だけなら JSON からの変換時に JSON schema などで行える
 
@@ -98,11 +104,60 @@ func (b *ValidatingBinder) Bind(i interface{}, c echo.Context) (err error) {
 
 ```
 
-Bind 対象の i に Validate メソッドの実装をしておけば validation も一緒にかけてくれます。筆者は Validate の実装の中で JSON schema を使っていました。OpenAPI spec の yaml を解析して JSON pointer を自動生成するなど追加で少し面倒なコードを書く必要がありましたが、簡単な実装ならこれで十分ですね。
+Bind 対象の i に Validate メソッドの実装をしておけば validation も一緒にかけてくれます。OpenAPI spec の yaml を解析して JSON pointer を自動生成するなど追加で少し面倒なコードを書く必要がありましたが、簡単な実装ならこれで十分ですね。
+
+ただし、`github.com/santhosh-tekuri/jsonschema`はいったん JSON byte 列を`any`に unmarshal する必要があります。この JSON バイト列から struct に向けて unmarshal をもう一度実行するよりも[github.com/mitchellh/mapstructure](https://github.com/mitchellh/mapstructure)などを使って`any`から struct に向けてコピーするなどの工夫も追加でしたほうがよさそうです。
+
+### Partial JSON の受け側にはなれる
+
+- 後のセクションでも触れますが、`json.Unmarshal`はキーがないとき単に何も代入しない動きをするため、「キーがあるときだけ上書き」の挙動自体は容易に実現可能です。
+  - 上記の validation と合わせると堅牢な update 処理を行えます。
+
+```go
+type Sample struct {
+	Foo   string
+	Bar   int
+	Baz   float64
+	Inner Inner
+}
+
+type Inner struct {
+	Qux  string
+	Quux string
+}
+
+// Update creates a updated Sample.
+func (s Sample) Update(jsonBytes []byte) (Sample, error) {
+	err := json.Unmarshal(jsonBytes, &s)
+	if err != nil {
+		return Sample{}, err
+	}
+	return s, nil
+}
+
+func main() {
+	var s Sample
+
+	s, _ = s.Update([]byte(`{"Foo":"foo","Bar":10,"Baz":10.15,"Inner":{"Qux":"qux","Quux":"quux"}}`))
+	fmt.Printf("%+v\n", s)
+	s, _ = s.Update([]byte(`{"Foo":"foo?","Inner":{"Quux":"q"}}`))
+	fmt.Printf("%+v\n", s)
+	s, _ = s.Update([]byte(`{"Bar":-20,"Baz":10.24}`))
+	fmt.Printf("%+v\n", s)
+}
+
+/*
+	{Foo:foo Bar:10 Baz:10.15 Inner:{Qux:qux Quux:quux}}
+	{Foo:foo? Bar:10 Baz:10.15 Inner:{Qux:qux Quux:q}}
+	{Foo:foo? Bar:-20 Baz:10.24 Inner:{Qux:qux Quux:q}}
+*/
+```
+
+ネストした struct がポインターだと `nil` 以外の時、新しいポインターを allocate しないので、上書きされる挙動になるようですので注意が必要です。
 
 ## 課題: struct field だけで"undefined | null | T"を表現することは(std 範疇では)できない
 
-validation は上記の方法でイイ感じにできそうなのがわかりました。(軽く書いてますがこの方法にたどり着くまで結構時間がかかりました)。
+validation は上記の方法でイイ感じにできそうなのがわかりました。
 
 なので残った要求は
 
@@ -180,6 +235,35 @@ if err != nil {
 	panic(err)
 }
 fmt.Printf("%+v\n", s2) // {Foo:foo Bar:123}
+```
+
+stream でも処理が可能です。
+
+```go
+type Sample struct {
+	Foo string
+	Bar int
+}
+
+func main() {
+	buf := new(bytes.Buffer)
+	encoder := json.NewEncoder(buf)
+
+	err := encoder.Encode(Sample{Foo: "foo", Bar: 123})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%s", buf.String()) // {Foo:foo Bar:123}
+
+	decoder := json.NewDecoder(buf)
+
+	var s Sample
+	err = decoder.Decode(&s)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%+v\n", s) // {"Foo":"foo","Bar":123}
+}
 ```
 
 ### JSON null
@@ -714,23 +798,26 @@ func MarshalFieldsJSON(v any) ([]byte, error) {
 }
 ```
 
-実装しながらこの処理 reflect を含んでるからコンパイラに最適化されないんじゃないか？と疑問に思い、`encoding/json`を読み進めるとフィールドをどう処理するかっていう処理を[sync.Map でキャッシュしていますね。](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=370;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)　実際に reflect 処理を含んでいたら最適化がかからないかは今後の調査事項とさせていただきます。
+上記のような感じです。[実際の実装ではもうちょっと凝ったことをしています。](https://github.com/ngicks/undefinedablejson/blob/main/serde.go)
 
-このキャッシュの部分は`sync.WaitGroup`を使って同期させる部分が存在していて、これはおそらく非同期的に同時に呼び出されてもいいようになっているのだと思います。この処理を読み込みや再現はそこそこ複雑そうだったのでとりあえずの処置として[簡易的な実装](https://github.com/ngicks/undefinedablejson/blob/main/serde.go#L125-L138)で済ませています。
+実装しながらこの処理`reflect`を含んでるからコンパイラに最適化されないんじゃないか？と疑問に思い、`encoding/json`を読み進めるとフィールドをどう処理するかっていう処理を[sync.Map でキャッシュしていますね。](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=370;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)実際に`reflect`があると最適化が掛からないからこうしているのかはわからないので今後の調査事項に加えておこうと思います。
 
-また、struct type への string option は staticcheck `SA5008`警告されてしまうので、warning 回避のために`und:"string"`でも同様の判定を行うように変更しました。
+このキャッシュの部分は`sync.WaitGroup`を使って同期させる部分が存在していて、これはおそらく非同期的に同時に呼び出されてもいいようになっているのだと思います。[ここも真似っこで実装しておきました。](https://github.com/ngicks/undefinedablejson/blob/699a7f4463b59597ade11fbe700df99c415e74d4/serde.go#L131-L160)
+
+また、struct type への string option は staticcheck `SA5008`警告されてしまうので、warning 回避のために`und:"string"`でも`json:",string"`と同様の判定を行うように変更しました。
 
 ## おわりに
 
-ここまで書いておいてなんですが、本当にこの方法が最良なのでしょうか？他に誰かが似たようなことをすでにしている気がするんです。筆者が記事執筆前に軽く調べた限りそれらしい情報は出てこなかったですし、作ってみたかったので作ってみただけなので別にあったとしてもいいのですが。
+いかかがでしたか？私はこの実装や調査を非常に楽しみました。最初は数時間で実装がすむ程度だと思って始めたのですが、思った以上に`encoding/json`の挙動の奥が深くて(考えれば当たり前ですが)、数日を消費されました。
 
-今後は
+ここまで書いておいてなんですが、本当にこの方法が最良なのでしょうか？他に方法があったり、他に誰かが似たようなことをすでにしている気がするんです。筆者が記事執筆前に軽く調べた限りそれらしい情報は出てこなかったですし、作ってみたかったので作ってみただけなので別にあったとしてもいいのですが。
+
+今後の拡張としては
 
 - code generator の追加
   - `reflect`の使用を避けるため。
 - `required`, `disallowNull`などのバリデーションルールを追加し、Unmarshal 時に validate する
-- 似たようなことをしている package を探して、**あった場合それに貢献する**。
-
-をすることになると思います。
+- `Option[T]`に`Map()`のような Rust の`Option<T>`風関数を追加して変更を容易にする。
+- 似たようなことをしている package を探して、**あった場合このパッケージ破棄し、それに貢献する**。
 
 実はこのライブラリ自体は Elasticsearch の JSON をいい感じに扱うために作っていたライブラリを一部切り出したものなので、筆者が Elasticsearch とやり取りする Go アプリを書くまで本格使用することがないため、問題点が明らかにならない可能性が高いです。
