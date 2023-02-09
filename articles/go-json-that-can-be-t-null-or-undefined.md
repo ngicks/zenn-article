@@ -18,6 +18,7 @@ https://github.com/ngicks/undefinedablejson
 
 - どういう事で困っていたのか
 - 既存の方法にはどういうものがあったのか
+  - この話題に関連する今もってる知見をできる限り書いています。
 - 実装を通じて`encoding/json`について得られた知見
 
 などを書いていきます。
@@ -28,18 +29,22 @@ https://github.com/ngicks/undefinedablejson
 
 ## 環境
 
-環境は Go 1.18 以上、少なくとも Go 1.20 まで、です。
+```bash
+> go version
+go version go1.20 linux/amd64.
+```
 
-ドキュメント、ソースコードは全て[Go 1.20](https://tip.golang.org/doc/go1.20)のものを参照していますが、ドキュメントそのものは長く変わっていませんのでそれより以前のバージョンでも同様であると予想します。また、`Go 1.18` で追加された generics を利用したソースコードを書きますので、記事中のサンプルコードは `Go 1.18` 以降でのみ動きます。
+ドキュメント、ソースコードは全て[Go 1.20](https://tip.golang.org/doc/go1.20)のものを参照していますが、ドキュメントそのものはしばらく変わっていませんのでそれより以前のバージョンでも同様であると予想します。また、[Go 1.18](https://tip.golang.org/doc/go1.18) で追加された generics を利用したソースコードを書きますので、記事中のサンプルコードは `Go 1.18` 以降でのみ動きます。
 
 ## 対象読者
 
 - Go の struct field で`undefined | null | T`をだし分けたい人
+- Go で JSON を受け取る API を組むときに validation などで悩んでいる人
 - `encoding/json`のポイントを知りたい人
 
 ## 背景
 
-筆者は業務で TypeScript をよく書きます。Go はほぼ完全に趣味でしか使っていないですが、業務でねじ込めそうなところがあればできる限りねじ込んでいこうとしているところです。そこで困るのが、TypeScript では難なくできていたことが Go でできないことがあることで、導入をそこで待ったをかけられたくないので解決方法を日頃考えています。
+筆者は業務で TypeScript をよく書きます。Go はほぼ完全に趣味でしか使っていないですが、業務でねじ込めそうなところがあればできる限りねじ込んでいこうとしているところです。そこで困るのが、TypeScript では難なくできていたことが Go でできないことがあることで、そこで待ったをかけられたくないので解決方法を日頃考えています。
 
 TypeScript のアプリでは入力 JSON を`JSON.parse`でパーズし、入力フォーマットの `interface` を定義し、[ts-auto-guard](https://github.com/rhys-vdw/ts-auto-guard)で生成した typeguard を使うことで型的な整合性のチェックをし、その後アプリの validation ロジックを手組して厳密な validation を実現していました。
 
@@ -62,7 +67,7 @@ HTTP で JSON を送る UPDATE や PATCH のとき、`undefined`(=キーが存�
 
 広く使われている実例としては、[Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/elasticsearch-intro.html) があります。Elasticsearch の update api では [partial document を送ること](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-update.html#_update_part_of_a_document)でドキュメントの各 field を更新でき、`null` をセットすることで field を `null` で上書きできます。
 
-### validation だけなら JSON からの変換時に JSON schema などで行える
+### validation だけなら JSON schema で行える
 
 JSON のバイト列が意識される段階では validation そのものは JSON schema などで行うことができます。
 
@@ -74,39 +79,120 @@ JSON schema や OpenAPI spec の JSON schema 部分を読み込んで validation
 
 筆者は`github.com/santhosh-tekuri/jsonschema`を [echo](https://echo.labstack.com/) の Binder の実装の中で使って validation をかけるようなことしたことがあります。
 
+[playground](https://go.dev/play/p/t90GrV94HG8) (依存モジュールが多すぎてタイムアウトするのでローカルで動かしてください。。。)
+
+サンプルで`echo.Context`をくみ上げる気が起きなかったので、その部分は単に compilation error が起きないことだけ見せています。
+
 ```go: こんな感じ.go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/labstack/echo/v4"
+	"github.com/mitchellh/mapstructure"
+	"github.com/santhosh-tekuri/jsonschema/v5"
+)
+
+type SampleValidator struct {
+	Foo string
+}
+
+var schema *jsonschema.Schema
+
+func init() {
+	cmp := jsonschema.NewCompiler()
+	err := cmp.AddResource("foo.json", strings.NewReader(`{
+		"type": "object",
+		"properties": {
+			"Foo": {
+				"type": "string"
+			}
+		},
+		"required": ["Foo"]
+	}`))
+	if err != nil {
+		panic(err)
+	}
+
+	schema = cmp.MustCompile("foo.json")
+}
+
+func (*SampleValidator) Validate(data map[string]any) error {
+	return schema.Validate(data)
+}
+
 var _ echo.Binder = &ValidatingBinder{}
 
 type ValidatingBinder struct{}
 
 // Bind binds body to i. It ignores path params and query params.
 func (b *ValidatingBinder) Bind(i interface{}, c echo.Context) (err error) {
-	jsonBytes, err := io.ReadAll(c.Request().Body)
-	if err != nil {
+	return bindValidating(c.Request().Body, i)
+}
+
+func bindValidating(r io.Reader, i any) error {
+	// encodingを見てdecoderをさらに噛ませた方がいいんですが省略です。
+	dec := json.NewDecoder(r)
+	dec.UseNumber()
+
+	if closer, ok := r.(io.Closer); ok {
+		defer closer.Close()
+	}
+
+	jsonMap := map[string]any{}
+	if err := dec.Decode(&jsonMap); err != nil {
 		return err
 	}
-	c.Request().Body.Close()
 
-	if validator, ok := any(i).(interface{ Validate(data []byte) error }); ok {
-		err := validator.Validate(jsonBytes)
+	// 省略:
+	// token, err := dec.Token()
+	// // input stream has additional chars and it is not a valid json token.
+	// if err != nil { /*どうする？*/ };
+	// // input stream has another json.
+	// if token != nil { /*どうする？*/ }
+
+	if validator, ok := any(i).(interface {
+		Validate(data map[string]any) error
+	}); ok {
+		err := validator.Validate(jsonMap)
 		if err != nil {
 			return err
 		}
 	}
 
-	err = json.Unmarshal(jsonBytes, i)
+	err := mapstructure.Decode(jsonMap, i)
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
+func main() {
+	var (
+		err error
+		sv  SampleValidator
+	)
+	// 内部でjson.Decoderを使うので後続行にさらにjsonがあっても問題ありません。
+	err = bindValidating(strings.NewReader("{\"Foo\":\"foo\"}{\"Foo\":\"bar\"}"), &sv)
+	fmt.Printf("%+v\n", err) // <nil>
+	fmt.Printf("%+v\n", sv)  // {Foo:foo}
+
+	sv = SampleValidator{}
+	err = bindValidating(strings.NewReader(`{}`), &sv)
+	fmt.Printf("%+v\n", err) // jsonschema: '' does not validate with file:///<path to cwd>/foo.json#/required: missing properties: 'Foo'
+	fmt.Printf("%+v\n", sv)  // {Foo:}
+}
 ```
 
-Bind 対象の i に Validate メソッドの実装をしておけば validation も一緒にかけてくれます。OpenAPI spec の yaml を解析して JSON pointer を自動生成するなど追加で少し面倒なコードを書く必要がありましたが、簡単な実装ならこれで十分ですね。
-
-ただし、`github.com/santhosh-tekuri/jsonschema`はいったん JSON byte 列を`any`に unmarshal する必要があります。この JSON バイト列から struct に向けて unmarshal をもう一度実行するよりも[github.com/mitchellh/mapstructure](https://github.com/mitchellh/mapstructure)などを使って`any`から struct に向けてコピーするなどの工夫も追加でしたほうがよさそうです。
+- github.com/xeipuuv/gojsonschema も github.com/santhosh-tekuri/jsonschema もどちらも json をいったん`map[string]any`に unmarshal しています
+  - 入力が io.Reader であるときでも
+- [github.com/mitchellh/mapstructure](https://github.com/mitchellh/mapstructure)の力を借りて、`map[string]any`から入力の struct にデータをコピーします。
+  - 特にベンチを取ってるわけではないので断言はしませんが、json.Unmarshal をもう一度呼ぶよりは効率的だと予測します。
+- 会社で書いたコードなのでうろ覚えですが、OpenAPI spec を yaml パッケージで json byte に変換して schema 部分を json-pointer で指定させながら、[user-defined loader(公式 example)](https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v5#example-package-UserDefinedLoader)で読み込ませていたような気がします。
 
 ### Partial JSON の受け側にはなれる
 
@@ -287,6 +373,7 @@ func main() {
 > ...Unmarshal first handles the case of the JSON being the JSON literal null. In that case, Unmarshal sets the pointer to nil.
 >
 > Because null is often used in JSON to mean “not present,” unmarshaling a JSON null into any other Go type has no effect on the value and produces no error.
+>
 > https://pkg.go.dev/encoding/json@go1.20.0
 
 逆に json.Unmarshal では
@@ -321,7 +408,7 @@ JSON というか、JavaScript には`null`とは別に`undefined`という「�
 
 ### `encoding/json`では"undefined | null | T"のだし分けできない
 
-前記の通り、`undefined`の表現(=フィールドをスキップする)と`null`はデータではなくメタデータとして実装されています。
+前記の通り、型のデータを`undefined`(=フィールドをスキップする)とするか`null`とするかはデータではなくメタデータとして実装されています。
 
 ```go
 type Sample3 struct {
@@ -517,9 +604,13 @@ func (f Undefinedable[T]) Value() *T {
 
 もちろん`Undefinedable[T]`と`Nullable[T]`に MarshalJSON と UnmarshalJSON の実装が必要ですが、自明であるので省略します。
 
-`encoding/json`は内部で利用している key などの string の escape を行う機能を外部に公開しないため、[github.com/mailru/easyjson](https://github.com/mailru/easyjson)の jwriter に委譲します。
+`encoding/json`は内部で利用している key などを JSON string の escape を行う機能を外部に公開しないため、[github.com/mailru/easyjson](https://github.com/mailru/easyjson)の`jwriter`に任せてしまいます。
 
 ```go marshal_fields_json.go
+func getFieldName(f reflect.StructField) string {
+	return f.Name // 実際にはf.Tag.Get("json")でフィールド名も見る
+}
+
 func MarshalFieldsJSON(v any) ([]byte, error) {
 	rv := reflect.ValueOf(v)
 
@@ -798,13 +889,135 @@ func MarshalFieldsJSON(v any) ([]byte, error) {
 }
 ```
 
+`Undefinable[T]`、`Nullable[T]`が\`json:",string"\`を無視していれば`json.Unmarshal`でデコード可能だったのですが、考慮するようにしたので`json.Unmarshal`に対応する`UnmarshalFieldsJSON`が必要になってしまった。。。
+
+JSON バイト列の解析と iterate は [github.com/buger/jsonparser](https://github.com/buger/jsonparser) にすべて任せます。
+
+```go
+func UnmarshalFieldsJSON(data []byte, v any) error {
+	rv := reflect.ValueOf(v)
+
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return &json.InvalidUnmarshalError{Type: rv.Type()}
+	}
+
+	return unmarshalFieldsJSON(data, rv)
+}
+
+type fieldInfo struct {
+	ty          reflect.StructField
+	layoutIndex int  // index that can be used to retrieve type info with rv.Field(layoutIndex).
+	anonymous   bool // embedded.
+	tagged      bool // tagged with field name.
+	quote       bool // field has ,string option.
+}
+
+func unmarshalFieldsJSON(data []byte, rv reflect.Value) error {
+	rv = reflect.Indirect(rv)
+	rt := rv.Type()
+
+	if rt.Kind() != reflect.Struct {
+		return fmt.Errorf("incorrect type. want = struct, but is %s", rt.Kind())
+	}
+
+	// Collect type info ahead of time
+	// to avoid doing rv.FieldByName() each time it iterates over JSON byte slice.
+	fieldNames := make(map[string]fieldInfo, rv.NumField())
+	for i := 0; i < rv.NumField(); i++ {
+		field := rt.Field(i)
+		fieldName, opts, tagged, shouldSkip := GetFieldName(field)
+
+		if shouldSkip {
+			continue
+		}
+
+		// Untagged embedded field. Must go into recursively.
+		if !tagged && field.Anonymous && field.Type.Kind() == reflect.Struct {
+			err := unmarshalFieldsJSON(data, rv.Field(i))
+			if err != nil {
+				return err
+			}
+		}
+
+		fieldNames[fieldName] = fieldInfo{
+			ty:          field,
+			layoutIndex: i,
+			anonymous:   field.Anonymous,
+			tagged:      tagged,
+			quote:       OptContain(opts, "string") || OptContain(field.Tag.Get("und"), "string"),
+		}
+	}
+
+	return jsonparser.ObjectEach(
+		data,
+		func(key, value []byte, dataType jsonparser.ValueType, offset int) error {
+			info, ok := fieldNames[string(key)]
+			if !ok {
+				return nil
+			}
+
+			if dataType == jsonparser.String {
+				// jsonparser trims wrapping double quotations. Get those back here.
+				value = data[offset-len(value)-2 : offset]
+			}
+
+			if info.quote && string(value) != "null" {
+				if value[0] != '"' || value[len(value)-1] != '"' {
+					// mimicking json.Unmarshal behavior.
+					return fmt.Errorf(
+						"broken quotation. field ( %s tagged as %s ) is tagged with string option"+
+							" but input value is neither 'null'"+
+							" nor wrapped with double quotations. value = %s",
+						info.ty.Name, string(key), string(value),
+					)
+				}
+				value = value[1 : len(value)-1]
+			}
+
+			frv := rv.Field(info.layoutIndex)
+
+			v := frv
+			if v.Kind() != reflect.Pointer && v.Type().Name() != "" && v.CanAddr() {
+				// adder this value so that we can find method of *T, not only ones for T.
+				v = v.Addr()
+			}
+
+			if info.tagged && info.anonymous && frv.Type().Kind() == reflect.Struct {
+				// tagged embedded field.
+				err := unmarshalFieldsJSON(value, v)
+				if err != nil {
+					return err
+				}
+			}
+
+			if decoder, ok := v.Interface().(json.Unmarshaler); ok {
+				err := decoder.UnmarshalJSON(value)
+				if err != nil {
+					return err
+				}
+			} else {
+				internalValue := v.Interface()
+				err := json.Unmarshal(value, internalValue)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		},
+	)
+}
+
+
+```
+
 上記のような感じです。[実際の実装ではもうちょっと凝ったことをしています。](https://github.com/ngicks/undefinedablejson/blob/main/serde.go)
 
-実装しながらこの処理`reflect`を含んでるからコンパイラに最適化されないんじゃないか？と疑問に思い、`encoding/json`を読み進めるとフィールドをどう処理するかっていう処理を[sync.Map でキャッシュしていますね。](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=370;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)実際に`reflect`があると最適化が掛からないからこうしているのかはわからないので今後の調査事項に加えておこうと思います。
+`unmarshalFieldsJSON`の fieldInfo の収集部分は、同じ reflect.Type に対して全く同じ処理をしますのでコンパイラが最適化をかけてくれそうな気もしますが、`reflect`が含まれているのでどうなるんだろう、と思いながら`encoding/json`を読み進めるとフィールドをどう処理するかっていう処理を[sync.Map でキャッシュしていますね。](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=370;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)`reflect`であるから最適化が掛からないかはわからないですが、似たようなことをしている都合上、似たような対策が似たような効果を及ぼすと期待できます。
 
 このキャッシュの部分は`sync.WaitGroup`を使って同期させる部分が存在していて、これはおそらく非同期的に同時に呼び出されてもいいようになっているのだと思います。[ここも真似っこで実装しておきました。](https://github.com/ngicks/undefinedablejson/blob/699a7f4463b59597ade11fbe700df99c415e74d4/serde.go#L131-L160)
 
-また、struct type への string option は staticcheck `SA5008`警告されてしまうので、warning 回避のために`und:"string"`でも`json:",string"`と同様の判定を行うように変更しました。
+また、struct type への string option は staticcheck `SA5008`に警告されてしまうので、warning 回避のために`und:"string"`でも`json:",string"`と同様の判定を行うように変更しました。
 
 ## おわりに
 
