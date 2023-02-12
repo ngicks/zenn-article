@@ -6,7 +6,7 @@ topics: ["go"]
 published: false
 ---
 
-## Overview
+# Overview
 
 Go で JSON を扱うとき、Elasticsearch の update api に渡す JSON のような `null` と `undefined` をだし分けられるデータ構造や、それに対応する JSON marshaller が Go には std ではなく、軽く探したところ見つからなかったので、興味本位で作ってみました。
 
@@ -23,11 +23,11 @@ https://github.com/ngicks/undefinedablejson
 
 などを書いていきます。
 
-## 前提知識
+# 前提知識
 
-- 特にないですが [Go programming language](https://go.dev/) の細かい説明はしないので、ある程度知っている人じゃないと意味が分からないかもしれません。
+- [Go programming language](https://go.dev/) の説明はしないので、ある程度知っている人じゃないと意味が分からないかもしれません。
 
-## 環境
+# 環境
 
 ```bash
 > go version
@@ -36,38 +36,100 @@ go version go1.20 linux/amd64.
 
 ドキュメント、ソースコードは全て[Go 1.20](https://tip.golang.org/doc/go1.20)のものを参照していますが、ドキュメントそのものはしばらく変わっていませんのでそれより以前のバージョンでも同様であると予想します。また、[Go 1.18](https://tip.golang.org/doc/go1.18) で追加された generics を利用したソースコードを書きますので、記事中のサンプルコードは `Go 1.18` 以降でのみ動きます。
 
-## 対象読者
+# 対象読者
 
-- Go の struct field で`undefined | null | T`をだし分けたい人
+- Go の struct field で`undefined | null | T`を表現する方法がわからない人
 - Go で JSON を受け取る API を組むときに validation などで悩んでいる人
 - `encoding/json`のポイントを知りたい人
 
-## 背景
+# 言葉の定義
 
-筆者は業務で TypeScript をよく書きます。Go はほぼ完全に趣味でしか使っていないですが、業務でねじ込めそうなところがあればできる限りねじ込んでいこうとしているところです。そこで困るのが、TypeScript では難なくできていたことが Go でできないことがあることで、そこで待ったをかけられたくないので解決方法を日頃考えています。
+本投稿では以後 JSON の key が:
 
-TypeScript のアプリでは入力 JSON を`JSON.parse`でパーズし、入力フォーマットの `interface` を定義し、[ts-auto-guard](https://github.com/rhys-vdw/ts-auto-guard)で生成した typeguard を使うことで型的な整合性のチェックをし、その後アプリの validation ロジックを手組して厳密な validation を実現していました。
+- ないことを `undefined`
+- `null` であることを `null`
+- ある型 `T` であること `T`
+- アプリによって必須であると決められていることを`required`
 
-TypeScript は有効な JavaScript を全てをうまく取り扱えるように努力がされているため、当然 JavaScript の`undefined`と`null`という二つの「データがない状態」を使うことができました。ただ、「データがない状態」が特別な努力なく複数種類ある言語は知っている限り珍しいため、これらを使いこなしたコードを書いてしまうと他の言語への移植で少し困ります。
+と呼びます。
 
-Go でも当然、「データがない状態」の表現は存在しますが、それには知っている限り type `T` への pointer type`*T`を使います。当然 2 種類はありません。そこでいくつかの困りごとが発見されました。
+# 背景: 時たま困る Go における「データがない状態」の扱い
 
-### 困りごと
+Go の言語設計のせいでは全くないのですが・・・
 
-Go の struct に JSON から変換/逆変換を行うときに struct 上では`undefined`(=JSON に key がなかった)と`null`と、`T`が区別が付かないため
+## Go の zero value
 
-- 入力値の`required`(=必須キー)や、`null`を許容するなどの入力ルールを実現できない
-- また、同様に相手システムが `null` と `undefined` を分けて使う場合、だし分けるのに当該 struct 以上の追加のデータが必要であるため煩雑であること
+Go には [The zero value](https://go.dev/ref/spec#The_zero_value) の概念があるため、
 
-という悩みがありました。
+> ... a variable or value is set to the zero value for its type: false for booleans, 0 for numeric types, "" for strings, and nil for pointers, functions, interfaces, slices, channels, and maps.
 
-### `undefined`と`null`を分けて扱うシステムがあった
+とある通り、変数も struct field も型に対応する zero value に初期化されます。
+
+### zero value はフィールドがない判定に使われることがある
+
+この zero value は、「データがない状態」の判定に使われることがあり、standard library の`reflect`にも例えば、[IsZero](https://pkg.go.dev/reflect@go1.20#Value.IsZero)というメソッドが提供されています。
+
+他には [GORM](https://gorm.io/) という ORM の場合,
+
+> // Struct
+> db.Where(&User{Name: "jinzhu", Age: 20}).First(&user)
+> // SELECT \* FROM users WHERE name = "jinzhu" AND age = 20 ORDER BY id LIMIT 1;
+>
+> https://gorm.io/docs/query.html
+
+という風に、zero value であるフィールドはデータがセットされていないこととして扱う API が存在します。該当の zero value 判定は[ここなどでおこなわれています](https://github.com/go-gorm/gorm/blob/02b7e26f6b5dcdc49797cc44c26a255a69f3aff3/schema/field.go#L462)(`reflect`の IsZero も使われていますね)
+
+### 外部データ(JSON)をバインドするときの zero value
+
+同じように、JSON など外部データからの変換時、struct にデータをバインドする際に、
+
+```go
+type Sample struct {
+	Foo string
+	Bar int
+}
+```
+
+のような struct があったとして、
+
+```json
+{"Foo": "", "Bar": 0}
+{"Foo": null, "Bar": null}
+{}
+```
+
+を入力した場合、バインドされた struct field の値は、全て区別がつきません。
+
+外部 API として`""`(空白 string) や数値型で `0` があり得ない場合のみ、上記の `Sample` struct にデータをバインドするだけでいいことになります。
+
+`""`がありえない API はそこまで珍しくない気がしますが、 `0` がありえないケースはそこそこ珍しいかなと思います。そこで基本的に以下のようにメンバーをポインターにすることになるのが普通かと思います。
+
+```go
+type Sample struct {
+	Foo *string
+	Bar *int
+}
+```
+
+しかしこの場合でも、フィールドが`null`であった時と、`undefined`(JSON に key がなかった)時に区別がつきません。
+
+## 外部システムとやり取りする時の`undefined`と`null`
+
+### `undefined`と`null`を分けて扱われることがある
 
 HTTP で JSON を送る UPDATE や PATCH のとき、`undefined`(=キーが存在しない)のとき field をスキップ、`null`のとき field をクリアするか`null`で上書き、`T`の時`T`で上書き、という挙動をさせる API があります。筆者もそういった API を書くことがあります。
 
 広く使われている実例としては、[Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/elasticsearch-intro.html) があります。Elasticsearch の update api では [partial document を送ること](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-update.html#_update_part_of_a_document)でドキュメントの各 field を更新でき、`null` をセットすることで field を `null` で上書きできます。
 
-### validation だけなら JSON schema で行える
+## 既存の方法: required の強制、validation について
+
+### map[string]any
+
+ハッシュマップでは任意の key に対して、(`any` 型を取り扱える Go では)value にあらゆる型を格納可能なため、いったん `map[string]any` にデコードすれば key のあるなし、型の一致などの判定をおこなえます。
+
+下記 JSON schema もライブラリの実装は `map[string]any` を使用しています。
+
+### JSON schema
 
 JSON のバイト列が意識される段階では validation そのものは JSON schema などで行うことができます。
 
@@ -79,7 +141,12 @@ JSON schema や OpenAPI spec の JSON schema 部分を読み込んで validation
 
 筆者は`github.com/santhosh-tekuri/jsonschema`を [echo](https://echo.labstack.com/) の Binder の実装の中で使って validation をかけるようなことしたことがあります。
 
-[playground](https://go.dev/play/p/t90GrV94HG8) (依存モジュールが多すぎてタイムアウトするのでローカルで動かしてください。。。)
+実装のサンプルは長くなるのでドロップダウンに隠しておきます。
+
+:::details echo.Binder の実装サンプル
+
+- [playground](https://go.dev/play/p/t90GrV94HG8)
+  - 依存モジュールが多すぎてタイムアウトするのでローカルで動かしてください。。。
 
 サンプルで`echo.Context`をくみ上げる気が起きなかったので、その部分は単に compilation error が起きないことだけ見せています。
 
@@ -188,16 +255,64 @@ func main() {
 }
 ```
 
-- github.com/xeipuuv/gojsonschema も github.com/santhosh-tekuri/jsonschema もどちらも json をいったん`map[string]any`に unmarshal しています
+- `github.com/xeipuuv/gojsonschema` も `github.com/santhosh-tekuri/jsonschema` もどちらも JSON をいったん`map[string]any`に unmarshal しています
   - 入力が io.Reader であるときでも
 - [github.com/mitchellh/mapstructure](https://github.com/mitchellh/mapstructure)の力を借りて、`map[string]any`から入力の struct にデータをコピーします。
   - 特にベンチを取ってるわけではないので断言はしませんが、json.Unmarshal をもう一度呼ぶよりは効率的だと予測します。
-- 会社で書いたコードなのでうろ覚えですが、OpenAPI spec を yaml パッケージで json byte に変換して schema 部分を json-pointer で指定させながら、[user-defined loader(公式 example)](https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v5#example-package-UserDefinedLoader)で読み込ませていたような気がします。
 
-### Partial JSON の受け側にはなれる
+会社で書いたコードなのでうろ覚えですが、実際に使ったときは OpenAPI spec を [github.com/ghodss/yaml](https://github.com/ghodss/yaml)の`yaml.YAMLToJSON`で json byte に変換して schema 部分を json-pointer で指定して `MustCompile` を実行していました。実際には `MustCompile` も lazy に実行させていたような記憶もあります。
+
+```go:こんなコードだった気がする.go
+//go:embed oapi_spec.yaml
+var yamlBin []byte
+
+const schemaUrl = "mem://schema.json"
+
+var jsonschemaCompiler = jsonschema.NewCompiler()
+
+func init() {
+	j, err := yaml.YAMLToJSON(yamlBin)
+	if err != nil {
+		panic(err)
+	}
+	err = jsonschemaCompiler.AddResource(schemaUrl, bytes.NewReader(j))
+	if err != nil {
+		panic(err)
+	}
+	jsonschemaCompiler.AssertContent = true
+	jsonschemaCompiler.AssertFormat = true
+}
+
+func mustCompile(internalRef []string) *jsonschema.Schema {
+	if len(internalRef) < 2 {
+		panic("mustCompile: input internalRef must be len(s) > 1")
+	} else if internalRef[0] != "#" {
+		panic(fmt.Sprintf("mustCompile: first element of input internalRef must be # but %s", internalRef[0]))
+	}
+	escaped := make([]string, 0, len(internalRef)-1)
+	for _, str := range internalRef[1:] {
+		item := str
+		// This is gonna be a json pointer string.
+		// Below must be escaped into:
+		//   - tilde(~) into ~0
+		//   - forwardslash(/) into ~1
+		// see https://datatracker.ietf.org/doc/html/rfc6901
+		item = strings.ReplaceAll(item, "~", "~0")
+		item = strings.ReplaceAll(item, "/", "~1")
+		item = url.PathEscape(item)
+		escaped = append(escaped, item)
+	}
+	return jsonschemaCompiler.MustCompile(schemaUrl + "#/" + strings.Join(escaped, "/"))
+}
+```
+
+:::
+
+## Partial JSON の受け側にはなれる
 
 - 後のセクションでも触れますが、`json.Unmarshal`はキーがないとき単に何も代入しない動きをするため、「キーがあるときだけ上書き」の挙動自体は容易に実現可能です。
   - 上記の validation と合わせると堅牢な update 処理を行えます。
+- JSON を`map[string]any`にデコードしてそれを上書きしてもいいでしょう。
 
 ```go
 type Sample struct {
@@ -239,11 +354,19 @@ func main() {
 */
 ```
 
-ネストした struct がポインターだと `nil` 以外の時、新しいポインターを allocate しないので、上書きされる挙動になるようですので注意が必要です。
+ネストした struct (今回の場合 Inner)がポインターだと `nil` 以外の時、新しいポインターを allocate しないので注意が必要です。
 
-## 課題: struct field だけで"undefined | null | T"を表現することは(std 範疇では)できない
+# 課題
 
-validation は上記の方法でイイ感じにできそうなのがわかりました。
+Go の struct に JSON から変換/逆変換を行うときに struct 上では`undefined`と`null`と`T`が区別が付かないため
+
+- 入力値の`required`や、`disallowNull`, `disallowUndefined`などの入力ルールを実現できない
+  - 少なくとも`required`は API にリクエストを飛ばすクライアントの実装が typo で key 名を取り違えているときのチェックのために欲しい。
+  - `map[string]any`へのデコードで実現できますが、最終的にデータのバインド先となる struct とフィールドと型が合わない場合でも一旦デコードを完了してしまうため非効率です。
+    - この場合[DisallowUnknownFields](https://pkg.go.dev/encoding/json@go1.20#Decoder.DisallowUnknownFields)のようなことができないため非効率です。
+- JSON を送信するとき、相手システムが `null` と `undefined` を分けて使う場合、だし分けるのに当該 struct 以上の追加のデータが必要であるため煩雑であること
+
+ひとつ目の validation 周りの欲求はパフォーマンスにしか触れておらず、ベンチもとっていないので特に強く言えないですが、2 番目の欲求はちょっとリアルに困っているところです。
 
 なので残った要求は
 
@@ -253,15 +376,17 @@ validation は上記の方法でイイ感じにできそうなのがわかりま
 
 しかし後続セクションで述べる理由により、std 範疇では難しいことがわかります。
 
-## Go の standard library における JSON "null", "undefined" の取り扱い
+# Go の standard library における JSON "null", "undefined" の取り扱い
 
 まず解決方法を考える前に Go の standard library で JSON を取り扱う`encoding/json`が`null`や`undefined`をどのように処理するのか確認します。
 
-### 基本: 変換/逆変換
+## 基本: 変換/逆変換
 
-まず基本的な情報として、変換/逆変換の方法について触れます。
+この記事をここまで読んでいて知らない人がいるかはわかりませんが、基礎情報として、変換/逆変換の方法について触れます。
 
 Go では standard library の`encoding/json`によって JSON と Go の値との変換/逆変換を行います。
+
+[playground](https://go.dev/play/p/oDZNB8D_ub6)
 
 ```go
 type Sample struct {
@@ -269,22 +394,26 @@ type Sample struct {
 	Bar int
 }
 
-// []byte, errorを返す。
-bin, err := json.Marshal(Sample{"foo", 123})
-if err != nil {
-	panic(err)
-}
-fmt.Printf("%s\n", string(bin)) // {"Foo":"foo","Bar":123}
+func main() {
+	// []byte, errorを返す。
+	bin, err := json.Marshal(Sample{"foo", 123})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%s\n", string(bin)) // {"Foo":"foo","Bar":123}
 
-var s Sample
-err = json.Unmarshal(bin, &s)
-if err != nil {
-	panic(err)
+	var s Sample
+	err = json.Unmarshal(bin, &s)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%+v\n", s) // {Foo:foo Bar:123}
 }
-fmt.Printf("%+v\n", s) // {Foo:foo Bar:123}
 ```
 
 対象の type が`json.Marshaler`, `json.Unmarshaler`を実装している場合、そちらが優先して使われます。
+
+[playground](https://go.dev/play/p/LnsWozze22p)
 
 ```go
 type Sample2 struct {
@@ -309,21 +438,25 @@ func (s *Sample2) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-bin, err = json.Marshal(Sample2{Foo: "foo", Bar: 123})
-if err != nil {
-	panic(err)
-}
-fmt.Printf("%s\n", string(bin)) // {"foo":"f_foo","bar":"123"}
+func main() {
+	bin, err := json.Marshal(Sample2{Foo: "foo", Bar: 123})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%s\n", string(bin)) // {"foo":"f_foo","bar":"123"}
 
-var s2 Sample2
-err = json.Unmarshal(bin, &s2)
-if err != nil {
-	panic(err)
+	var s2 Sample2
+	err = json.Unmarshal(bin, &s2)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("%+v\n", s2) // {Foo:foo Bar:123}
 }
-fmt.Printf("%+v\n", s2) // {Foo:foo Bar:123}
 ```
 
 stream でも処理が可能です。
+
+[playground](https://go.dev/play/p/Gv15R4ZLkKW)
 
 ```go
 type Sample struct {
@@ -352,7 +485,7 @@ func main() {
 }
 ```
 
-### JSON null
+## JSON null
 
 > Array and slice values encode as JSON arrays, except that []byte encodes as a base64-encoded string, and a nil slice encodes as the null JSON value.
 >
@@ -385,9 +518,11 @@ func main() {
 
 type が`json.Unmarshaler`を実装する場合、JSON byte が`null`であるときでも呼び出されるため、`[]byte("null")`を好きに変換することができます。
 
-### JSON undefined
+## JSON undefined
 
-JSON というか、JavaScript には`null`とは別に`undefined`という「データがない状態」の表現が存在します。
+JSON(JavaScript Object Notation)はその名前の通り JavaScript が元となっているため、JavaScript の事情を多分に含んでいます。
+
+JavaScript には`null`とは別に`undefined`という「データがない状態」の表現が存在します。
 [JSON の定義](https://datatracker.ietf.org/doc/html/rfc8259)上`undefined`は存在しないのでシリアライズされるときにキーが消える挙動となります。
 
 `json.Marshal`では、omitempty という struct tag で当該 struct field のスキップを行います。
@@ -406,7 +541,7 @@ JSON というか、JavaScript には`null`とは別に`undefined`という「�
 - JSON バイト列の中に対応する key がない場合、単に代入しない挙動となります。
   - zero-value のまま置かれると思ってもいいでしょう。
 
-### `encoding/json`では"undefined | null | T"のだし分けできない
+## `encoding/json`では"undefined | null | T"のだし分けできない
 
 前記の通り、型のデータを`undefined`(=フィールドをスキップする)とするか`null`とするかはデータではなくメタデータとして実装されています。
 
@@ -440,15 +575,18 @@ func main() {
 
 type のみ(= `json.Marshaler` / `json.Unmarshaler` のみ)によって`undefined` / `null`を表現し分けることは、std の範疇ではできなさそうなことは確認が取れました。
 
-## 解決方法: "undefined | null | T"を表現できる type を作る
+# 解決方法: "undefined | null | T"を表現できる type を作る
 
 "go JSON undefined"などでググってみましたがこれを実現しているライブラリーは見つかりませんでした。おそらくはある気がしますが、気が向いたしすぐ作れる気がするので作ってみます。
 
 - `undefined | null | T`を表現できる構造体を定義することとします。
   - `**T`のようなポインタータイプを base type とする defined type はメソッドを持てませんので struct にします。
   - struct は omiempty によるスキップがぜったいに起こりませんので専用の marshaller が必要です。
+    - `",string"`オプションをサポートすると unmarshaller も必要になってしまったので作ります
 
-### 問題:\*\*T はメソッドを持てない
+## type を作る
+
+### 問題: \*\*T はメソッドを持てない
 
 Go では「データがない」状態を表現することに`*T` を利用します。
 
@@ -481,9 +619,10 @@ func (u Undefined[T]) IsNull() bool {
 
 - `**T`を引数にとる関数を定義すると煩雑です。
 - method set が定義できないなら`any`な値が`Undefined`型であるのかを判別するのが煩雑になります。
-  - go の generics の制限によって、メソッドは type param を持てませんので、具体的な型を指定せずに`Undefined`型に対しての [type assertion](https://go-tour-jp.appspot.com/methods/15) ができません。
   - `interface { IsUndefined() bool }`のような interface に対する type assertion を行うこともできません。
   - reflect を使う方法は取れると思いますが、[reflect.ValueOf は(現状は)かならず heap にデータを escape する](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/reflect/value.go;l=3144-3147)ので避けられるなら避けたほうがいいでしょう。
+
+`encoding/json`も`reflect`を多用しますのでこれを機にせずに使えるようなアプリならば気になるのはメソッドが定義できない煩雑さの方でしょう。
 
 ### 解法: boolean flag で defined を表現する。
 
@@ -518,11 +657,8 @@ func (o Option[T]) IsNone() bool {
 	return !o.IsSome()
 }
 
-func (o Option[T]) Value() *T {
-	if !o.some {
-		return nil
-	}
-	return &o.v
+func (o Option[T]) Value() T {
+	return o.v
 }
 
 var nullByte = []byte(`null`)
@@ -545,7 +681,14 @@ func (o *Option[T]) UnmarshalJSON(data []byte) error {
 }
 ```
 
-`Nullable[T]`は`Option[T]`とほぼ等価ですが、`type Nullable[T] = Option[T]`は type param があるときエイリアスできないコンパイラルールで不可能ですし、`type Nullable[T] Option[T]`では method set を継承しない go のルールがあるため意味がないので embed を使うことにします。
+`Nullable[T]`は`Option[T]`とほぼ等価ですが、以下の定義はできません
+
+- `type Nullable[T] = Option[T]`
+  - type param のある type alias は spec で[定義されていない](https://go.dev/ref/spec#AliasDecl)
+- `type Nullable[T] Option[T]`
+  - Defined type は method set を[継承しない](https://go.dev/ref/spec#Type_definitions)ため。
+
+そのため embedded で行きます。
 
 ```go: field.go
 type Nullable[T any] struct {
@@ -586,19 +729,16 @@ func (u Undefinedable[T]) IsNonNull() bool {
 	return u.v.IsSome()
 }
 
-func (f Undefinedable[T]) Value() *T {
-	if f.IsUndefined() {
-		return nil
-	}
+func (f Undefinedable[T]) Value() T {
 	return f.v.Value()
 }
 ```
 
-### 専用の Marshaller を作る。
+## 特化した Marshaller を作る
 
 上記の`Undefinedable[T]`は struct であるので、前記の通り omitempty によるスキップ動作が起きません。そこで、専用の Marshaller を作成して`undefined`時に skip 可能にします。
 
-#### ナイーブな発想版
+### ナイーブな発想版
 
 単純な発想によれば、reflect によって field の値を読み取りながら、上記の Undefinedable[T]の場合かつ Undefined の時だけ field をスキップする挙動で目的は達せます。
 
@@ -661,9 +801,9 @@ func MarshalFieldsJSON(v any) ([]byte, error) {
 
 この方法は reflect の使用などのせいで実行時の効率は悪いですがほとんどの処理を json.Marshal に委譲できるのでメンテが楽という利点があります。json string の escape も jwriter に委譲します。
 
-#### json.Marshal と同じ struct tag をサポートする
+### json.Marshal と同じ struct tag をサポートする
 
-##### json.Marshal の struct tag
+#### json.Marshal の struct tag
 
 json.Marshal は struct tag によってカスタマイズが可能です。上記ナイーブな発想版の Marshaller はこれらのタグを無視してしまいますので手動でサポートを加える必要がありますね。完全無視する挙動でも問題ないといえば問題ありませんが実用上の問題が出そうなので実装してみましょう。
 
@@ -683,7 +823,7 @@ json の struct tag は以下のような構造を取ります
   - string, int, unsigned int, float, bool のみに有効でそれ以外の型では無視されます。[条件はここに乗っています](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=1275-1286;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)
   - おそらく`"true"`/`"false"`を使うシステムや、JavaScript のライブラリによっては [BigInt](https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/BigInt) の JSON 表現に string 型を選ぶことがある事への対応かと思います。
 
-##### 実装する
+#### 実装する
 
 name 部分の取得、option の取得を以下のように実装します。
 
@@ -863,7 +1003,7 @@ func MarshalFieldsJSON(v any) ([]byte, error) {
 +		}
 +
 +		// json.Marshal does not quote the `null` value.
-+		quote := shouldQuote(field.Type(), field.Interface()) && string(marshalled) == "null"
++		quote := shouldQuote(field.Type(), field.Interface()) && string(marshalled) != "null"
 +		if quote {
 +			writer.RawString("\"")
 +		}
@@ -889,7 +1029,9 @@ func MarshalFieldsJSON(v any) ([]byte, error) {
 }
 ```
 
-`Undefinable[T]`、`Nullable[T]`が\`json:",string"\`を無視していれば`json.Unmarshal`でデコード可能だったのですが、考慮するようにしたので`json.Unmarshal`に対応する`UnmarshalFieldsJSON`が必要になってしまった。。。
+## 特化した Unmarshaller を作る
+
+`Undefinable[T]`、`Nullable[T]`が\`json:",string"\`を無視していれば`json.Unmarshal`でデコード可能だったのですが、考慮するようにしたので`json.Unmarshal`に対応する`UnmarshalFieldsJSON`が必要になってしまいました。
 
 JSON バイト列の解析と iterate は [github.com/buger/jsonparser](https://github.com/buger/jsonparser) にすべて任せます。
 
@@ -1007,19 +1149,27 @@ func unmarshalFieldsJSON(data []byte, rv reflect.Value) error {
 		},
 	)
 }
-
-
 ```
 
 上記のような感じです。[実際の実装ではもうちょっと凝ったことをしています。](https://github.com/ngicks/undefinedablejson/blob/main/serde.go)
 
+## `encoding/json`の効率化をまねる
+
 `unmarshalFieldsJSON`の fieldInfo の収集部分は、同じ reflect.Type に対して全く同じ処理をしますのでコンパイラが最適化をかけてくれそうな気もしますが、`reflect`が含まれているのでどうなるんだろう、と思いながら`encoding/json`を読み進めるとフィールドをどう処理するかっていう処理を[sync.Map でキャッシュしていますね。](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=370;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)`reflect`であるから最適化が掛からないかはわからないですが、似たようなことをしている都合上、似たような対策が似たような効果を及ぼすと期待できます。
 
-このキャッシュの部分は`sync.WaitGroup`を使って同期させる部分が存在していて、これはおそらく非同期的に同時に呼び出されてもいいようになっているのだと思います。[ここも真似っこで実装しておきました。](https://github.com/ngicks/undefinedablejson/blob/699a7f4463b59597ade11fbe700df99c415e74d4/serde.go#L131-L160)
+このキャッシュの部分は`sync.WaitGroup`を使って同期させる部分が存在していて、これは recursive な type 用とコメントがありますが、おそらく非同期的に同時に呼び出されてもいいような対策でもあると思います。[ここも真似っこで実装しておきました。](https://github.com/ngicks/undefinedablejson/blob/699a7f4463b59597ade11fbe700df99c415e74d4/serde.go#L131-L160)
 
 また、struct type への string option は staticcheck `SA5008`に警告されてしまうので、warning 回避のために`und:"string"`でも`json:",string"`と同様の判定を行うように変更しました。
 
-## おわりに
+# 効果
+
+- Elasticsearch の前に立って、update 用の partial document を受け取って validation をかけたり加工したり素通ししたりする API が自然に書けるようになる(はず)
+- Elasticsearch の\_source フィールドで Elasticsearch から得られるドキュメントのフィールド名を絞った際、自然に指定しなかったフィールドが`undefined`なままで表現できるようになるはず
+  - ただしこれは document が null 埋めされてるとか初期値がついている前提。
+
+Elasticsearch は実のところあらゆるフィールドの値が `(T | null) | (T | null)[]`と定義されているので、もう少し努力が必要です。これは別の機会に実装しようと思っています。
+
+# おわりに
 
 いかかがでしたか？私はこの実装や調査を非常に楽しみました。最初は数時間で実装がすむ程度だと思って始めたのですが、思った以上に`encoding/json`の挙動の奥が深くて(考えれば当たり前ですが)、数日を消費されました。
 
