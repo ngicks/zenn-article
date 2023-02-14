@@ -67,17 +67,31 @@ Go には [The zero value](https://go.dev/ref/spec#The_zero_value) の概念が�
 
 ### zero value はフィールドがない判定に使われることがある
 
-この zero value は、「データがない状態」の判定に使われることがあり、standard library の`reflect`にも例えば、[IsZero](https://pkg.go.dev/reflect@go1.20#Value.IsZero)というメソッドが提供されています。
+この zero value は、「データがない状態」の判定に使われることがあり、
 
-他には [GORM](https://gorm.io/) という ORM の場合,
+例えば[GORM](https://gorm.io/) という ORM の場合,
 
-> // Struct
-> db.Where(&User{Name: "jinzhu", Age: 20}).First(&user)
-> // SELECT \* FROM users WHERE name = "jinzhu" AND age = 20 ORDER BY id LIMIT 1;
->
-> https://gorm.io/docs/query.html
+```go
+type User struct {
+  ID           uint
+  Name         string
+  Email        *string
+  Age          uint8
+  Birthday     *time.Time
+  MemberNumber sql.NullString
+  ActivatedAt  sql.NullTime
+  CreatedAt    time.Time
+  UpdatedAt    time.Time
+}
 
-という風に、zero value であるフィールドはデータがセットされていないこととして扱う API が存在します。該当の zero value 判定は[ここなどでおこなわれています](https://github.com/go-gorm/gorm/blob/02b7e26f6b5dcdc49797cc44c26a255a69f3aff3/schema/field.go#L462)(`reflect`の IsZero も使われていますね)
+// Struct
+db.Where(&User{Name: "jinzhu", Age: 20}).First(&user)
+// SELECT \* FROM users WHERE name = "jinzhu" AND age = 20 ORDER BY id LIMIT 1;
+```
+
+https://gorm.io/docs/query.html より引用
+
+という風に、zero value であるフィールドはデータがセットされていないこととして扱う API が存在します。該当の zero value 判定は[ここなどでおこなわれています](https://github.com/go-gorm/gorm/blob/02b7e26f6b5dcdc49797cc44c26a255a69f3aff3/schema/field.go#L462)(`reflect`の [IsZero](https://pkg.go.dev/reflect@go1.20#Value.IsZero) などが使われていますね)
 
 ### 外部データ(JSON)をバインドするときの zero value
 
@@ -117,7 +131,7 @@ type Sample struct {
 
 ### `undefined`と`null`を分けて扱われることがある
 
-HTTP で JSON を送る UPDATE や PATCH のとき、`undefined`(=キーが存在しない)のとき field をスキップ、`null`のとき field をクリアするか`null`で上書き、`T`の時`T`で上書き、という挙動をさせる API があります。筆者もそういった API を書くことがあります。
+HTTP で JSON を送る PUT や PATCH method において、`undefined`(=キーが存在しない)のとき field をスキップ、`null`のとき field をクリアするか`null`で上書き、`T`の時`T`で上書き、という挙動をさせる API があります。筆者もそういった API を書くことがあります。
 
 広く使われている実例としては、[Elasticsearch](https://www.elastic.co/guide/en/elasticsearch/reference/current/elasticsearch-intro.html) があります。Elasticsearch の update api では [partial document を送ること](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-update.html#_update_part_of_a_document)でドキュメントの各 field を更新でき、`null` をセットすることで field を `null` で上書きできます。
 
@@ -362,8 +376,9 @@ Go の struct に JSON から変換/逆変換を行うときに struct 上では
 
 - 入力値の`required`や、`disallowNull`, `disallowUndefined`などの入力ルールを実現できない
   - 少なくとも`required`は API にリクエストを飛ばすクライアントの実装が typo で key 名を取り違えているときのチェックのために欲しい。
+    - [DisallowUnknownFields](https://pkg.go.dev/encoding/json@go1.20#Decoder.DisallowUnknownFields)によって余分なキーを許可しないことで対応可能ではあります。
   - `map[string]any`へのデコードで実現できますが、最終的にデータのバインド先となる struct とフィールドと型が合わない場合でも一旦デコードを完了してしまうため非効率です。
-    - この場合[DisallowUnknownFields](https://pkg.go.dev/encoding/json@go1.20#Decoder.DisallowUnknownFields)のようなことができないため非効率です。
+    - この場合 `DisallowUnknownFields` のようなことができないため非効率です。
 - JSON を送信するとき、相手システムが `null` と `undefined` を分けて使う場合、だし分けるのに当該 struct 以上の追加のデータが必要であるため煩雑であること
 
 ひとつ目の validation 周りの欲求はパフォーマンスにしか触れておらず、ベンチもとっていないので特に強く言えないですが、2 番目の欲求はちょっとリアルに困っているところです。
@@ -539,7 +554,7 @@ JavaScript には`null`とは別に`undefined`という「データがない状�
 `json.Unmarshal`では、
 
 - JSON バイト列の中に対応する key がない場合、単に代入しない挙動となります。
-  - zero-value のまま置かれると思ってもいいでしょう。
+  - zero value のまま置かれると思ってもいいでしょう。
 
 ## `encoding/json`では"undefined | null | T"のだし分けできない
 
@@ -574,6 +589,19 @@ func main() {
 こういう挙動です。
 
 type のみ(= `json.Marshaler` / `json.Unmarshaler` のみ)によって`undefined` / `null`を表現し分けることは、std の範疇ではできなさそうなことは確認が取れました。
+
+# 関連 issue
+
+- https://github.com/golang/go/issues/5901
+- https://github.com/golang/go/issues/11939
+
+似たような悩みに基づく issue が出ています。色々理由があって`encoding/json`に入ることはないようですが
+
+https://github.com/golang/go/issues/5901#issuecomment-907696904
+
+にある通り、`v2`に値に基づいてフィールドをスキップするような挙動が追加されるかもしれません。
+
+とにかくしばらくはなさそうです。
 
 # 解決方法: "undefined | null | T"を表現できる type を作る
 
@@ -738,428 +766,219 @@ func (f Undefinedable[T]) Value() T {
 
 上記の`Undefinedable[T]`は struct であるので、前記の通り omitempty によるスキップ動作が起きません。そこで、専用の Marshaller を作成して`undefined`時に skip 可能にします。
 
-### ナイーブな発想版
+### 考慮すべきエッジケース
 
-単純な発想によれば、reflect によって field の値を読み取りながら、上記の Undefinedable[T]の場合かつ Undefined の時だけ field をスキップする挙動で目的は達せます。
+特化したものを作るのですが、特化の範囲はあくまで入力が struct のみと想定するのみです。ある程度`encoding/json`の挙動に寄せないと呼び出し側に不要な気遣いを生じさせ、後々困る可能性があります。
 
-もちろん`Undefinedable[T]`と`Nullable[T]`に MarshalJSON と UnmarshalJSON の実装が必要ですが、自明であるので省略します。
+`json.Marshal`は struct tag によってフィールド名が指定できる都合上、被ったフィールドをまとめて全部消す動作になっています。この辺のエッジケースがどういう風に動作するかを確認します。
 
-`encoding/json`は内部で利用している key などを JSON string の escape を行う機能を外部に公開しないため、[github.com/mailru/easyjson](https://github.com/mailru/easyjson)の`jwriter`に任せてしまいます。
+```go
+type OverlappingKey1 struct {
+	Foo string
+	Bar string `json:"Baz"`
+	Baz string
+}
+// OverlappingKey1{Foo: "foo", Bar: "bar", Baz: "baz"},
+// ↓
+// {"Foo":"foo","Baz":"bar"}
+// tagが優先(ソースコード中ではpromoteという言い回しも)
 
-```go marshal_fields_json.go
-func getFieldName(f reflect.StructField) string {
-	return f.Name // 実際にはf.Tag.Get("json")でフィールド名も見る
+type OverlappingKey2 struct {
+	Foo string
+	Bar string `json:"Bar"`
+	Baz string `json:"Bar"`
+}
+// OverlappingKey2{Foo: "foo", Bar: "bar", Baz: "baz"}
+// ↓
+// {"Foo":"foo"}
+// 同名のtagはどちらも削除
+
+type OverlappingKey3 struct {
+	Foo string
+	Bar string `json:"Baz"`
+	Baz string
+	Qux string `json:"Baz"`
+}
+// OverlappingKey3{Foo: "foo", Bar: "bar", Baz: "baz", Qux: "qux"}
+// ↓
+// {"Foo":"foo"}
+// tag名で被り+元のstruct field名で被りの場合でも全部まとめて消されますね。
+
+type Sub1 struct {
+	Foo string
+	Bar string `json:"Bar"`
 }
 
-func MarshalFieldsJSON(v any) ([]byte, error) {
-	rv := reflect.ValueOf(v)
+type OverlappingKey4 struct {
+	Foo string
+	Bar string
+	Baz string
+	Sub1
+}
+// OverlappingKey4{Foo: "foo", Bar: "bar", Baz: "baz", Sub1: Sub1{Foo: "foofoo", Bar: "barbar"}}
+// ↓
+// {"Foo":"foo","Bar":"bar","Baz":"baz"}
+// Embeddedの場合、上の階層にあるほうが優先。
 
-	if rv.Type().Kind() != reflect.Struct {
-		panic("not a struct!")
+type Recursive1 struct {
+	R string `json:"r"`
+	Recursive2
+}
+
+type Recursive2 struct {
+	R  string `json:"r"`
+	RR string `json:"rr"`
+	*OverlappingKey5
+}
+
+type OverlappingKey5 struct {
+	Foo string
+	Recursive1
+}
+// OverlappingKey5{Foo: "foo", Recursive1: Recursive1{R: "r", Recursive2: Recursive2{R: "r2", RR: "rr"}}},
+// ↓
+// {"Foo":"foo","r":"r","rr":"rr"}
+// 型の再帰が起きた時、1周まではエンコードされるがその後は虫れる挙動のようですね。
+```
+
+`encoding/json`のソースコードをよくよく読んでると優先ルールは[ここで記述されています](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1333-1388;bpv=1)ね。再帰に関しては[ここや](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=384-399;bpv=1)、[ここなど](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1234-1237;bpv=1)合わせ技でなっているのだと思われます。std はさすが、あらゆるエッジケースが考慮されていますね。
+
+### jsoniter の Extension で何とかする
+
+さすがに上記のエッジケースを埋めるものを個人で完全にメンテし続ける自信がなくなってきたので、なんとか他の方法でできないか探します。
+
+`encoding/json`は部分的なロジックを取り出せるつくりにはなっておらず(不用意に露出させれば変更の自由が損なわれるのだから当然です。)、サードパーティのライブラリを当てにするわけにはいけません。
+
+ということで色々探していると[jsoniter](https://github.com/json-iterator/go)が内部の挙動を改造かのうかつ interface 的には`encoding/json`と互換なようですのでこちらを使うことにします。
+
+jsoniter は[ValEncoder](https://pkg.go.dev/github.com/json-iterator/go#ValEncoder)という interface で型に対する encoder を定義しています。この IsEmpty という今回使いたいドンピシャの機能を露出していますのでこれを利用します。
+
+```go
+var config = jsoniter.Config{
+	EscapeHTML:             true,
+	SortMapKeys:            true,
+	ValidateJsonRawMessage: true,
+}.Froze()
+
+func init() {
+	config.RegisterExtension(&UndefinedableExtension{})
+}
+
+type IsUndefineder interface {
+	IsUndefined() bool
+}
+
+var undefinedableTy = reflect2.TypeOfPtr((*IsUndefineder)(nil)).Elem()
+
+// undefinedableEncoder fakes Encoder so that
+// the undefined Undefinedable fields are considered to be empty.
+type undefinedableEncoder struct {
+	ty  reflect2.Type
+	org jsoniter.ValEncoder
+}
+
+func (e undefinedableEncoder) IsEmpty(ptr unsafe.Pointer) bool {
+	val := e.ty.UnsafeIndirect(ptr)
+	return val.(IsUndefineder).IsUndefined()
+}
+
+func (e undefinedableEncoder) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	e.org.Encode(ptr, stream)
+}
+
+// UndefinedableExtension is the extension for jsoniter.API.
+// This forces jsoniter.API to skip undefined Undefinedable[T] when marshalling.
+type UndefinedableExtension struct {
+}
+
+func (extension *UndefinedableExtension) UpdateStructDescriptor(structDescriptor *jsoniter.StructDescriptor) {
+	if structDescriptor.Type.Implements(undefinedableTy) {
+		return
 	}
 
-	writer := jwriter.Writer{}
-	writer.RawByte('{')
-
-	appendComma := false
-
-	for i := 0; i < rv.NumField(); i++ {
-		field := rv.Field(i)
-		fieldName := getFieldName(rv.Type().Field(i))
-
-		und, ok := field.Interface().(interface{ IsUndefined() bool })
-		if ok && und.IsUndefined() {
-			continue
+	for _, binding := range structDescriptor.Fields {
+		if binding.Field.Type().Implements(undefinedableTy) {
+			enc := binding.Encoder
+			binding.Encoder = undefinedableEncoder{ty: binding.Field.Type(), org: enc}
 		}
-
-		if appendComma {
-			writer.RawString(",")
-		}
-		appendComma = true
-
-		writer.String(fieldName)
-		writer.RawString(":")
-
-		writer.Raw(json.Marshal(field.Interface()))
 	}
-
-	writer.RawString("}")
-
-	if writer.Error != nil {
-		return nil, writer.Error
-	}
-
-	var buf bytes.Buffer
-	buf.Grow(writer.Size())
-	if _, err := writer.DumpTo(&buf); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }
+
+// ... rest of interface ...
 ```
 
-この方法は reflect の使用などのせいで実行時の効率は悪いですがほとんどの処理を json.Marshal に委譲できるのでメンテが楽という利点があります。json string の escape も jwriter に委譲します。
+jsoniter.Register...などは string で type 名を指定させますが、`Undefinedable[T]`は`T`ごとに別々の型として取り扱われるので Extension でまとめて判定したほうが楽なので少々パフォーマンスペナルティがあってもこちらの方法を取ります。
 
-### json.Marshal と同じ struct tag をサポートする
+さて、IsEmpty を内部的に IsUndefined に差し替えることができました。ただ、これだけではフィールドに`omitempty`を設定する必要があるため、まだ目標に届きません。
 
-#### json.Marshal の struct tag
+ここで、reflect2.StructField が interface であることに気付きました。つまり、
 
-json.Marshal は struct tag によってカスタマイズが可能です。上記ナイーブな発想版の Marshaller はこれらのタグを無視してしまいますので手動でサポートを加える必要がありますね。完全無視する挙動でも問題ないといえば問題ありませんが実用上の問題が出そうなので実装してみましょう。
-
-json の struct tag は以下のような構造を取ります
-
-`json:"name,opt,opt"`
-
-タグは field name、そこからカンマ区切りでオプションが並びます。
-
-- name 部分で marshal 後の JSON key がカスタマイズできます。
-  - 全く別の名前にもできますが、基本的には Go の Visibility rule で PascalCase にしてある field 名を snake_case に変換するのが主な目的かと思います。
-- name 部分を`-`にすると、field を無視します。
-  - ただし`-,`とすると`-`を出力できます。
-- omitempty オプションで field が zero value であるときスキップさせます。
-  - [条件はここで網羅されており](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;l=339)、見て分かる通り長さ 1 以上の Array と Struct は絶対に skip されません
-- string オプションで encode / decode 時に`"`によって値を quote します。
-  - string, int, unsigned int, float, bool のみに有効でそれ以外の型では無視されます。[条件はここに乗っています](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=1275-1286;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)
-  - おそらく`"true"`/`"false"`を使うシステムや、JavaScript のライブラリによっては [BigInt](https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/BigInt) の JSON 表現に string 型を選ぶことがある事への対応かと思います。
-
-#### 実装する
-
-name 部分の取得、option の取得を以下のように実装します。
-
-- `tagged`は struct tag で field 名を指定したか、shouldSkip はタグが`-`であったかを示します。
-
-```go
-func GetFieldName(field reflect.StructField) (fieldName string, options string, tagged bool, shouldSkip bool) {
-	tagged = true
-	fieldName, options, shouldSkip = GetJsonTag(field)
-	if len(fieldName) == 0 {
-		tagged = false
-		fieldName = field.Name
-	}
-	return fieldName, options, tagged, shouldSkip
-}
-
-func GetJsonTag(field reflect.StructField) (name string, opt string, shouldSkip bool) {
-	tag := field.Tag.Get("json")
-	if tag == "-" {
-		return "", "", true
-	}
-	name, opt, _ = strings.Cut(tag, ",")
-	return name, opt, false
-}
-```
-
-- OptContain で option が含まれているかの判定をします。
-  - (`encoding/json`内部で使われているのとほぼ同じコードです)
-  - json option は boolean flag なのでこの実装で十分です。
-
-```go
-func OptContain(options string, target string) bool {
-	if len(options) == 0 {
-		return false
-	}
-	var opt string
-	for len(options) != 0 {
-		opt, options, _ = strings.Cut(options, ",")
-		if opt == target {
-			return true
-		}
-	}
-	return false
-}
-```
-
-omitempty ルールを再現するために、Empty 判定をする関数を作ります。これはまるっきりドキュメントの通りに実装しただけです。
-
-```go
-// IsEmpty reports true if v should be skipped when tagged with omitemty, false otherwise.
-func IsEmpty(v reflect.Value) bool {
-	switch v.Kind() {
-	// false
-	case reflect.Bool:
-		return !v.Bool()
-		// 0
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return v.Int() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return v.Uint() == 0
-	case reflect.Float32, reflect.Float64:
-		return math.Float64bits(v.Float()) == 0
-		// empty array
-	case reflect.Array:
-		return v.Len() == 0
-		// nil interface or pointer
-	case reflect.Interface, reflect.Pointer:
-		return v.IsNil()
-		// empty map, slice, string
-	case reflect.Map, reflect.Slice:
-		return v.IsNil() || v.Len() == 0
-	case reflect.String:
-		return v.Len() == 0
-	}
-	return false
-}
-```
-
-string ルールを再現するために quotable 判定を行う関数を定義します。
-
-```go
-func IsQuotable(ty reflect.Type) bool {
-	// string options work only for
-	// string, floating point, integer, or boolean types.
-	switch ty.Kind() {
-	case reflect.String,
-		reflect.Float32, reflect.Float64,
-		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
-		reflect.Bool:
-		return true
-	}
-
-	return false
-}
-```
-
-`Undefinedable[T]`にもこのルールが適用できるように拡張を行います。
-
-```go
-func (f Nullable[T]) IsQuotable() bool {
-	var t T
-	return IsQuotable(reflect.TypeOf(t))
-}
-
-func (f Undefinedable[T]) IsQuotable() bool {
-	var t T
-	return IsQuotable(reflect.TypeOf(t))
-}
-
-func shouldQuote(ty reflect.Type, value any) bool {
-	if IsQuotable(ty) {
-		return true
-	}
-	if quotable, ok := value.(interface{ IsQuotable() bool }); ok {
-		return quotable.IsQuotable()
-	}
-	return false
-}
-```
-
-`MarshalFieldsJSON`にもろもろの処理を入れていきます。
-
-```diff go:marshal_fields_json.go
-func MarshalFieldsJSON(v any) ([]byte, error) {
-	rv := reflect.ValueOf(v)
-
-	if rv.Type().Kind() != reflect.Struct {
-		panic("not a struct!")
-	}
-
-	writer := jwriter.Writer{}
-	writer.RawByte('{')
-
-	appendComma := false
-
-	for i := 0; i < rv.NumField(); i++ {
-		field := rv.Field(i)
--		fieldName := getFieldName(rv.Type().Field(i))
-+		fieldName, options, tagged, shouldSkip := GetFieldName(rv.Type().Field(i))
+```diff go
++ // fakingTagField implements reflect2.StructField interface,
++ // faking the struct tag to pretend it is always tagged with ,omitempty option.
++ type fakingTagField struct {
++ 	reflect2.StructField
++ }
 +
-+		if shouldSkip {
-+			// tagged as "-" (and not "-,")
-+			continue
-+		}
++ func (f fakingTagField) Tag() reflect.StructTag {
++ 	t := f.StructField.Tag()
++ 	if jsonTag, ok := t.Lookup("json"); !ok {
++ 		return reflect.StructTag(`json:",omitempty"`)
++ 	} else {
++ 		splitted := strings.Split(jsonTag, ",")
++ 		hasOmitempty := false
++ 		for _, opt := range splitted {
++ 			if opt == "omitempty" {
++ 				hasOmitempty = true
++ 				break
++ 			}
++ 		}
 +
-+		if OptContain(options, "omitempty") && IsEmpty(field) {
-+			continue
-+		}
-
-		und, ok := field.Interface().(interface{ IsUndefined() bool })
-		if ok && und.IsUndefined() {
-			continue
-		}
-
-		if appendComma {
-			writer.RawString(",")
-		}
-		appendComma = true
-
--		writer.String(fieldName)
--		writer.RawString(":")
--
--		writer.Raw(json.Marshal(field.Interface()))
-+		var marshalled []byte
-+		var err error
-+		if !tagged && rv.Type().Field(i).Anonymous && field.Type().Kind() == reflect.Struct {
-+			// only the untagged embedded struct field receives same treatment.
-+			marshalled, err = MarshalFieldsJSON(field.Interface())
-+			if len(marshalled) >= 2 {
-+				marshalled = marshalled[1 : len(marshalled)-1]
-+			}
-+		} else {
-+			marshalled, err = json.Marshal(field.Interface())
-+			writer.String(fieldName)
-+			writer.RawString(":")
-+		}
++ 		if !hasOmitempty {
++ 			return reflect.StructTag(`json:"` + strings.Join(splitted, ",") + `,omitempty"`)
++ 		}
++ 	}
 +
-+		// json.Marshal does not quote the `null` value.
-+		quote := shouldQuote(field.Type(), field.Interface()) && string(marshalled) != "null"
-+		if quote {
-+			writer.RawString("\"")
-+		}
-+		writer.Raw(marshalled, err)
-+		if quote {
-+			writer.RawString("\"")
-+		}
++ 	return t
++ }
++
+// UndefinedableExtension is the extension for jsoniter.API.
+// This forces jsoniter.API to skip undefined Undefinedable[T] when marshalling.
+type UndefinedableExtension struct {
+}
+
+func (extension *UndefinedableExtension) UpdateStructDescriptor(structDescriptor *jsoniter.StructDescriptor) {
+	if structDescriptor.Type.Implements(undefinedableTy) {
+		return
 	}
 
-	writer.RawString("}")
-
-	if writer.Error != nil {
-		return nil, writer.Error
+	for _, binding := range structDescriptor.Fields {
+		if binding.Field.Type().Implements(undefinedableTy) {
+			enc := binding.Encoder
++			binding.Field = fakingTagField{binding.Field}
+			binding.Encoder = undefinedableEncoder{ty: binding.Field.Type(), org: enc}
+		}
 	}
-
-	var buf bytes.Buffer
-	buf.Grow(writer.Size())
-	if _, err := writer.DumpTo(&buf); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }
 ```
 
-## 特化した Unmarshaller を作る
+という感じで、`Undefinedable[T]`の時だけ常に omitempty タグがあるかのようにふるまうようにします。少々ハッキーですがこれで思った通りの挙動をになります。
 
-`Undefinable[T]`、`Nullable[T]`が\`json:",string"\`を無視していれば`json.Unmarshal`でデコード可能だったのですが、考慮するようにしたので`json.Unmarshal`に対応する`UnmarshalFieldsJSON`が必要になってしまいました。
+:::details jsoniter も実装が正しくないという話。
 
-JSON バイト列の解析と iterate は [github.com/buger/jsonparser](https://github.com/buger/jsonparser) にすべて任せます。
+recursive な型を入れると stack overflow、上で上げたエッジケース OverlappingKey2 のケース以外はすべて`encoding/json`と異なって挙動をしています。
 
-```go
-func UnmarshalFieldsJSON(data []byte, v any) error {
-	rv := reflect.ValueOf(v)
+さらに、`,string`オプションが`null`や struct など対応していない型も quote していまいます。
 
-	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return &json.InvalidUnmarshalError{Type: rv.Type()}
-	}
+issue にもしておきました。
 
-	return unmarshalFieldsJSON(data, rv)
-}
+https://github.com/json-iterator/go/issues/657
 
-type fieldInfo struct {
-	ty          reflect.StructField
-	layoutIndex int  // index that can be used to retrieve type info with rv.Field(layoutIndex).
-	anonymous   bool // embedded.
-	tagged      bool // tagged with field name.
-	quote       bool // field has ,string option.
-}
+recursive なやつ以外はサポートするほどでもないのかな？
 
-func unmarshalFieldsJSON(data []byte, rv reflect.Value) error {
-	rv = reflect.Indirect(rv)
-	rt := rv.Type()
+PR を求められたら修正を試みてみようと思いますが、jsoniter 自体が現在あまりアクティブにサポートされてなさそうなので他のライブラリを探したほうがいいのかもしれませんね。
 
-	if rt.Kind() != reflect.Struct {
-		return fmt.Errorf("incorrect type. want = struct, but is %s", rt.Kind())
-	}
-
-	// Collect type info ahead of time
-	// to avoid doing rv.FieldByName() each time it iterates over JSON byte slice.
-	fieldNames := make(map[string]fieldInfo, rv.NumField())
-	for i := 0; i < rv.NumField(); i++ {
-		field := rt.Field(i)
-		fieldName, opts, tagged, shouldSkip := GetFieldName(field)
-
-		if shouldSkip {
-			continue
-		}
-
-		// Untagged embedded field. Must go into recursively.
-		if !tagged && field.Anonymous && field.Type.Kind() == reflect.Struct {
-			err := unmarshalFieldsJSON(data, rv.Field(i))
-			if err != nil {
-				return err
-			}
-		}
-
-		fieldNames[fieldName] = fieldInfo{
-			ty:          field,
-			layoutIndex: i,
-			anonymous:   field.Anonymous,
-			tagged:      tagged,
-			quote:       OptContain(opts, "string") || OptContain(field.Tag.Get("und"), "string"),
-		}
-	}
-
-	return jsonparser.ObjectEach(
-		data,
-		func(key, value []byte, dataType jsonparser.ValueType, offset int) error {
-			info, ok := fieldNames[string(key)]
-			if !ok {
-				return nil
-			}
-
-			if dataType == jsonparser.String {
-				// jsonparser trims wrapping double quotations. Get those back here.
-				value = data[offset-len(value)-2 : offset]
-			}
-
-			if info.quote && string(value) != "null" {
-				if value[0] != '"' || value[len(value)-1] != '"' {
-					// mimicking json.Unmarshal behavior.
-					return fmt.Errorf(
-						"broken quotation. field ( %s tagged as %s ) is tagged with string option"+
-							" but input value is neither 'null'"+
-							" nor wrapped with double quotations. value = %s",
-						info.ty.Name, string(key), string(value),
-					)
-				}
-				value = value[1 : len(value)-1]
-			}
-
-			frv := rv.Field(info.layoutIndex)
-
-			v := frv
-			if v.Kind() != reflect.Pointer && v.Type().Name() != "" && v.CanAddr() {
-				// adder this value so that we can find method of *T, not only ones for T.
-				v = v.Addr()
-			}
-
-			if info.tagged && info.anonymous && frv.Type().Kind() == reflect.Struct {
-				// tagged embedded field.
-				err := unmarshalFieldsJSON(value, v)
-				if err != nil {
-					return err
-				}
-			}
-
-			if decoder, ok := v.Interface().(json.Unmarshaler); ok {
-				err := decoder.UnmarshalJSON(value)
-				if err != nil {
-					return err
-				}
-			} else {
-				internalValue := v.Interface()
-				err := json.Unmarshal(value, internalValue)
-				if err != nil {
-					return err
-				}
-			}
-
-			return nil
-		},
-	)
-}
-```
-
-上記のような感じです。[実際の実装ではもうちょっと凝ったことをしています。](https://github.com/ngicks/undefinedablejson/blob/main/serde.go)
-
-## `encoding/json`の効率化をまねる
-
-`unmarshalFieldsJSON`の fieldInfo の収集部分は、同じ reflect.Type に対して全く同じ処理をしますのでコンパイラが最適化をかけてくれそうな気もしますが、`reflect`が含まれているのでどうなるんだろう、と思いながら`encoding/json`を読み進めるとフィールドをどう処理するかっていう処理を[sync.Map でキャッシュしていますね。](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=370;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;bpv=1)`reflect`であるから最適化が掛からないかはわからないですが、似たようなことをしている都合上、似たような対策が似たような効果を及ぼすと期待できます。
-
-このキャッシュの部分は`sync.WaitGroup`を使って同期させる部分が存在していて、これは recursive な type 用とコメントがありますが、おそらく非同期的に同時に呼び出されてもいいような対策でもあると思います。[ここも真似っこで実装しておきました。](https://github.com/ngicks/undefinedablejson/blob/699a7f4463b59597ade11fbe700df99c415e74d4/serde.go#L131-L160)
-
-また、struct type への string option は staticcheck `SA5008`に警告されてしまうので、warning 回避のために`und:"string"`でも`json:",string"`と同様の判定を行うように変更しました。
+:::
 
 # 効果
 
@@ -1171,16 +990,11 @@ Elasticsearch は実のところあらゆるフィールドの値が `(T | null)
 
 # おわりに
 
-いかかがでしたか？私はこの実装や調査を非常に楽しみました。最初は数時間で実装がすむ程度だと思って始めたのですが、思った以上に`encoding/json`の挙動の奥が深くて(考えれば当たり前ですが)、数日を消費されました。
+いかかがでしたか？私はこの実装や調査を非常に楽しみました。
+想像よりも数段`encoding/json`の挙動が奥が深く、周辺ライブラリの多さや調査項目の多さに結構な時間を持っていかれました。
 
-ここまで書いておいてなんですが、本当にこの方法が最良なのでしょうか？他に方法があったり、他に誰かが似たようなことをすでにしている気がするんです。筆者が記事執筆前に軽く調べた限りそれらしい情報は出てこなかったですし、作ってみたかったので作ってみただけなので別にあったとしてもいいのですが。
+似たようなことをしている人はいると思うんですが、今回の実装はほとんど外部ライブラリ頼みでミニマルにできたので結構使えるものになったと思います。
 
-今後の拡張としては
+今回実装したものによって例えば[ozzo-validation](https://github.com/go-ozzo/ozzo-validation)などのみで validation ができるようになったりと、結構便利になったのではないでしょうか？
 
-- code generator の追加
-  - `reflect`の使用を避けるため。
-- `required`, `disallowNull`などのバリデーションルールを追加し、Unmarshal 時に validate する
-- `Option[T]`に`Map()`のような Rust の`Option<T>`風関数を追加して変更を容易にする。
-- 似たようなことをしている package を探して、**あった場合このパッケージ破棄し、それに貢献する**。
-
-実はこのライブラリ自体は Elasticsearch の JSON をいい感じに扱うために作っていたライブラリを一部切り出したものなので、筆者が Elasticsearch とやり取りする Go アプリを書くまで本格使用することがないため、問題点が明らかにならない可能性が高いです。
+今後はこれを Elasticsearch を相手にするシステムで使ってみて、改善など行っていこうと思います。
