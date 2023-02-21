@@ -6,6 +6,13 @@ topics: ["go"]
 published: false
 ---
 
+# TL;DR
+
+- Elasticsearch (の update API)のような JSON における`null`と`undefined`(JSON に key がない)状態をうまく使い分けるシステムに送る JSON を struct を marshal するだけでいい感じに作りたい。
+- std の`encoding/json`でうまいことやるのは無理そうだった。
+- `Option[T]`を定義して、`Option[Option[T]]`を`undefined | null | T`を表現する型とした。
+- [jsoniter](https://github.com/json-iterator/go)の Extension を駆使して`undefined`のとき field を skip できるようにした。
+
 # Overview
 
 Go で JSON を扱うとき、Elasticsearch の update api に渡す JSON のような `null` と `undefined` をだし分けられるデータ構造や、それに対応する JSON marshaller が Go には std ではなく、軽く探したところ見つからなかったので、興味本位で作ってみました。
@@ -25,8 +32,8 @@ https://github.com/ngicks/undefinedablejson
 
 # 前提知識
 
-- [Go programming language](https://go.dev/) の説明はしないので、ある程度知っている人じゃないと意味が分からないかもしれません。
-- 本投稿のごく一部で何の説明もなしに TypeScript の型表記ができます。知っている人か、でなければなんとなくで読んでください。
+- [Go programming language](https://go.dev/) の細かい説明はしてますが全体の説明はしないので、ある程度知っている人じゃないと意味が分からないかもしれません。
+- 本投稿のごく一部で何の説明もなしに TypeScript の型表記がでてきます。知っている人か、でなければなんとなくで読んでください。
 
 # 環境
 
@@ -96,7 +103,7 @@ https://gorm.io/docs/query.html より引用
 
 ### 外部データ(JSON)をバインドするときの zero value
 
-同じように、JSON など外部データからの変換時、struct にデータをバインドする際に、
+同じように、JSON など外部データからのデコード時、struct にデータをバインドする際に、
 
 ```go
 type Sample struct {
@@ -142,7 +149,9 @@ HTTP で JSON を送る PUT や PATCH method において、`undefined`(=キー�
 
 もっとも単純な発想は`map[string]any`に JSON のあらゆる値をいったんデコードして、key の存在チェックや型の整合性などを取ることです。
 
-Go のハッシュマップは`map[T]U`の記法で表現されます。Go では`interface{}`という、method set の実装制約がない型によってあらゆる値を格納可能な変数を定義でき、Generics が追加された Go1.18 以降ではこの何でも代入可能な側面を強調する為か`any`のエイリアスが用意されています。
+Go のハッシュマップは`map[T]U`の記法で表現されます。`T`が key、`U`が value の型です。
+
+`any`は Go1.18 で追加された`interface{}`のエイリアスです。Go の interface は [MethodElem](https://go.dev/ref/spec#MethodElem) の集合であり、それを実装するあらゆる型が代入可能です。`any`は何のメソッドも指定されていないためどのような値でも代入可能です。
 
 JSON は TypeScript でいうところの
 
@@ -177,6 +186,8 @@ JSON schema を読み込んで validation をかける事ができるライブ�
 :::details json schema で validation をおこなう echo.Binder の実装サンプル
 
 サンプルで`echo.Context`をくみ上げる気が起きなかったので、その部分は単に compilation error が起きないことだけ見せています。
+
+MustCompile は[JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901)を受け付ける仕様なので OpenAPI spec の yaml でも JSON byte に変換できればコンパイル可能です。
 
 ```go: こんな感じ.go
 package main
@@ -342,7 +353,7 @@ struct field がポインターである場合、`nil`の場合のみ新しい�
 
 # 課題
 
-Go の struct に JSON から変換/逆変換を行うときに struct 上では`undefined`と`null`と`T`が区別が付かないため
+Go の struct に JSON からエンコード/デコードを行うときに struct 上では`undefined`と`null`と`T`が区別が付かないため
 
 - 入力値の`required`や、`disallowNull`, `disallowUndefined`などの入力ルールを実現できない
   - 少なくとも`required`は API にリクエストを飛ばすクライアントの実装が typo で key 名を取り違えているときのチェックのために欲しい。
@@ -365,11 +376,11 @@ Go の struct に JSON から変換/逆変換を行うときに struct 上では
 
 まず解決方法を考える前に Go の standard library で JSON を取り扱う`encoding/json`が`null`や`undefined`をどのように処理するのか確認します。
 
-## 基本: 変換/逆変換
+## 基本: エンコード/デコード
 
-この記事をここまで読んでいて知らない人がいるかはわかりませんが、基礎情報として、変換/逆変換の方法について触れます。
+この記事をここまで読んでいて知らない人がいるかはわかりませんが、基礎情報として、エンコード/デコードの方法について触れます。
 
-Go で標準的な方法で JSON を取り扱うには standard library の`encoding/json`を使います。`json.Marshal`によって変換、`json.Unmarshal`によって逆変換を行います。
+Go で標準的な方法で JSON を取り扱うには standard library の`encoding/json`を使います。`json.Marshal`によってエンコード、`json.Unmarshal`によってデコードを行います。
 
 [playground](https://go.dev/play/p/oDZNB8D_ub6)
 
@@ -505,7 +516,7 @@ type が`json.Unmarshaler`を実装する場合、JSON byte が`null`である�
 
 :::details 若干厄介な null リテラルの取り扱い
 
-`null` が入力値であり対象が一致しない型であるとき単に代入しない動きであるので `null` リテラルが入力であればデコード自体が完全にスキップされ、**エラーになりません**。
+`null` が入力値であり対象が non-pointer type であるとき単に代入しない動きであるので `null` リテラルが入力であればデコード自体が完全にスキップされ、**エラーになりません**。
 
 [playground](https://go.dev/play/p/ywwNGq-LBYz)
 
@@ -533,7 +544,6 @@ func main() {
 ```
 
 `var jsonVal any`にデコードするか、でなければ `null` リテラルはデコード前に判定する必要があります。
-
 :::
 
 ## JSON undefined
@@ -551,6 +561,7 @@ JavaScript には`null`とは別に`undefined`という「データがない状�
 
 - 設定時 [Marshal でフィールドがスキップされるような処理になります](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;l=748;drc=8c17505da792755ea59711fc8349547a4f24b5c5;bpv=1;bpt=1)
 - [empty であるかの条件はここで網羅されています](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/encode.go;drc=d5de62df152baf4de6e9fe81933319b86fd95ae4;l=339)
+  - 条件の通り struct は決して empty と判定されることはありません。
 - [この記述](https://cs.opensource.google/go/go/+/refs/tags/go1.20.0:src/encoding/json/indent.go;l=17;drc=8c17505da792755ea59711fc8349547a4f24b5c5)からわかるように、`MarshalJSON`メソッドで返すことが許されるのは、有効な JSON 文字列のみです。
   - つまりここで empty な値を返して、フィールドをスキップしてもらうようなことはできません。
 
@@ -613,7 +624,6 @@ https://github.com/golang/go/issues/5901#issuecomment-907696904
 - `undefined | null | T`を表現できる構造体を定義することとします。
   - `**T`のようなポインタータイプを base type とする defined type はメソッドを持てませんので struct にします。
   - struct は omiempty によるスキップがぜったいに起こりませんので専用の marshaller が必要です。
-    - `",string"`オプションをサポートすると unmarshaller も必要になってしまったので作ります
 
 ## type を作る
 
@@ -784,7 +794,7 @@ type OverlappingKey1 struct {
 // OverlappingKey1{Foo: "foo", Bar: "bar", Baz: "baz"},
 // ↓
 // {"Foo":"foo","Baz":"bar"}
-// tagが優先(ソースコード中ではpromoteという言い回しも)
+// tagが優先
 
 type OverlappingKey2 struct {
 	Foo string
@@ -844,7 +854,17 @@ type OverlappingKey5 struct {
 // 型の再帰が起きた時、1周まではエンコードされるがその後は無視される挙動のようですね。
 ```
 
-`encoding/json`のソースコードをよくよく読んでると優先ルールは[ここで記述されています](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1333-1388;bpv=1)ね。再帰に関しては[ここや](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=384-399;bpv=1)、[ここなど](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1234-1237;bpv=1)合わせ技でなっているのだと思われます。std はさすが、あらゆるエッジケースが考慮されていますね。
+`encoding/json`のソースコードをよくよく読んでると優先ルールは[ここで記述されています](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1333-1388;bpv=1)ね。index は struct 中での定義順のことで、len(index) > 1 の時 embed された struct であることがわかります。なので、優先ルールは、
+
+- 階層の浅さ(embed されているものが優先されない)
+- tag されているか
+- 定義順
+
+で決められており、同名のフィールドが複数ある場合は`len(fields[0].index) == len(fields[1].index) && fields[0].tag == fields[1].tag`の場合、その名前は消す、という挙動ですね。
+
+再帰に関しては[ここや](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=384-399;bpv=1)、[ここなど](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1234-1237;bpv=1)合わせ技でなっているのだと思われます。
+
+std はさすが、あらゆるエッジケースが考慮されていますね。
 
 ### jsoniter の Extension で何とかする
 
@@ -854,7 +874,7 @@ type OverlappingKey5 struct {
 
 幸いにも json 関連のライブラリは数多く存在しており、[github.com/json-iterator/go](https://github.com/json-iterator/go)(以後 jsoniter と呼びます)が内部の挙動を Extension の仕組みによってカスタマイズ可能かつ interface 的には`encoding/json`と互換なようですのでこちらを使うことにします。
 
-jsoniter は[ValEncoder](https://pkg.go.dev/github.com/json-iterator/go#ValEncoder)という interface で型に対する encoder を定義しています。この IsEmpty という今回使いたいドンピシャの機能を露出していますのでこれを利用します。
+jsoniter は[ValEncoder](https://pkg.go.dev/github.com/json-iterator/go#ValEncoder)という interface で型に対する encoder を定義しています。この interface は IsEmpty という今回使いたいドンピシャの機能を露出していますのでこれを利用します。
 
 ```go
 var config = jsoniter.Config{
@@ -910,7 +930,7 @@ func (extension *UndefinedableExtension) UpdateStructDescriptor(structDescriptor
 // ... rest of interface ...
 ```
 
-jsoniter.Register...などは string で type 名を指定させますが、この type 名は`reflect2.Type#String`によってランタイムで判別されます。Generics である場合、例えば`Undefinedable[T]`は`T`ごとに別々の type 名を持つことになります。ここで煩雑なコードによってありあえる`T`ごとに Encoder を登録するよりも`interface{ IsUndefined() bool }`を実装するものに対してまとめて適用したほうが楽なのでここではそうしています。
+jsoniter.Register...などは string で type 名を指定して Encoder を登録できますが、この type 名は`reflect2.Type#String`によってランタイムで判別されます。Generics である場合、例えば`Undefinedable[T]`は`T`ごとに別々の type 名を持つことになります。ここで煩雑なコードによってありあえる`T`ごとに Encoder を登録するよりも`interface{ IsUndefined() bool }`を実装するものに対してまとめて適用したほうが楽なのでここではそうしています。
 
 さて、IsEmpty を内部的に IsUndefined に差し替えることができました。ただ、これだけではフィールドに`omitempty`を設定する必要があるため、まだ目標に届きません。
 
@@ -966,11 +986,10 @@ func (extension *UndefinedableExtension) UpdateStructDescriptor(structDescriptor
 ```
 
 という感じで、`Undefinedable[T]`の時だけ常に omitempty タグがあるかのようにふるまうようにします。少々ハッキーですがこれで思った通りの挙動をになります。
-(json タグがあるとき他のタグが消えるという雑な挙動ですのでそのうちもうちょっと綺麗に書き直すかも。)
 
-:::details jsoniter も実装が正しくないという話。
+:::details jsoniter も encoding/json と動作が一致しないという話。
 
-上記のエッジケースを入力すると jsoniter も間違った結果を返しました。よりにもよって一番考慮されないエッジケースを選んでしまったようです。
+上記のエッジケースを入力すると jsoniter も encoding/json と一致しない結果を返しました。よりにもよって一番考慮されないエッジケースを選んでしまったようです。
 
 さらに、`,string`オプションが`null`や struct など対応していない型も quote していまいます。
 
@@ -982,7 +1001,7 @@ https://github.com/json-iterator/go/issues/657
 
 https://github.com/json-iterator/go/pull/659
 
-とりあえず#657 を fix する PR を出しておきましたがあまりアクティブでない様子なのでほっとかれるかもしれません。
+とりあえず embed された struct が再帰する型で overflow する問題と上記のエッジケースを fix する PR を出しておきましたが、あまりアクティブでない様子なのでほっとかれるかもしれません。まあ重要そうなところではないのでこの辺の挙動を踏まないように気を付ければ問題ないでしょう。
 
 :::
 
@@ -997,18 +1016,17 @@ Elasticsearch は実のところあらゆるフィールドの値が `undefined 
 # おわりに
 
 いかかがでしたか？私はこの実装や調査を非常に楽しみました。
-想像よりも数段`encoding/json`の挙動が奥が深く、周辺ライブラリの多さや調査項目の多さに結構な時間を持っていかれました。
+想像よりも数段`encoding/json`の挙動が奥が深く、周辺ライブラリの多さや調査項目の多さに結構な時間を持っていかれました。なんだか結果的に jsoniter の便利さを伝えるだけの記事になってしまったような気がします。
 
 似たようなことをしている人はいると思うんですが、今回の実装はほとんど外部ライブラリ頼みでミニマルにできたので自分で作ったものでも結構使えるものになったと思います。
-
-今回実装したものによって例えば[ozzo-validation](https://github.com/go-ozzo/ozzo-validation)などのみで validation ができるようになったりと、結構便利になったのではないでしょうか？
 
 今後の課題は
 
 - 今回の成果物を Elasticsearch を相手にするシステムで使ってみて改善する。
 - jsoniter の Extension 部分をもうちょっと一般的にして使いやすくする
-  - 今回の取り急ぎ版は json タグ以外を消し去ってしまうのでその部分をもっと丁寧に実装してもいいですね。
   - `time.Time` で `t.IsZero() == true`のとき empty 扱いするなども同様にできますので、そういった extension を作ってもいいでしょう。
 - 普通はこういうお困りごとはどうやって解決されているのかを調べる。
 
 などでしょうか。
+
+以上です。ありがとうございました。
