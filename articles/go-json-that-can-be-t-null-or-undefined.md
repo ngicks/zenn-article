@@ -19,7 +19,7 @@ Go で JSON を扱うとき、Elasticsearch の update api に渡す JSON のよ
 
 成果物はこちらです。
 
-https://github.com/ngicks/undefinedablejson
+https://github.com/ngicks/und
 
 この記事では
 
@@ -1000,10 +1000,26 @@ https://github.com/json-iterator/go/issues/657
 `,string`オプションはあまりにも挙動が違うのでサポートしたほうがいいかもですが、他は考慮するほどでもないですかね？
 
 https://github.com/json-iterator/go/pull/659
+https://github.com/json-iterator/go/pull/660
 
-とりあえず embed された struct が再帰する型で overflow する問題と上記のエッジケースを fix する PR を出しておきましたが、あまりアクティブでない様子なのでほっとかれるかもしれません。まあ重要そうなところではないのでこの辺の挙動を踏まないように気を付ければ問題ないでしょう。
+これらの問題を修正する PR を出しておきましたが、非活発的なようなのでほっとかれるかもしれません。
+`unsafe.Pointer`は今まで使ったことなかったんですがおかげでちょっと慣れちゃいました。
 
 :::
+
+## 実装
+
+https://github.com/ngicks/und
+
+色々綺麗にしてパッケージとして公開しておきました。これで会社でもコードを使えるというワケです。
+
+実際にはもう少し色々綺麗にしていて、
+
+- `nullable.Null[T]()`と`undefinedable.Null[T]()`のような感じで同名関数を持てるようにパッケージを分割
+- StructTag のパージングを本格的なものにして、json 以外のタグを全く変更しないように
+- NewEncoder/NewDecoder も API として公開するように
+
+など、実用に耐えなくもないラインを目指してます。
 
 # 効果
 
