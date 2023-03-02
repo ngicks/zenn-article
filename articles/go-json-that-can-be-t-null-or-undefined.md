@@ -3,7 +3,7 @@ title: "Goのstruct fieldでJSONのundefinedとnullを表現する"
 emoji: "💬"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 # TL;DR
@@ -11,7 +11,7 @@ published: false
 - Elasticsearch (の update API)のような JSON における`null`と`undefined`(JSON に key がない)状態をうまく使い分けるシステムに送る JSON を struct を marshal するだけでいい感じに作りたい。
 - std の`encoding/json`でうまいことやるのは無理そうだった。
 - `Option[T]`を定義して、`Option[Option[T]]`を`undefined | null | T`を表現する型とした。
-- [jsoniter](https://github.com/json-iterator/go)の Extension を駆使して`undefined`のとき field を skip できるようにした。
+- [jsoniter](https://github.com/json-iterator/go)の [Extension](https://pkg.go.dev/github.com/json-iterator/go#Extension) を駆使して`undefined`のとき field を skip する Marshaler を実装した。
 
 # Overview
 
@@ -61,7 +61,7 @@ go version go1.20 linux/amd64.
 
 と呼びます。
 
-# 背景: 時たま困る Go における「データがない状態」の扱い
+# 背景: 時たま困る「データがない状態」の扱い
 
 Go の言語設計のせいでは全くないのですが・・・
 
@@ -516,7 +516,7 @@ type が`json.Unmarshaler`を実装する場合、JSON byte が`null`である�
 
 :::details 若干厄介な null リテラルの取り扱い
 
-`null` が入力値であり対象が non-pointer type であるとき単に代入しない動きであるので `null` リテラルが入力であればデコード自体が完全にスキップされ、**エラーになりません**。
+`null` が入力値であり対象が non-pointer type であるとき単に代入しない動きであるので `null` リテラルが入力であれば[デコード自体が完全にスキップされ](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/decode.go;l=903-914;bpv=0)、**エラーになりません**。
 
 [playground](https://go.dev/play/p/ywwNGq-LBYz)
 
@@ -854,7 +854,7 @@ type OverlappingKey5 struct {
 // 型の再帰が起きた時、1周まではエンコードされるがその後は無視される挙動のようですね。
 ```
 
-`encoding/json`のソースコードをよくよく読んでると優先ルールは[ここで記述されています](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1333-1388;bpv=1)ね。index は struct 中での定義順のことで、len(index) > 1 の時 embed された struct であることがわかります。なので、優先ルールは、
+`encoding/json`のソースコードをよくよく読んでると優先ルールは[ここで記述されています](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1333-1388;bpv=1)ね。[index は struct 中での定義順のこと](https://cs.opensource.google/go/go/+/refs/tags/go1.20:src/encoding/json/encode.go;l=1126-1128;drc=f1ea0249ed2a1e91095ed20cca31378027847c7d;bpv=1;bpt=1)で、len(index) > 1 の時 embed された struct であることがわかります。なので、優先ルールは、
 
 - 階層の浅さ(embed されているものが優先されない)
 - tag されているか
@@ -876,8 +876,14 @@ std はさすが、あらゆるエッジケースが考慮されていますね�
 
 jsoniter は[ValEncoder](https://pkg.go.dev/github.com/json-iterator/go#ValEncoder)という interface で型に対する encoder を定義しています。この interface は IsEmpty という今回使いたいドンピシャの機能を露出していますのでこれを利用します。
 
+この ValEncoder を登録する方法は[API](https://pkg.go.dev/github.com/json-iterator/go#API)の`RegisterExtension`か、[RegisterExtension](https://pkg.go.dev/github.com/json-iterator/go#RegisterExtension)、[RegisterFieldEncoder](https://pkg.go.dev/github.com/json-iterator/go#RegisterFieldEncoder)、[RegisterTypeEncoder](https://pkg.go.dev/github.com/json-iterator/go#RegisterTypeEncoder)などです。
+
+jsoniter.Register...は jsoniter のパッケージ内で定義されたマップに対する代入の動作ですので data race も起きますし、他のコードに影響してしまいます。そういった理由で`API.RegisterExtension`を使います。
+
+[Extension](https://pkg.go.dev/github.com/json-iterator/go#Extension)は Encoder/Decoder をスワップするなどするための method の集合です。以下のようなコードで`interface { IsUndefined() bool }`を実装するすべてのフィールドの IsEmpty を内部的に`InUndefined`への呼び出しに変換できます。
+
 ```go
-var config = jsoniter.Config{
+var config = jsoniter.Config{ // `encoding/json`互換の設定
 	EscapeHTML:             true,
 	SortMapKeys:            true,
 	ValidateJsonRawMessage: true,
@@ -930,62 +936,15 @@ func (extension *UndefinedableExtension) UpdateStructDescriptor(structDescriptor
 // ... rest of interface ...
 ```
 
-jsoniter.Register...などは string で type 名を指定して Encoder を登録できますが、この type 名は`reflect2.Type#String`によってランタイムで判別されます。Generics である場合、例えば`Undefinedable[T]`は`T`ごとに別々の type 名を持つことになります。ここで煩雑なコードによってありあえる`T`ごとに Encoder を登録するよりも`interface{ IsUndefined() bool }`を実装するものに対してまとめて適用したほうが楽なのでここではそうしています。
-
-さて、IsEmpty を内部的に IsUndefined に差し替えることができました。ただ、これだけではフィールドに`omitempty`を設定する必要があるため、まだ目標に届きません。
+さて、IsEmpty を内部的に IsUndefined に差し替えることができました。ただ、これだけではまだ目的をかなえるには足りません; フィールドがスキップされるには`,omitempty`オプションが struct tag として必要なままです。
 
 ここで、reflect2.StructField が interface であることに気付きました。つまり、
 
-```diff go
-+ // fakingTagField implements reflect2.StructField interface,
-+ // faking the struct tag to pretend it is always tagged with ,omitempty option.
-+ type fakingTagField struct {
-+ 	reflect2.StructField
-+ }
-+
-+ func (f fakingTagField) Tag() reflect.StructTag {
-+ 	t := f.StructField.Tag()
-+ 	if jsonTag, ok := t.Lookup("json"); !ok {
-+ 		return reflect.StructTag(`json:",omitempty"`)
-+ 	} else {
-+ 		splitted := strings.Split(jsonTag, ",")
-+ 		hasOmitempty := false
-+ 		for _, opt := range splitted {
-+ 			if opt == "omitempty" {
-+ 				hasOmitempty = true
-+ 				break
-+ 			}
-+ 		}
-+
-+ 		if !hasOmitempty {
-+ 			return reflect.StructTag(`json:"` + strings.Join(splitted, ",") + `,omitempty"`)
-+ 		}
-+ 	}
-+
-+ 	return t
-+ }
-+
-// UndefinedableExtension is the extension for jsoniter.API.
-// This forces jsoniter.API to skip undefined Undefinedable[T] when marshalling.
-type UndefinedableExtension struct {
-}
+https://github.com/ngicks/und/blob/7ced8d4469263950555113d6e07e06d3d80c935f/serde/tag.go#L99-L138
 
-func (extension *UndefinedableExtension) UpdateStructDescriptor(structDescriptor *jsoniter.StructDescriptor) {
-	if structDescriptor.Type.Implements(undefinedableTy) {
-		return
-	}
+https://github.com/ngicks/und/blob/7ced8d4469263950555113d6e07e06d3d80c935f/serde/serde.go#L53-L81
 
-	for _, binding := range structDescriptor.Fields {
-		if binding.Field.Type().Implements(undefinedableTy) {
-			enc := binding.Encoder
-+			binding.Field = fakingTagField{binding.Field}
-			binding.Encoder = undefinedableEncoder{ty: binding.Field.Type(), org: enc}
-		}
-	}
-}
-```
-
-という感じで、`Undefinedable[T]`の時だけ常に omitempty タグがあるかのようにふるまうようにします。少々ハッキーですがこれで思った通りの挙動をになります。
+という感じで、`interface { IsUndefined() bool }`を実装している全てのフィールドは常に `,omitempty` オプションがあるかのようにふるまいます。少々ハッキーですがこれで思った通りの挙動をになります。
 
 :::details jsoniter も encoding/json と動作が一致しないという話。
 
@@ -1003,23 +962,15 @@ https://github.com/json-iterator/go/pull/659
 https://github.com/json-iterator/go/pull/660
 
 これらの問題を修正する PR を出しておきましたが、非活発的なようなのでほっとかれるかもしれません。
-`unsafe.Pointer`は今まで使ったことなかったんですがおかげでちょっと慣れちゃいました。
+まあでもこれらの問題に遭遇した人はこういう感じの修正をすればいいとわかるのでフォークして似たような修正を加えれば問題ないでしょう！
 
 :::
 
-## 実装
+## github.com/ngicks/und として公開しておいた
 
 https://github.com/ngicks/und
 
-色々綺麗にしてパッケージとして公開しておきました。これで会社でもコードを使えるというワケです。
-
-実際にはもう少し色々綺麗にしていて、
-
-- `nullable.Null[T]()`と`undefinedable.Null[T]()`のような感じで同名関数を持てるようにパッケージを分割
-- StructTag のパージングを本格的なものにして、json 以外のタグを全く変更しないように
-- NewEncoder/NewDecoder も API として公開するように
-
-など、実用に耐えなくもないラインを目指してます。
+色々綺麗にしてパッケージとして公開しておきました。これで僕自身も会社でこのコードを使えるというワケです。
 
 # 効果
 
@@ -1034,14 +985,13 @@ Elasticsearch は実のところあらゆるフィールドの値が `undefined 
 いかかがでしたか？私はこの実装や調査を非常に楽しみました。
 想像よりも数段`encoding/json`の挙動が奥が深く、周辺ライブラリの多さや調査項目の多さに結構な時間を持っていかれました。なんだか結果的に jsoniter の便利さを伝えるだけの記事になってしまったような気がします。
 
-似たようなことをしている人はいると思うんですが、今回の実装はほとんど外部ライブラリ頼みでミニマルにできたので自分で作ったものでも結構使えるものになったと思います。
-
 今後の課題は
 
 - 今回の成果物を Elasticsearch を相手にするシステムで使ってみて改善する。
 - jsoniter の Extension 部分をもうちょっと一般的にして使いやすくする
   - `time.Time` で `t.IsZero() == true`のとき empty 扱いするなども同様にできますので、そういった extension を作ってもいいでしょう。
 - 普通はこういうお困りごとはどうやって解決されているのかを調べる。
+  - 今回は見つからなかったですが、似たようなことしてる人いっぱいいると思うんですよね。
 
 などでしょうか。
 
