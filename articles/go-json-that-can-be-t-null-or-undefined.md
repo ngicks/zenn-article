@@ -940,9 +940,9 @@ func (extension *UndefinedableExtension) UpdateStructDescriptor(structDescriptor
 
 ここで、reflect2.StructField が interface であることに気付きました。つまり、
 
-https://github.com/ngicks/und/blob/7ced8d4469263950555113d6e07e06d3d80c935f/serde/tag.go#L99-L138
+https://github.com/ngicks/und/blob/4a6d66fdb317eb77c551987b44815492941f217d/serde/tag.go#L99-L138
 
-https://github.com/ngicks/und/blob/7ced8d4469263950555113d6e07e06d3d80c935f/serde/serde.go#L53-L81
+https://github.com/ngicks/und/blob/4a6d66fdb317eb77c551987b44815492941f217d/serde/serde.go#L53-L81
 
 という感じで、`interface { IsUndefined() bool }`を実装している全てのフィールドは常に `,omitempty` オプションがあるかのようにふるまいます。少々ハッキーですがこれで思った通りの挙動をになります。
 
@@ -970,7 +970,9 @@ https://github.com/json-iterator/go/pull/660
 
 https://github.com/ngicks/und
 
-色々綺麗にしてパッケージとして公開しておきました。これで僕自身も会社でこのコードを使えるというワケです。
+色々綺麗にしてパッケージとして公開しておきました。これで私自身も会社でこのコードを使えるというワケです。
+
+https://github.com/ngicks/und/blob/4a6d66fdb317eb77c551987b44815492941f217d/example/main.go#L1-L46
 
 # 効果
 
