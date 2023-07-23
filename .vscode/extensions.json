@@ -7,6 +7,7 @@
     "shd101wyy.markdown-preview-enhanced",
     "negokaz.zenn-editor",
     "streetsidesoftware.code-spell-checker",
-    "denoland.vscode-deno"
+    "denoland.vscode-deno",
+    "esbenp.prettier-vscode"
   ]
 }
