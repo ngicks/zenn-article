@@ -9,8 +9,7 @@ published: false
 # Overview
 
 - Helper Types:
-  [Elasticsearch]にドキュメントとして格納するJSONのフィールドをmarshal /
-  unmarshalする型
+  [Elasticsearch]にドキュメントとして格納するJSONのフィールドをmarshal / unmarshalする型
 - Code Generator: mappingからGoのstructを作るcode generator
 
 を作りました。
@@ -21,7 +20,37 @@ published: false
 
 https://github.com/ngicks/estype
 
-READMEも整備中でありどんどん更新の可能性ありです。
+以下でインストールし、
+
+```
+# go install github.com/ngicks/estype/cmd/genestype@latest
+```
+
+以下のようなオプションを受け付けます。
+
+```
+root@16cb5614efe3:/mnt/git/github.com/ngicks/estype# genestype --help
+Usage of genestype:
+  -c string
+        path to config file.
+        see definition of github.com/ngicks/estype/generator.GeneratorOption.
+  -m string
+        path to mapping.json.
+        You can use one that can be fetched from '<index_name>/_mapping',
+        or one that you've sent when creating index.
+  -o string
+        [optional] path to output generated code. (default "--")
+  -p string
+        package name of generated code.
+```
+
+サンプルで用意してあるmapping.jsonとオプションは以下に格納され
+
+https://github.com/ngicks/estype/tree/main/generator/test/testdata
+
+それを`genestype`に食わせて以下のコードを生成してあります。
+
+https://github.com/ngicks/estype/tree/main/generator/test
 
 # 前提知識
 
@@ -34,7 +63,7 @@ READMEも整備中でありどんどん更新の可能性ありです。
   - documentの格納/取得
   - QueryDSLを使った検索
 
-記事の目的に反してしまうのでElasticsearchについては軽い説明にとどめます。筆者は詳しくないので深く立ち入ることができません。
+基本的な説明はできる限りするよう心がけますが、十分足りているかは不明です。GoとElasticsearchについて両方ともを使って開発した経験があることを前提とします。
 
 - 本投稿のごく一部で何の説明もなしにTypeScriptの型表記がでてきます。知っている人か、でなければなんとなくで読んでください。
 
@@ -83,13 +112,9 @@ go version go1.20.6 linux/amd64
 
 後ろの二つは明らかに筆者が未熟でした。JSON.parseした後に、アプリに都合のいいフォーマットに変換する変換部を設けるべきでした。後悔は先に立たないものですね。
 
-一方で、Goではある型が[json.Marshaler](https://pkg.go.dev/encoding/json#Marshaler),
-[json.Unmarshaler](https://pkg.go.dev/encoding/json#Unmarshaler)を実装している場合、`json.Marshal()`,
-`(*json.Encoder).Encode()`, `json.Unmarshal()`,
-`(*json.Decoder).Decode()`などの対応する関数の中で、デフォルトの挙動の代わりにそれらが呼び出されるという挙動があります。
+一方で、Goではある型が[json.Marshaler](https://pkg.go.dev/encoding/json#Marshaler),[json.Unmarshaler](https://pkg.go.dev/encoding/json#Unmarshaler)を実装している場合、`json.Marshal()`,`(*json.Encoder).Encode()`, `json.Unmarshal()`,`(*json.Decoder).Decode()`などの対応する関数の中で、デフォルトの挙動の代わりにそれらが呼び出されるという挙動があります。
 
-GoはEncode / Decodeの界面での変換、validationに関して意識しやすい設計になっているため、
-ここにElasticsearchのindexに格納できるJSON documentとGo structと変換するいいブリッジをかけば同じ轍を踏まずに済みそうです。
+GoはEncode / Decodeの界面での変換、validationに関して意識しやすい設計になっているため、ここにElasticsearchのindexに格納できるJSON documentとGo structと変換するいいブリッジをかけば同じ轍を踏まずに済みそうです。
 
 ## Elasticsearch
 
@@ -111,6 +136,8 @@ GoはEncode / Decodeの界面での変換、validationに関して意識しや�
 
 Elasticsearchは検索と分析を行う分散型ドキュメントストアであり、
 REST APIを通じてJSONをDocumentとして格納することができます。
+
+格納されたドキュメントはデフォルトでは１秒程度で検索可能状態となり、謳われる通り`near real-time`ということです。
 
 > 引用:
 > https://www.elastic.co/guide/en/elasticsearch/reference/8.4/documents-indices.html
@@ -146,12 +173,10 @@ Apache Luceneを包むことでこれらの挙動を実現していると述べ�
 
 ElasticsearchのIndexというのはRDBで言うところのTableに近く、
 同じschemaを共有するドキュメントを格納することができ、indexに対して検索をかけることができます。
-このschemaを決めるのがmappingであり、
-mappingによってIndexに収めるJSON Documentの形を完全に、あるいは部分的に決めることができます。
+このschemaを決めるのがmappingであり、mappingによってIndexに収めるJSON Documentの形を完全に、あるいは部分的に決めることができます。
 
 mappingはしばしば完全に固定にされる(`"dynamic":"strict"`)ことがあります。
-これは、index explosionいわれる、形の決まっていないJSONを収めることによって無数のフィールドが作成され、
-パフォーマンスが落ちる現象を避けるためや、間違った形のJSONを誤って納めたらすぐわかるようにするなどの意図が考えられます。
+これは、index explosionいわれる、形の決まっていないJSONを収めることによって無数のフィールドが作成され、パフォーマンスが落ちる現象を避けるためや、間違った形のJSONを誤って納めたらすぐわかるようにするなどの意図が考えられます。
 
 > 引用:
 > https://www.elastic.co/guide/en/elasticsearch/reference/8.8/mapping-explosion.html
@@ -174,44 +199,16 @@ mappingはしばしば完全に固定にされる(`"dynamic":"strict"`)ことが
 それにあたって以下の作業が必要でした。
 
 - `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
-- Helper typeを実装する: ElasticsearchのField data typesのうち、json.Marshaler/json.Unmarshaler実装が必要なものに対して型を定義する。
-  - Field data typesのドキュメント全部読む
+- Elasticsearchに格納できるJSONの形を調査する。
+- Helper typeを実装する: ElasticsearchのField data typesのうち、単なる`string`や`int`などでない型に対するhelperを作成する。
 - date formatの変換: Elasticsearchの理解するtime formatをGoが理解するそれに変換する部分を実装する。
 - code generatorの作成: [github.com/dave/jennifer]を使ったcode generatorを作る。
 
 これらによってElasticsearchを取り扱う際の知識をできるだけコード化することが目的となります。
 
-# 大雑把な設計方針
+# `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
 
-- 少なくともfielddatatype(helper type)と生成されたコードが使うヘルパーと、それ以外でモジュールを分ける
-  - code generatorにstd(`text/template`など)以外を使ってしまうと、生成されたコードに余計な依存が生じるため
-    - これは脆弱性のfalse-positiveなどをもたらすはずなので、理想的には必要な依存以外が書かれていないほうがいいでしょう。
-- date formatterの変換などはfielddatatypeの中で行う。
-  - 現状ランタイムで解析をする予定はないですが、できてもよいでしょう。
-- 生成されたコードが使うヘルパーモジュールを定義する
-  - code generatorの負担を軽くするためです。
-  - helper functionやbuf poolの二重定義を防ぐ方法がこれしか思いつかなかったからです。
-    - 複数のmapping.jsonを解析して一つのパッケージに生成を行うと2重定義が起こりえていました。
-- code generatorは二つのtypeを生成する
-  - １つはplainであり、アプリケーションの決断によって決まる型です。
-    - このkeywordフィールドは1つしか値を入れないので`T`であるとか
-    - このフィールドは[ingest pipelines]やアプリの初期化処理で値を必ず入れるので、`*T`ではないとか
-  - もう1つはrawであり、ありうるすべての型をパーズできるものです。
-    - これは`elastic.Elastic[T]`を利用して、`undefined | null | T | (null | T)[]`をすべてパーズできるフィールドを持つ
-    - `undefined`と`null`を出し分けられるので、update APIに利用できる
-    - アプリの決断が変わり、`T`だったフィールドが`T[]`になったりするなど、混在している状態に対応できる
-  - これら二つのconversion methodもあり、容易に相互変換できる
-    - 可能である限りコピーは避ける
-- code generatorは設定を受け付ける。
-  - フィールドごとにoptional(`T`ではなく`*T`)であるか,single value(`T[]`でなく`T`である)かや、
-  - Booleanはstringにmarshalすべきかなどを決められる。
-
-# 実装
-
-## `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
-
-ElasticsearchのJSON Documentの各フィールドはほとんどのtypeにおいてこれらすべてを受け入れるため、
-これらをうまく取り扱うことができる型を作ることで、アプリがする決め事を減らすことが目的となります。
+ElasticsearchのJSON Documentの各フィールドはほとんどのtypeにおいてこれらすべてを受け入れるため、これらをうまく取り扱うことができる型を作ることで、アプリがする決め事を減らすことが目的となります。
 
 アプリがする決め事の例は
 
@@ -228,7 +225,9 @@ ElasticsearchのJSON Documentの各フィールドはほとんどのtypeにお�
 - フィールドに複数の値を格納するようにアプリを変更したとき、既存のドキュメントは`T`、新しいドキュメントは`T[]`の状態ができる
   - これも同じユースケースの拡張によって起きるはずです。
 
-そういった型を実装するには[前回の記事]でも述べた、[github.com/ngicks/und]を拡張し、`Elastic[T]`として実装しました。
+これらすべては[reindex](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-reindex.html#reindex-with-an-ingest-pipeline)とpipelineなどででデータをいじって、[alias](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/aliases.html)をreindex先に切り替えれば無停止でこれらのルールの変換をできるはずです。しかし、ドキュメント数が多いとメモリやCPU使用率が高い状態が長時間続くため、しないでいいならしたくないでしょう。
+
+上記の型を実装するには[前回の記事]でも述べた、[github.com/ngicks/und]を拡張し、`Elastic[T]`として実装しました。
 
 https://github.com/ngicks/und/blob/8b7839f325d719733510198e5082bf803cf3316b/elastic/elastic.go#L12-L15
 
@@ -243,11 +242,15 @@ https://github.com/ngicks/und/blob/8b7839f325d719733510198e5082bf803cf3316b/elas
 とある通り、値がある場合は必ず`T[]`に向けてエンコードされるように設計されています。
 `T`にmarshalすべきか、`T[]`かはたまた`undefined`になるべきなのかなど、型レベルでは判別のつきづらい要素であったためです。
 
-## Helper Typeを実装する
+# Elasticsearchに格納できるJSONの形を調査する
 
-### 必要性
+## Elasticsearchのmappingとフィールドの形
 
 Elasticsearchでは、Indexごとに格納するJSON documentの形をmappingによって決めることができます。[spec](https://github.com/elastic/elasticsearch-specification/blob/76e25d34bff1060e300c95f4be468ef88e4f3465/specification/_types/mapping/TypeMapping.ts#L34-L56)によればトップは必ずJSON Objectであり、各フィールドは[field data type(s)]を指定することで、格納するデータの型とそれの意味が決められます。
+
+前述のとおり、mappingはindex生成時などに事前に定義することができ、設定によって部分的に、あるいは完全にJSONの形を固定することができます。
+
+mappingはJSONとして`PUT /<index_name>`にsettingとともに渡すことができます。
 
 例えば、以下のようなmappingの場合
 
@@ -284,11 +287,84 @@ Elasticsearchでは、Indexごとに格納するJSON documentの形をmappingに
 
 このようにmappingによってJSONの形と意味が決められます。
 
-[text]はその言葉の通り、`analyzer`にって解析されるfull-textコンテンツです。JSONとしては単に`string`でよいです。ドキュメントによると、[binary]はbase64 encodeされたstring、[range]はサブフィールドに`gt`,`gte`,`lt`,`lte`を持つことでrangeを表現できる型です。
+ドキュメントによると
 
-Elasticsearch上ではJSONとしてはstringであったりnumberであっても、特定のフォーマットでないとエラーとして拒否される`type`や、`range`のように特定のサブフィールドを持つことが期待されることもあります。
+- [text]はその言葉の通り、`analyzer`にって解析されるfull-textコンテンツです。
+- [binary]はbase64 encodeされたstring
+- [range]はサブフィールドに`gt`,`gte`,`lt`,`lte`を持つことでrangeを表現できる型です。
 
-[binary]に関してはGoのコードとしては単に`[]byte`とするだけでよいです。
+`text`や`keyword`は`string`、`integer`や`double`は`int32`や`float64`に単にすればよいですが、それ以外は大なり小なりフォーマットに意味があります。
+
+## Elasticsearchの各field data typeのふるまい
+
+8.4の[field data types]の項をすべて読み、以下を一通りチェックしました。tableの以下の各項目と対応しています。
+
+- built-in / std
+  - => Goのbuilt-in typeとstdの範疇で表現できるか
+- 要mapping解析
+  - => mappingの値によって型が変わったりcode generationで生成される内容が変わるか。
+- disallow multi-value
+  - => 複数値を受け付けるか
+- disallow null
+  - => `null`をそのフィールドに格納できるか
+- single valueのarrayを受け付けるか
+  - `dense_vector`以外は許されました。おそらく[Arrays](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)の項に説明がある通り、`T[][]`は`T[]`にflattenされるからでしょう。
+
+記事の都合上ここに書いてありますが作ってて、テストしてたら「あれエラー吐くな」って思って調べました。こんな作らなかったらこんな細かく挙動を見なかったと思います。
+
+| field data type           | built-in / std       | 要mapping解析 | disallow multi-value | disallow null | 備考                                       |
+| ------------------------- | -------------------- | ------------- | -------------------- | ------------- | ------------------------------------------ |
+| [aggregate_metric_double] |                      | 〇            | 〇                   |               |                                            |
+| [alias]                   | `N/A`                | 〇            | 〇                   | 〇            | いかなる値も受け付けない                   |
+| [binary]                  | `[]byte`             |               |                      |               |                                            |
+| [boolean]                 |                      |               |                      |               |                                            |
+| [completion]              | `string`             |               |                      | 〇            |                                            |
+| [date]/[date_nanos]       |                      | 〇            |                      |               |                                            |
+| [dense_vector]            |                      | 〇            | 〇                   | 〇            | `[[1,2,3]]`も受け付けない                  |
+| [flattened]               | `map[string]any`     |               |                      |               |                                            |
+| [geo_point]               |                      |               |                      |               |                                            |
+| [geo_shape]               |                      |               |                      |               |                                            |
+| [histogram]               |                      |               | 〇                   |               |                                            |
+| [ip]                      | `netip.Addr`         |               |                      |               |                                            |
+| [join]                    |                      | 〇            | 〇                   | 〇            |                                            |
+| [keyword]                 | `string`             |               |                      |               |                                            |
+| [constant_keyword]        | `string`             | 〇            |                      | 〇            | mapping.jsonで入れたワードしか受け付けない |
+| [wildcard]                | `string`             |               |                      |               |                                            |
+| [nested]                  |                      | 〇            |                      |               | code generatorからすると`object`と同じ     |
+| [byte]                    | `int8`               |               |                      |               |                                            |
+| [double]                  | `float64`            |               |                      |               |                                            |
+| [float]                   | `float32`            |               |                      |               |                                            |
+| [half_float]              | `float32`            |               |                      |               | goはnativeで`float16`をサポートしない      |
+| [integer]                 | `int32`              |               |                      |               |                                            |
+| [long]                    | `int64`              |               |                      |               |                                            |
+| [scaled_float]            | `float64`            |               |                      |               |                                            |
+| [short]                   | `int16`              |               |                      |               |                                            |
+| [object]                  |                      | 〇            |                      |               |                                            |
+| [percolator]              | `map[string]any`     |               | 〇                   | 〇            | QueryDSLを格納する用途                     |
+| [point]                   |                      |               |                      |               |                                            |
+| [date_range]              |                      | 〇            |                      |               |                                            |
+| [double_range]            |                      |               |                      |               |                                            |
+| [float_range]             |                      |               |                      |               |                                            |
+| [integer_range]           |                      |               |                      |               |                                            |
+| [ip_range]                |                      |               |                      |               |                                            |
+| [long_range]              |                      |               |                      |               |                                            |
+| [rank_feature]            | `float64`            |               | 〇                   |               |                                            |
+| [rank_features]           | `map[string]float64` |               |                      | 〇            | 同じキーが複数のobjectにあるとエラー       |
+| [search_as_you_type]      | `string`             |               |                      |               |                                            |
+| [shape]                   |                      |               |                      |               |                                            |
+| [text]                    | `string`             |               |                      |               |                                            |
+| [match_only_text]         | `string`             |               |                      |               |                                            |
+| [token_count]             |                      |               |                      |               | おそらくfieldプロパティ―以外では使えない？ |
+| [unsigned_long]           | `uint64`             |               |                      |               |                                            |
+| [version]                 | `string`             |               |                      |               | semverパッケージ使うほうがいいかもしれない |
+
+# Helper Typeを実装する
+
+## 必要性
+
+上記のように、ものによっては単なるbuilt-in typeでElasticsearchのfield data typeを表現できません。
+
+前記の[text], [binary], [range]のうち、`text`は単なる`string`,`binary`は`[]byte`とすればよいでしょう。
 
 > 引用: https://pkg.go.dev/encoding/json#Marshal
 >
@@ -296,9 +372,9 @@ Elasticsearch上ではJSONとしてはstringであったりnumberであっても
 > base64-encoded string, and a nil slice encodes as the null JSON value.
 
 とあるように、`json.Marshal()`が`[]byte`をbase64にエンコードするように設計されているためです。
-もし仮にぎりぎりまでデコードを遅延したいならばそれ用の特別な型が必要ですが、現状では行わない前提です。
+もし仮にぎりぎりまでデコードを遅延したいならばそれ用の特別な型が必要ですが、ひとまずはそのことは考えないようにしましょう。
 
-他方、[range]など、決められた形のJSONを収める型に関しては、例えば以下のような型が定義されてあると、勘違いが少なく、実装の手間も少ないわけです。例えば
+他方、[range]など、決められた形のJSONを収める型に関しては、例えば以下のような型が定義されてあると、勘違いが少なく、実装の手間も少ないわけです。
 
 ```go: range.go
 type Range[T comparable] struct {
@@ -309,39 +385,13 @@ type Range[T comparable] struct {
 }
 ```
 
-### 調査
+## 実装
 
-[field data types]の各項目をすべて読んでいきます。
+前述のテーブルの`built-in / std`が空白であった型に関してhelper typeを定義します。
 
-特定のデータフォーマットを要求してくるのは以下のテーブルのもので、「ヘルパー型の実装が必要」カラムに〇がついている型がstdの範疇でencode / decodeできない型です。
+力尽きてしまったのでjoinとpointは未実装です。自分で使う機会があれば実装するかもしれません。
 
-| type                      | ヘルパー型の実装が必要 | code generatorが必要 | 対応済み | 備考                                                                            |
-| ------------------------- | ---------------------- | -------------------- | -------- | ------------------------------------------------------------------------------- |
-| [alias]                   |                        |                      | 〇       | 値を入れてはいけない                                                            |
-| [aggregate_metric_double] | 〇                     | 〇                   | 〇       | `"metrics"`で設定した値をサブフィールドに持つObject.                            |
-| [binary]                  |                        |                      | 〇       | `[]byte`                                                                        |
-| [boolean]                 | 〇                     | 〇                   | 〇       | string(`"true"`, `"false"`, `""`)も受け付けるため                               |
-| [date]/[date_nanos]       | 〇                     | 〇                   | 〇       | JavaのDateTimeFormatを変換する必要有。formatによってはnumberも受け付ける        |
-| [dense_vector]            |                        | 〇                   | 〇       | `[n]float64`: `n` = `"dims"`フィールドで定義。 `null`/multi-valueを許容しない。 |
-| [geo_point]               | 〇                     |                      | 〇       | ６種類（！）のフォーマット                                                      |
-| [geo_shape]               | 〇                     |                      | 〇       | [GeoJSON] or [Well-Known Text]                                                  |
-| [histogram]               | 〇                     |                      | 〇       |                                                                                 |
-| [ip]                      |                        |                      | 〇       | `netip.Addr`                                                                    |
-| [join]                    |                        | 〇                   |          | `null`を許容しない。自分で使わなさそうだし大変そうだからとりあえず未実装に。    |
-| [constant_keyword]        |                        | 〇                   | 〇       | 常に`undefined`にするかmapping.jsonで記述された値にする。`null`を許容しない。   |
-| [nested]                  |                        | 〇                   | 〇       |                                                                                 |
-| [object]                  |                        | 〇                   | 〇       |                                                                                 |
-| [point]                   | 〇                     |                      |          | geopointとほぼ同じだが実装時に力尽き、未実装。                                  |
-| [range]                   | 〇                     | 〇                   | 〇       |                                                                                 |
-| [rank_features]           |                        |                      | 〇       | `map[string]float64`。`null`を許容しない。multi-valueを許容しない。             |
-| [shape]                   | 〇                     |                      | 〇       | geoshapeのヘルパー型をそのまま使う                                              |
-| [version]                 |                        |                      |          | semverパッケージ使う？検討中                                                    |
-
-力尽きてしまったのでjoinとshapeは未実装ですが、他はすべて対応してあります。
-
-### Helper types
-
-#### aggregate metric double
+### aggregate metric double
 
 [aggregate_metric_double]は、mappingの`"metrics"`で定義した値のみ値を格納できるようです。
 
@@ -364,13 +414,13 @@ type Range[T comparable] struct {
 
 https://github.com/ngicks/estype/blob/9209b388817a5e7b15a5ff52668828a7f53c0862/generator/gen_aggregate_metric_double/gen.go#L24-L70
 
-以上のように、フラグのon/offの全パターン網羅はfor文で容易に実装できます。これによって事前にすべてのパターンを事前に生成しておけばよいのです。
+以上のように、フラグのon/offの全パターン網羅は`for`文で容易に実装できます。これによって事前にすべてのパターンを事前に生成しておけばよいのです。
 
 https://github.com/ngicks/estype/blob/9209b388817a5e7b15a5ff52668828a7f53c0862/fielddatatype/aggregate_metric_double.go
 
 この型のうちmappingに対し適切なものをcode generatorによって選択してもらえばいいわけですね。
 
-#### boolean
+### boolean
 
 [boolean]は以下の値を受けれるとドキュメントされています。
 
@@ -387,7 +437,7 @@ https://github.com/ngicks/estype/blob/9209b388817a5e7b15a5ff52668828a7f53c0862/f
 
 https://github.com/ngicks/estype/blob/9209b388817a5e7b15a5ff52668828a7f53c0862/fielddatatype/boolean.go#L39-L47
 
-#### geo_point
+### geo_point
 
 [geo_point]は以下の6つのフォーマットを受け付けます。
 
@@ -409,7 +459,7 @@ https://github.com/ngicks/estype/blob/9209b388817a5e7b15a5ff52668828a7f53c0862/f
 この型はシンプルな`{"lat":123,"lon":456}`フォーマットにMarshalします。
 boolと同じく、どのフォーマットに対してmarshalするかを設定で決められるようにすればよかったと思いますが、力尽きてしまいました・・・。
 
-#### geo_shape
+### geo_shape
 
 [geo_shape]は[GeoJSON]か[Well-Known Text]を受け付けます。
 
@@ -424,7 +474,7 @@ https://github.com/ngicks/estype/blob/main/fielddatatype/geoshape.go#L18-L44
 
 特にデータフォーマットを制限したりせず、[github.com/go-spatial/geom](https://github.com/go-spatial/geom)に委譲してしまう実装にしました。内部の実装を読む限り、wktはbboxをサポートしていないのでそれを使われるとデコードできないですが、それ以外は網羅できています。
 
-#### histogram
+### histogram
 
 [histogram]はドキュメントによるとalgorithm agnosticな値のセットであり、あらかじめaggregateされている値を入れておくものらしいです。
 
@@ -434,11 +484,11 @@ https://github.com/ngicks/estype/blob/c6ed9fb0db8fa145d20fe407394c598e51083903/f
 
 というだけです。
 
-#### point / shape
+### point / shape
 
 見たところgeo_point, geo_shapeとほぼ同じなのですが、ドキュメントを読んでる時間がなく、shapeはgeo_shapeをそっくり使いまわします決断をしました。pointがgeo_pointとどう違うか確認が取れなかったため、実装を先送りしています。
 
-#### range
+### range
 
 [range]はその名の通り数値のrangeを表現するものです。8.4の時点では
 
@@ -498,7 +548,7 @@ generatorなのでこの制限は特に問題ないとみなし、とりあえ�
 
 :::
 
-## date formatの変換
+# date formatの変換
 
 [date]および[date_nanos] field data
 typeは`"format"`フィールドで指定されたフォーマットに従う`string`を収めることができ、フォーマット通りに解釈されて時間としてインデックスされます。
@@ -538,7 +588,7 @@ typeは`"format"`フィールドで指定されたフォーマットに従う`st
 
 `"format"`フィールドの展開や、built in formatの内容からレイアウト変換などはcode generatorの行いますのでこのセクションでは述べません。
 
-### optional sectionの展開
+## optional sectionの展開
 
 この機能は`optionalstring`という名前でパッケージにまとめてあります。
 
@@ -554,7 +604,7 @@ https://github.com/ngicks/estype/tree/c6ed9fb0db8fa145d20fe407394c598e51083903/f
 あまり賢い実装をしているとは思えませんし、実際頭がこんがらがりながら木構造を展開する処理をかいていました。
 実装の不備やバグは探せばいくらでもあると思いますがdate formatを展開するという用途には現状問題なく動作しています。
 
-### time tokenの変換
+## time tokenの変換
 
 こちらは以下のファイルで実装されています。
 
@@ -573,9 +623,9 @@ https://github.com/ngicks/estype/blob/c6ed9fb0db8fa145d20fe407394c598e51083903/f
 
 とくにweekyear系トークンがないのでbuilt in date formatの中にいくつか使えないものが出てきます。
 
-### 複数フォーマットでパーズできる型を定義
+## 複数フォーマットでパーズできる型を定義
 
-#### 複数のstringフォーマットを持つパーザ
+### 複数のstringフォーマットを持つパーザ
 
 これ以下のファイルで実装しました。
 
@@ -598,7 +648,7 @@ https://github.com/ngicks/estype/blob/c6ed9fb0db8fa145d20fe407394c598e51083903/f
 
 これは、Elasticsearch自身のソースを参考にしました。どうやっているんだろう、と思って見に行くと単にパーザーをイテレートしながらパーズを繰り返していたので、なるほど、と思いに似たような処理にしています。
 
-#### numberもパーズ/フォーマットできるパーザ
+### numberもパーズ/フォーマットできるパーザ
 
 これは前述のMultiLayoutとnumberを変換できるパーザを組み合わせます。
 
@@ -614,24 +664,38 @@ switch-caseによって`time.UnixMilli`と`time.Unix`を呼び出せば所望の
 
 https://github.com/ngicks/estype/blob/c6ed9fb0db8fa145d20fe407394c598e51083903/fielddatatype/estime/estime.go#L15-L24
 
-## code generatorの作成
+# code generatorの作成
 
 code generatorの目的はmapping.jsonを解析し、[Elasticsearch]にストアされるJSON Documentを円滑に生成/消費できるGoのstruct typeを作ることです。
 
 そのためには:
 
-- mapping.jsonの解析
-- 型情報の生成
-  - Nested / Object typeのrecursiveな生成
-    - dynamicのinheritanceを考慮する
-  - それ以外の`type`のフィールドには適切な型を選択する
-  - dateやdense_vectorなど適切に生成する
-  - 特定の型が`null`を受け付けなかったり、複数の値を受け付けなかったり、単数の値しかなくてもとにかくarrayを受け付けなかったりするのでそれらを考慮する。
+- mapping.jsonの解析し
+- ユーザーから設定値を受けとり
 - 型情報に基づいてcode generateを行う
 
-### mapping.jsonの解析: specの実装
+最初のほうのセクションでのべた通り、
 
-mapping.jsonを解析するには、mapping.jsonの内容を定義したGo structを定義するか、jsonをパーズせずに手続き的にキーを探索するかなどを行うことになります。
+- `T`と`T[]`
+- `undefined`と`null`
+
+などが混在することを許しながら、Goのほかのコードで円滑に消費できる平叙な型を生成するのがこのcode generatorの目的です。
+
+そのため、`Plain`と`Raw`の２つのタイプと、相互に変換を行うメソッドを実装する方針になっています。
+
+`Plain`は以下のサンプル生成コードのように「普通の」Go structのようなものです
+
+https://github.com/ngicks/estype/blob/main/generator/test/all.go#L14-L58
+
+`Raw`は`undefined | (null | T) | (null | T)[]`を許容するstructです
+
+https://github.com/ngicks/estype/blob/main/generator/test/all.go#L107-L151
+
+`Plain`はユーザーから設定値を受けとって、`T`、`[]T`、`*T`、`*[]T`のいずれであるかなどを決めます。
+
+## mapping.jsonの解析: specの実装
+
+mapping.jsonを解析するには、mapping.jsonの内容を定義したGo structを定義して`json.Unmarshal()`するか、jsonをパーズせずに手続き的にキーを探索するかなどを行うことになります。
 
 jsonをパーズしないまま探索を行う場合は、例えば、[github.com/tidwall/gjson](https://github.com/tidwall/gjson)を使います。
 
@@ -639,7 +703,7 @@ jsonをパーズしないまま探索を行う場合は、例えば、[github.co
 
 [github.com/elastic/go-elasticsearch]の`typedapi/types`以下には`IndexState`(index生成時に`/<index_name>`に`PUT`するJSON)や、`TypeMapping`が定義されています。当初はこれを使えばよいと思いましたが、`"type"`フィールドが存在しないとき`object`として扱われるというルールが正しく実装されていないことと、それを正しく修正する方法が不明であることからハンドポートを行いました。
 
-#### specification
+### specification
 
 今回のこれを実装するためにあれこれ調べるまで全然知らなかったのですが、[github.com/elastic/elasticsearch-specification](https://github.com/elastic/elasticsearch-specification)で、Elasticsearchの種々のJSON Documentの型をtypescriptの型定義として実装してあり、これをcompilerでJSONの何かしらのschemaに変換できます。これによって別言語のクライアントを作成するようです。
 
@@ -651,7 +715,7 @@ https://github.com/elastic/go-elasticsearch/blob/87bb1b42af071454319c73f91c6e5a3
 
 ではこれを使えば目的が達せられるのかと言えばそうでもないんです。
 
-#### go-elasticsearchのspecificationの変換に関する問題
+### go-elasticsearchのspecificationの変換に関する問題
 
 propertiesのデコード部分
 
@@ -669,7 +733,7 @@ https://github.com/elastic/go-elasticsearch/blob/87bb1b42af071454319c73f91c6e5a3
 
 go-elasticsearchのMakefileを見る限り、makeの範疇でこの型の生成を行っているわけではないようです。どう直していいやらわからないためPRも書けません。困りましたね。
 
-#### ハンドポート版の実装
+### ハンドポート版の実装
 
 幸いなことに生成元のtypescript定義は前述のとおりわかっていますし、go-elasticsearchの各ソースファイルに生成元の定義が載っています。
 それさえわかれば後は単純なテキスト置換で実装しなおすことは自体は簡単そうです。
@@ -686,22 +750,11 @@ https://github.com/ngicks/estype/blob/main/spec/mapping/Property.go#L87-L435
 
 (ちなみにtypedapiの中にははhelper typeで実装したような(rangeのような)型の定義は含まれておらず、無駄な努力をしたわけではなさそうでした。よかったよかった。)
 
-### 型情報の生成
+## code generatorの実装
 
-生成されるコードはstructなのでフィールドの名前、型の名前、struct tagからなるため、適当に以下のように情報を定義します。
+このセクションではcode generator考慮すべきことを述べます。
 
-https://github.com/ngicks/estype/blob/main/generator/object.go#L28-L35
-
-https://github.com/ngicks/estype/blob/main/generator/typeid.go#L31-L39
-
-#### Nested / Object typeのrecursiveな生成
-
-object / nestedは与えられたpropertiesをiterateしながら各フィールドの型情報を集め、自身の型をrenderし、その後にフィールドの型をrenderしていきます。
-これを再帰で書くにはdryrunオプションが各関数に必要なので、このパッケージ内のcode genを行う関数はdryrun optionを第二引数で取ります。
-
-https://github.com/ngicks/estype/blob/main/generator/object.go#L37
-
-##### dynamic inheritanceを考慮する
+### dynamic inheritance
 
 mappingの`"dynamic"`の値によって、そのfield dataがmapping.jsonに載っていない値を持てるかが決まります。
 
@@ -712,44 +765,28 @@ mappingの`"dynamic"`の値によって、そのfield dataがmapping.jsonに載�
 とある通り、上位のオブジェクトから値を継承するため、再帰的な型の生成にはcontext情報が必要となります。
 nestedも同じく`"dynamic"`の値を継承します。これはElasticsearch 8.4.3相手に確認してあります。ドキュメントに明確に書かれてはいないですが、nested特殊版objectである、という記述はあります。
 
-https://github.com/ngicks/estype/blob/main/generator/generate.go#L28-L44
+`"dynamic":"strict"`以外はあればmapping.jsonに載っていないフィールドも受け付けるので、生成されるコードはこれをうまく格納できるフィールドと`MarshalJSON` / `UnmarshalJSON`を実装する必要があります。
 
-再帰する際にnextでそのフィールドに進めるようにします
+### null/multi-valueを許容しない型を考慮する
 
-https://github.com/ngicks/estype/blob/main/generator/generate.go#L83-L100
+[Elasticsearchの各field data typeのふるまい](#elasticsearchの各field-data-typeのふるまい)で述べた通り、一部のfield data typeはnullやmulti-valueをがあるとパーズ時にエラーとなります。これらはユーザーが渡す設定値よりも優先されますので、そのような挙動を作ります。
 
-早速 _unused. future update may..._ な値が出てきて力尽きを感じさせますが、とりあえず現状は十分機能しています。
-
-値の比較には[前回の記事]で書いた`Option[T]`を拡張してRustの`Option<T>`風な`Or`や`OrElse`を追加することで対応します。
-
-https://github.com/ngicks/estype/blob/main/generator/object.go#L49-L69
-
-`strict`でなければいずれでもmapping.jsonに載っていない値をMarshal / Unmarshalするための追加フィールドが必要です。しかるに、`strict`かそれでないかだけが関心なのでこのようなコードになります。
-
-#### その他の型情報の生成
-
-https://github.com/ngicks/estype/blob/main/generator/field.go#L16-L87
-
-ほとんどの型に関しては特にgenerateが必要ないのでテーブルにまとめてあります。ここで書いてある通り、multi-valueを受け付けないであるとか、nullを受け付けないであるとかをパラメータにしておくことで知識をコードとしておきました。ややこしいですね！
-
-このテーブルにない型に関してもそれらしく生成されるようにしてあります。
-
-### github.com/dave/jenniferによるcode generation
+## github.com/dave/jenniferによるcode generation
 
 code generationは[github.com/dave/jennifer]を使用します。
 
-#### text/templateを使わない理由
+### text/templateを使わない理由
 
 code generationを行うとき真っ先に思いつくのは[text/template](https://pkg.go.dev/text/template)を使う方法です。実際一度は検討しました。
 
 というか1度`text/template`で同じようなコードを書いたことがあるんですよ
 
-https://github.com/ngicks/elastic-type/blob/main/generate/date.go#L206-L262
+https://github.com/ngicks/elastic-type/blob/main/generate/date.go#L197-L295
 
 これ、見ただけで何してるかわかりますか？
 これは、mapping.jsonのformat解析済みのデータからdate型の生成を行っています。
-平叙なテキストなので、変動のない部分が多ければ何してるかまではわかりやすいです。
-しかし`if`や`range`が二つネストするともうお手上げです。メンテする自信はありません。
+ほとんどは平叙なテキストなので、入力された値を取り扱う部分がなければを書いているかはわかりやすいです。
+`if`や`range`が二つネストするともうお手上げです。メンテする自信はありません。
 
 `text/template`を使う方法の問題点は
 
@@ -768,14 +805,14 @@ https://github.com/ngicks/elastic-type/blob/main/generate/date.go#L206-L262
 - templateから登録した任意の関数を呼び出せる。
 
 などがあります。
-明確にdata-drivenとドキュメントで述べてある通り、パラメータのstructが固定されていて、テンプレートが変化する用途でも威力を発揮します。
+ドキュメントが明確に述べる通り、data-drivenな使い道が主な用途でしょう。
 
-#### github.com/dave/jennifer
+### github.com/dave/jennifer
 
 [awesome-go](https://github.com/avelino/awesome-go#generators)を見てみるとリストされているもので任意のgo codeの生成を行えるのはjenniferだけですね。
 `golang code generation`と検索して出てくるのもjenniferくらいのものです。
 
-#### jenniferを使ったcode generation
+### jenniferを使ったcode generation
 
 上記のdate生成の部分をjenniferで書きなおすと以下のようになります。
 
@@ -784,11 +821,62 @@ https://github.com/ngicks/estype/blob/main/generator/genestime/gen.go#L14-L170
 うーんネストが深いですね。
 実際に生成されるコードと記述順序を一致させようとするとネストが深くなりがちです。ただ、jenniferを利用するとGo codeのトークンにほぼ同じ名前の関数を順番に呼ぶだけなので、書きにくいと感じることはなかったです。
 
-:::details jenniferを触ってて最初わかんなかったとこたち
+### jenniferのcode generationレシピ
 
 最初に触ってすぐにはわからなかったことを書いていきます。これ別の記事に分けたほうがいいかな・・・
 
-##### \*Tと書くとき
+#### 基本
+
+メソッドチェーンで書いていきます。
+
+https://go.dev/play/p/8KuGlxMIjX3
+
+```go
+// https://go.dev/play/p/8KuGlxMIjX3
+package main
+
+import (
+	"io"
+	"os"
+
+	"github.com/dave/jennifer/jen"
+)
+
+func main() {
+	f := jen.NewFile("main")
+	f.Func().Id("double").Params(jen.Id("v").Int()).Int().Block(
+		jen.Return(jen.Id("v").Op("*").Lit(int(2))),
+	).
+		Line()
+
+	f.Func().Id("main").Params().Block(
+		jen.Qual("fmt", "Println").Call(jen.Id("double").Call(jen.Lit(5))),
+	)
+
+	var out io.Writer = os.Stdout
+	if err := f.Render(out); err != nil {
+		panic(err)
+	}
+}
+```
+
+出力されるコードは
+
+```go
+package main
+
+import "fmt"
+
+func double(v int) int {
+	return v * 2
+}
+
+func main() {
+	fmt.Println(double(5))
+}
+```
+
+#### \*Tと書くとき
 
 ```go
 jen.Op("*").Id("T")
@@ -796,7 +884,7 @@ jen.Op("*").Id("T")
 
 operatorはすべて`Op()`です。何なら`Id("[]string")`や、`Id(*time.Time)`でも問題ありません。
 
-##### forを回しながらコードを生成する
+#### forを回しながらコードを生成する
 
 forでsliceやmapをイテレートしながら値に基づいてコードを生成するには、`jen.*Func`を呼び出します。
 
@@ -805,6 +893,8 @@ forでsliceやmapをイテレートしながら値に基づいてコードを生
 以下前述した収集した型情報から`type FooBar struct {...}`を生成するコードです。
 
 https://github.com/ngicks/estype/blob/main/generator/object.go#L150-L157
+
+#### if err != nil ...を生成する
 
 以下のよく書くやつを生成するには
 
@@ -816,7 +906,7 @@ if err != nil {
 
 https://github.com/ngicks/estype/blob/main/generator/additional_prop.go#L82-L84
 
-##### byteリテラルをそのまま書く
+#### byteリテラルをそのまま書く
 
 ```go
 jen.LitByte('{')
@@ -836,7 +926,7 @@ byte(0x7b)
 jen.Id(`'{'`)
 ```
 
-##### 禁じ手: go codeを直接書く
+#### 禁じ手: go codeを直接書く
 
 禁じ手ですが、決まり切ったgo codeなのでjenniferのメソッドチェーン外で生成したい場合は
 
@@ -858,8 +948,6 @@ func foo() {
 調べた限り生のstringをそのまま入力させてくれるAPIはないです。
 `Id()`は入力をそのまま出力するので`Line()`で改行を挟んでおけば任意のコードを書き込めます。
 
-:::
-
 ### 生成されるコード
 
 以下に置かれたデータを入力に
@@ -879,40 +967,113 @@ https://github.com/ngicks/estype/blob/main/test.compose.yml
 - mapping.jsonでindexを作れるか
 - 作られたindexに生成された型のサンプル入力を格納できるか
   - plain, raw両方に対して
-- `null`やmulti-valueを許容しない方に対して、適切なrawへの返還がされているか
+- `null`やmulti-valueを許容しない方に対して、
 
 などをテストしてパスするのを確認しました。長かった・・・。
 
 ### cli
 
+cliからも呼び出せるように実行ファイルも作ってあります。
+
+```
+# go install github.com/ngicks/estype/cmd/genestype@latest
+root@16cb5614efe3:/mnt/git/github.com/ngicks/estype# genestype --help
+Usage of genestype:
+  -c string
+        path to config file.
+        see definition of github.com/ngicks/estype/generator.GeneratorOption.
+  -m string
+        path to mapping.json.
+        You can use one that can be fetched from '<index_name>/_mapping',
+        or one that you've sent when creating index.
+  -o string
+        [optional] path to output generated code. (default "--")
+  -p string
+        package name of generated code.
+```
+
+それぞれのフィールドの型名を決定する関数を渡すオプションがありませんが、ほかのオプションはわらせるようになりました。
+
+サンプルの型もこれによって生成されています。
+
+# まとめ
+
+- Elasticsearchの概要について説明した
+- Elasticsearchについて、JSONを格納したり引き出したりする場合に必要な知識を調査し、明示した
+- 以下を達成する型を作るcode generatorを作成した
+  - mapping.jsonからindexに格納されたJSONを容易に生成/消費できる
+  - Plain / Rawと二つに分け、アプリの決定事項を反映した型、Elasticsearchが受け入れるすべての値からUnmarshalできる型とそれぞれする
+    - 相互を適切に変換するメソッドを設ける
+  - `"dynamic"`値が`"strict"`以外の時にmapping.jsonに載っていない数値を格納できる
+
+# おわりに
+
+雑多な知識を詰め込めるだけ詰め込んであるので、またスクロールバーが小指の先ほどの大きさになってしまいました。
+
+- これについて調べなかったら一生[github.com/elastic/elasticsearch-specification](https://github.com/elastic/elasticsearch-specification)の存在を知らなかったかもしれないので、やってよかった
+- [github.com/dave/jennifer]によるcode generationがすごく快適で、code generationいつでも任せてくださいって感じになれてうれしい。
+
+今後の課題は
+
+- 実際に使ってみて、使い勝手が悪いかなどを確かめる。
+
+最近Elasticsearchをいじくる業務から離れてしまって使う機会が確保できるか微妙です。
+
 [elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html
 [ingest pipelines]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/ingest.html
 [field data type(s)]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping-types.html
 [field data types]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping-types.html
-[text]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/text.html
-[alias]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/field-alias.html
-[aggregate_metric_double]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/aggregate-metric-double.html
-[binary]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/binary.html
-[boolean]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/boolean.html
-[date]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date.html
-[date_nanos]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date_nanos.html
-[dense_vector]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/dense-vector.html
-[geo_point]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-point.html
-[geo_shape]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-shape.html
-[histogram]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/histogram.html
-[ip]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/ip.html
-[join]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/parent-join.html
-[constant_keyword]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/keyword.html#constant-keyword-field-type
-[nested]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/nested.html
-[object]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/object.html
-[point]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/point.html
-[range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
-[rank_features]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/rank-features.html
-[shape]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/shape.html
-[version]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/version.html
 [GeoJSON]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-shape.html#:~:text=GeoJSON%20or%20Well%2DKnown%20Text
 [Well-Known Text]: https://docs.opengeospatial.org/is/12-063r5/12-063r5.html
 [github.com/elastic/go-elasticsearch]: https://github.com/elastic/go-elasticsearch
 [github.com/dave/jennifer]: https://github.com/dave/jennifer
 [github.com/ngicks/und]: https://github.com/ngicks/und
 [前回の記事]: https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined
+[range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
+
+<!-- links to field data types -->
+
+[aggregate_metric_double]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/aggregate-metric-double.html
+[alias]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/field-alias.html
+[binary]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/binary.html
+[boolean]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/boolean.html
+[completion]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/completion.html
+[date]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date.html
+[date_nanos]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date_nanos.html
+[dense_vector]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/dense-vector.html
+[flattened]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/flattened.html
+[geo_point]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-point.html
+[geo_shape]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-shape.html
+[histogram]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/histogram.html
+[ip]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/ip.html
+[join]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/join.html
+[keyword]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/keyword.html
+[constant_keyword]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/keyword.html#constant-keyword-field-type
+[wildcard]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/keyword.html#wildcard-field-type
+[nested]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/nested.html
+[byte]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/number.html
+[double]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/number.html
+[float]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/number.html
+[half_float]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/number.html
+[integer]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/number.html
+[long]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/number.html
+[scaled_float]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/number.html
+[short]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/number.html
+[object]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/object.html
+[percolator]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/percolator.html
+[point]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/point.html
+[date_range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
+[double_range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
+[float_range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
+[integer_range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
+[ip_range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
+[long_range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
+[rank_feature]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/rank-feature.html
+[rank_features]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/rank-features.html
+[search_as_you_type]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/search-as-you-type.html
+[shape]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/shape.html
+[text]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/text.html
+[match_only_text]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/text.html#match-only-text-field-type
+[token_count]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/token-count.html
+[unsigned_long]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/unsigned-long.html
+[version]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/version.html
