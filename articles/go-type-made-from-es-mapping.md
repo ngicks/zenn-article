@@ -54,11 +54,11 @@ Usage of genestype:
 
 サンプルで用意してあるmapping.jsonとオプションは以下に格納され
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/testdata
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/testdata
 
 それを`genestype`に食わせて以下のコードを生成してあります。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test
 
 # 前提知識
 
@@ -213,39 +213,32 @@ mappingはしばしば完全に固定にされる(`"dynamic":"strict"`)ことが
 
 # `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
 
-ElasticsearchのJSON Documentの各フィールドはほとんどのtypeにおいてこれらすべてを受け入れるため、これらをうまく取り扱うことができる型を作ることで、アプリがする決め事を減らすことが目的となります。
+すべてのフィールドは`undefined`であることが許され、ほとんどの[field data type(s)]において、`null`を受け付けます。[Arrays](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)の項に説明される通り、ほとんどの[field data types]において`T[]`も同じく受け付けられます。
 
-アプリがする決め事の例は
+デフォルトのドキュメントは`{}`を渡すことですべてのフィールドが空で作られます。もしくは後からmapping.jsonを拡張した場合でも、新しく追加されたフィールドはすべて`undefined`になるはずです。
 
-- フィールドは[ingest pipelines]の中ですべて`null`で埋める
-- `null`は使わない
-- 必ず`T[]`にする
+フィールドをクリアするのに最も手軽なのは[update APIのpartial update](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-update.html#_update_part_of_a_document)で値を空のarray`[]`、もしくは`null`で上書きすることです。
 
-といったところでしょうか。
+ここから`null`と`undefined`の混在は普通のオペレーションの中でも発生しやすいといえます。
 
-ところが、
-
-- 新しいmappingが追加した時などは、そのフィールドは`null`埋めがされない(はず)。
-  - ユースケースが拡張されて新しいフィールドが必要になったときです。
-- フィールドに複数の値を格納するようにアプリを変更したとき、既存のドキュメントは`T`、新しいドキュメントは`T[]`の状態ができる
-  - これも同じユースケースの拡張によって起きるはずです。
+また、アプリが運用され続けていく中で、もとは`T`だったフィールドが`T[]`になることはElasticsearchにとっては合法なのでよくあることだとしましょう。
 
 これらすべては[reindex](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-reindex.html#reindex-with-an-ingest-pipeline)とpipelineなどででデータをいじって、[alias](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/aliases.html)をreindex先に切り替えれば無停止でこれらのルールの変換をできるはずです。しかし、ドキュメント数が多いとメモリやCPU使用率が高い状態が長時間続くため、しないでいいならしたくないでしょう。
 
 上記の型を実装するには[前回の記事]でも述べた、[github.com/ngicks/und]を拡張し、`Elastic[T]`として実装しました。
 
-https://github.com/ngicks/und/tree/fd0b45653fa93b1bb1ec1928253b563bd1d33eca/elastic/elastic.go#L12-L15
+https://github.com/ngicks/und/blob/fd0b45653fa93b1bb1ec1928253b563bd1d33eca/elastic/elastic.go#L12-L15
 
 前回の記事で提示した`Undefinedable[T]`と`Nullable[T]`の組み合わせで上記のすべての型を表現することを実現しました。
 
-https://github.com/ngicks/und/tree/fd0b45653fa93b1bb1ec1928253b563bd1d33eca/elastic/elastic.go#L180-L214
+https://github.com/ngicks/und/blob/fd0b45653fa93b1bb1ec1928253b563bd1d33eca/elastic/elastic.go#L184-L218
 
 `UnmarshalJSON`の実装で`null, T and (null | T)[]`のいずれも受け付けられるようにしてあります。
 
-https://github.com/ngicks/und/tree/fd0b45653fa93b1bb1ec1928253b563bd1d33eca/elastic/elastic.go#L171-L178
+https://github.com/ngicks/und/blob/fd0b45653fa93b1bb1ec1928253b563bd1d33eca/elastic/elastic.go#L175-L182
 
 とある通り、値がある場合は必ず`T[]`に向けてエンコードされるように設計されています。
-`T`にmarshalすべきか、`T[]`かはたまた`undefined`になるべきなのかなど、型レベルでは判別のつきづらい要素であったためです。
+値が一つだけの場合に`T`にmarshalすべきか、`T[]`にすべきかは型レベルでは判別のつきづらい要素であったためです。
 
 # Elasticsearchに格納できるJSONの形を調査する
 
@@ -417,11 +410,11 @@ type Range[T comparable] struct {
 
 ４種類のサブフィールドの組み合わせですから、15種類の型を定義しておけばよいです。そこで:
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/gen_aggregate_metric_double/gen.go#L24-L70
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/gen_aggregate_metric_double/gen.go#L24-L70
 
 以上のように、フラグのon/offの全パターン網羅は`for`文で容易に実装できます。これによって事前にすべてのパターンを事前に生成しておけばよいのです。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/aggregate_metric_double.go
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/aggregate_metric_double.go
 
 この型のうちmappingに対し適切なものをcode generatorによって選択してもらえばいいわけですね。
 
@@ -434,13 +427,13 @@ https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 boolをbase typeと持つ型とし、`MarshalJSON` / `UnmarshalJSON`を実装すればよいでしょう。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L70-L83
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L70-L83
 
 困ったことに、stringの`"true"` / `"false"`を好むプロジェクトが存在する(筆者が実際に参加していました)ため、`MarshalJSON`で出すのがboolean literalになる型とstring literalになる型をそれぞれ作ってcode generatorの設定値でどちらを使うか決める決断を下しました。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L10-L17
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L10-L17
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L39-L47
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L39-L47
 
 ### geo_point
 
@@ -455,11 +448,11 @@ https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 多いですね。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geopoint.go#L15-L147
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geopoint.go#L15-L147
 
 頑張って実装しました。これで少なくとも公式のサンプルを全部パーズできます。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geopoint.go#L149-L159
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geopoint.go#L149-L159
 
 この型はシンプルな`{"lat":123,"lon":456}`フォーマットにMarshalします。
 boolと同じく、どのフォーマットに対してmarshalするかを設定で決められるようにすればよかったと思いますが、力尽きてしまいました・・・。
@@ -475,7 +468,7 @@ https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-shape.html#input
 
 そこで実装は、
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geoshape.go#L18-L44
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geoshape.go#L18-L44
 
 特にデータフォーマットを制限したりせず、[github.com/go-spatial/geom](https://github.com/go-spatial/geom)に委譲してしまう実装にしました。内部の実装を読む限り、wktはbboxをサポートしていないのでそれを使われるとデコードできないですが、それ以外は網羅できています。
 
@@ -485,7 +478,7 @@ https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 これはシンプルに
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/histogram.go
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/histogram.go
 
 というだけです。
 
@@ -508,7 +501,7 @@ https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 `version_range`が存在しないのがちょっと気になるところですが、semverを数値に変換すれば実現可能なので優先度が低いんでしょうか。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/range.go
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/range.go
 
 各フィールドは`null`を許容しないため、`,omitempty`が必要です。試してないですが`Gt`と`Gte`、`Lt`と`Lte`は同時に存在してはいけないはずです。これに関しては特に型やメソッドによってvalidationをかけられるようにはしていません。
 
@@ -596,7 +589,7 @@ typeは`"format"`フィールドで指定されたフォーマットに従う`st
 
 この機能は`optionalstring`という名前でパッケージにまとめてあります。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/optionalstring
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/optionalstring
 
 パパっと調べた限り、特定のトークンで囲まれたstringをoptionalとみなして展開し列挙する、というほしい機能を備えたパッケージは見つかりませんでした。
 探し方が悪いだけな可能性が高いですが、いいんですこれは趣味プロジェクトなんだから作ってしまえば。
@@ -611,17 +604,17 @@ https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 こちらは以下のファイルで実装されています。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go
 
 中身は`time.Parse`を簡易化したような実装をしており、愚直にswitch-caseを書いてパフォーマンスを求めるより、トークンをテーブル化して実装の負担を減らす方針でいきました。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go#L236-L258
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go#L236-L258
 
 こういったtableを作ることで、switch-caseの量を大分減らせます。
 
 doc commentでも述べていますが、Goが同じ機能を持つトークンを持たない以下はサポートされません
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go#L28-L41
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go#L28-L41
 
 とくにweekyear系トークンがないのでbuilt in date formatの中にいくつか使えないものが出てきます。
 
@@ -631,22 +624,22 @@ https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 これ以下のファイルで実装しました。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go
 
 これはとっても簡単ですね。
 
 複数のレイアウトを保持
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L9-L13
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L9-L13
 
 イニシャライズ時にlengthでdescending, 文字コードでdescendingでソート、dedupe,
 validateし、
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L15-L55
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L15-L55
 
 順番にパーズを試みて成功したらそのまま値を返します。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L79-L89
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L79-L89
 
 これは、Elasticsearch自身のソースを参考にしました。どうやっているんだろう、と思って見に行くと単にパーザーをイテレートしながらパーズを繰り返していたので、なるほど、と思いに似たような処理にしています。
 
@@ -654,17 +647,17 @@ https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 これは前述のMultiLayoutとnumberを変換できるパーザを組み合わせます。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L51-L54
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L51-L54
 
 numberのパーザ/フォーマッタはElasticsearchのそれと一致したstring typeであると非常に楽です。つまり
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L11-L13
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L11-L13
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L35-L39
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L35-L39
 
 switch-caseによって`time.UnixMilli`と`time.Unix`を呼び出せば所望の動作を実現できます。
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L15-L24
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L15-L24
 
 # code generatorの作成
 
@@ -743,7 +736,7 @@ go-elasticsearchのMakefileを見る限り、makeの範疇でこの型の生成�
 幸いなことに生成元のtypescript定義は前述のとおりわかっていますし、go-elasticsearchの各ソースファイルに生成元の定義が載っています。
 それさえわかれば後は単純なテキスト置換で実装しなおすことは自体は簡単そうです。
 
-https://github.com/ngicks/estype/tree/main/spec
+https://github.com/ngicks/estype/blob/main/spec
 
 specというモジュールとして再実装しました。
 
@@ -759,9 +752,10 @@ https://github.com/ngicks/estype/blob/main/spec/mapping/Property.go#L87-L435
 
 執筆中にもう直されちゃいました
 
-https://github.com/elastic/go-elasticsearch/commit/0d1ac475f08d5e4a860b29f7e9a81ed087b4d86b
+https://github.com/elastic/go-elasticsearch/pull/706
 
-@non_exhaustiveタグが付いているデータはプラグインによって拡張されてもよいとのことです。私の書いたハンドポートは全くその辺を考慮してないのでマージされたらこちらを使うように修正しましょうかね。
+@non_exhaustiveタグが付いているデータはプラグインによって拡張されてもよい。そして、Propertyはそのタグが付いています。
+私の書いたハンドポートは全くその辺を考慮してないので8.9がリリースされたらこちらを使うように修正しましょうかね。
 
 :::
 
@@ -796,6 +790,8 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/g
 - structの場合、定義順序でキーが出力される
 - `map[K]V`の場合、出力順序はkeyをunicode比較でascending orderにソートした順序
   - goのrangeオペレータは`map`をrangeするとき順序をわざとばらばらにするので、こういった挙動になっているようです。
+
+Goのstruct fieldのルールにのっとり、mappingのpropertiesがUnicodeのLetterに当たらないとき、もしくはoperatorとして使われる文字の場合unicode escapeが必要です。
 
 ```go
 // https://go.dev/play/p/qQdZ_FhJEUp
@@ -1010,7 +1006,7 @@ func main() {
 
 https://github.com/ngicks/estype/blob/main/generator/object.go#L150-L157
 
-#### CustomFuncをつかう
+#### Custom/CustomFuncをつかう
 
 - Dictを使うと`map[Code]Code`であることからキー順序がソートされる
 - Valuesは改行を自動で入れない
@@ -1097,7 +1093,7 @@ if err != nil {
 }
 ```
 
-https://github.com/ngicks/estype/tree/45f4eb8bad861432af49f2c333975855f2f0b78a4
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a4
 
 #### 禁じ手: go codeを直接書く
 
@@ -1125,11 +1121,11 @@ func foo() {
 
 以下に置かれたデータを入力に
 
-https://github.com/ngicks/estype/tree/main/generator/test/testdata
+https://github.com/ngicks/estype/blob/main/generator/test/testdata
 
 以下のような方が出力されます。
 
-https://github.com/ngicks/estype/tree/main/generator/test
+https://github.com/ngicks/estype/blob/main/generator/test
 
 ### テスト
 
@@ -1189,6 +1185,10 @@ Usage of genestype:
 今後の課題は
 
 - 実際に使ってみて、使い勝手が悪いかなどを確かめる。
+- いくつかオプションを追加する
+  - SkipRaw
+  - Omit
+  - これらによって`_source`で`Elasticsearch`が返すフィールドの量を減らしとき、それ用の型をそれぞれに生成できる
 - QueryDSLのヘルパーも同様に生成する
   - 今回の型生成に比べて見るべきmappingのパラメータが増えるので絶対に時間がかかる
 - `Plain`に`Diff(v Plain) Raw`を実装し、[update APIのpartial update](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-update.html#_update_part_of_a_document)で利用しやすくする
