@@ -1,5 +1,5 @@
 ---
-title: "ElasticsearchのmappingからGoのTypeを作る"
+title: "ElasticsearchのmappingからGoのTypeを作る(1/2)"
 emoji: "📝"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Elasticsearch", "go"]
@@ -8,57 +8,16 @@ published: false
 
 # Overview
 
-- Elasticsearchの概要について説明する
-- Elasticsearchについて、JSONを格納したり引き出したりする場合に必要な知識を調査し、明示する
-- 以下を達成する型を作るcode generatorを作成する
+- 1. Elasticsearchの概要について説明する
+- 2. Elasticsearchについて、JSONを格納したり引き出したりする場合に必要な知識を調査し、明示する
+- 3. 以下を達成する型を作るcode generatorを作成する
   - mapping.jsonからindexに格納されたJSONを容易に生成/消費できる
   - Plain / Rawと二つに分け、アプリの決定事項を反映した型、Elasticsearchが受け入れるすべての値からUnmarshalできる型とそれぞれする
     - 相互を適切に変換するメソッドを設ける
   - `"dynamic"`値が`"strict"`以外の時にmapping.jsonに載っていない数値を格納できる
-- 作成中に見つけたjenniferによるcode generationのポイントを述べる
+- 4. 作成中に見つけたjenniferによるcode generationのポイントを述べる
 
-# 成果物
-
-- Helper Types: [Elasticsearch]にドキュメントとして格納するJSONのフィールドをmarshal / unmarshalする型
-- Code Generator: mappingからGoのstructを作るcode generator
-
-を作りました。
-
-成果物はこちらです。
-
-https://github.com/ngicks/estype
-
-以下でインストールし、
-
-```
-# go install github.com/ngicks/estype/cmd/genestype@latest
-```
-
-以下のようなオプションを受け付けます。
-
-```
-root@16cb5614efe3:/mnt/git/github.com/ngicks/estype# genestype --help
-Usage of genestype:
-  -c string
-        path to config file.
-        see definition of github.com/ngicks/estype/generator.GeneratorOption.
-  -m string
-        path to mapping.json.
-        You can use one that can be fetched from '<index_name>/_mapping',
-        or one that you've sent when creating index.
-  -o string
-        [optional] path to output generated code. (default "--")
-  -p string
-        package name of generated code.
-```
-
-サンプルで用意してあるmapping.jsonとオプションは以下に格納され
-
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/testdata
-
-それを`genestype`に食わせて以下のコードを生成してあります。
-
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test
+この記事は1．と2.を述べ、3.、4．は後続の記事で述べます。
 
 # 前提知識
 
@@ -69,15 +28,14 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/g
   - indexの作成
   - documentの格納/取得
 
-基本的な説明はできる限りするよう心がけますが、十分足りているかは不明です。GoとElasticsearchについて両方ともを使って開発した経験があることを前提とします。
+Elasticsearchついて、基本的な概要からJSONを生成、消費することにかかる説明はこの記事で行いますが十分足りてるかは不明です。Goに関しては一切説明を行いません。
 
 - 本投稿のごく一部で何の説明もなしにTypeScriptの型表記がでてきます。知っている人か、でなければなんとなくで読んでください。
 
 # 対象読者
 
-- GoでElasticsearchとやり取りするアプリを書いてJSON構造がよくわからなくて困った人
+- Elasticsearchとやり取りするアプリを書いてJSON構造がよくわからなくて困った人
 - Elasticsearchのmappingに関する細かい話が知りたい人
-- [github.com/dave/jennifer]の使い方について知りたい人
 
 # 環境
 
@@ -121,9 +79,27 @@ go version go1.20.6 linux/amd64
 
 GoはEncode / Decodeの界面での変換、validationに関して意識しやすい設計になっているため、ここにElasticsearchのindexに格納できるJSON documentとGo structと変換するいいブリッジをかけば同じ轍を踏まずに済みそうです。
 
-## Elasticsearch
+# 目的
 
-コンテキストを共有するためにElasticsearchについて少しだけ説明します。筆者はElasticsearchに明るくないので基本的には引用元をあたってください。
+- mapping.jsonを解析してそこからJSONを生成/消費できる型を生成するcode generatorを作成する
+
+# 目標
+
+この記事では、そのために以下を調べます
+
+- Elasticsearchがmappingに対してどのようなJSONを受け付けるのか
+  - 逆にどのようなJSONを受け付けないのか
+- その中で`string`や`int`や`map[string]any`などで表現できない特定のJSONのサブフィールドを必要とする[field data type(s)]
+
+さらに、
+
+- そのfield data typeを表現する型を作成する
+
+# Elasticsearch
+
+コンテキストを共有するためにElasticsearchの概要について説明します。筆者はElasticsearchに明るくないので基本的には引用元をあたってください。
+
+## 概要
 
 > 引用:
 > https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html
@@ -160,9 +136,13 @@ Inverted Indexに変換されます。これにより高速な検索を実現し
 > their metadata, the real power comes from being able to easily access the full
 > suite of search capabilities built on the Apache Lucene search engine library.
 
-Apache Luceneを包むことでこれらの挙動を実現していると述べており、
-種々の事情がここから透けてきています。ElasticsearchがShardという単位で管理を行う部分がありますが、
-これはLucene Indexのことのようです([参考](https://po3rin.com/blog/try-lucene))。
+Apache Luceneを包むことでこれらの挙動を実現していると述べており、種々の事情がここから透けてきています。ElasticsearchがShardという単位で管理を行う部分がありますが、これはLucene Indexのことのようです([参考](https://po3rin.com/blog/try-lucene))。
+
+ElasticsearchのIndexというのはRDBで言うところのTableに近く、
+同じschemaを共有するドキュメントを格納することができ、indexに対して検索をかけることができます。
+このschemaを決めるのがmappingであり、mappingによってIndexに収めるJSON Documentの形を完全に、あるいは部分的に決めることができます。
+
+## dynamic mapping / explicit mapping
 
 > 引用:
 > https://www.elastic.co/guide/en/elasticsearch/reference/8.4/documents-indices.html
@@ -176,12 +156,20 @@ Apache Luceneを包むことでこれらの挙動を実現していると述べ�
 > You can define rules to control dynamic mapping and explicitly define mappings
 > to take full control of how fields are stored and indexed.
 
-ElasticsearchのIndexというのはRDBで言うところのTableに近く、
-同じschemaを共有するドキュメントを格納することができ、indexに対して検索をかけることができます。
-このschemaを決めるのがmappingであり、mappingによってIndexに収めるJSON Documentの形を完全に、あるいは部分的に決めることができます。
+Elasticsearchはschema-lessで稼働して検索されることも可能です。この場合は[Dynamic field mapping](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/dynamic-field-mapping.html#dynamic-field-mapping)で述べられるように、格納されたJSONの内容から自動的にmappingを推定します。データの形が推定されるために手元にデータをとりあえず検索可能にするなどのユースケースには便利なのかもしれません。
 
-mappingはしばしば完全に固定にされる(`"dynamic":"strict"`)ことがあります。
-これは、index explosionいわれる、形の決まっていないJSONを収めることによって無数のフィールドが作成され、パフォーマンスが落ちる現象を避けるためや、間違った形のJSONを誤って納めたらすぐわかるようにするなどの意図が考えられます。
+一方で、推定されるために
+
+- [date detection](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/dynamic-field-mapping.html#date-detection)に検知されないフォーマットの時間が時間としてindexされない
+- `"true"` / `"false"`がbooleanとしてindexされない
+
+などのドローバックがあると述べられています。
+
+mappingはindex作成時などに[明確に指定することができます。](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/explicit-mapping.html#explicit-mapping)
+
+## mappingの指定/更新
+
+Indexは[Create index API](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/indices-create-index.html)で作成します。このAPIで同時にmappingを指定することができます。このmappingがこの記事で呼ぶ`mapping.json`のことです。
 
 > 引用:
 > https://www.elastic.co/guide/en/elasticsearch/reference/8.8/mapping-explosion.html
@@ -194,36 +182,50 @@ mappingはしばしば完全に固定にされる(`"dynamic":"strict"`)ことが
 > overriding to 100000 and this limit being hit by mapping totals would usually
 > have strong performance implications.
 
-引用のように一度作られたindexのフィールド(mapping)は減らすことができないため、そのindexの用途によっては固定しておくほうが事故が少ないので良いでしょう。
-書いてある通り、ユーザーの任意な値を収める場合は`"type":"flattened"`フィールドを使うとか、`"index":false`にしておくとかのほうがいいですね。
+引用のように一度作られたindexのフィールド(mapping)は減らすはできません。
+追加は[Update mapping API](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/indices-put-mapping.html)により可能です。
+
+## `"dynamic": "strict"`によるmappingの固定
+
+mappingはしばしば完全に固定にされる(`"dynamic":"strict"`)ことがあります。
+
+> 引用: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/dynamic.html#dynamic-parameters
+>
+> `strict` If new fields are detected, an exception is thrown and the document is rejected. New fields must be explicitly added to the mapping.
+
+推定を防ぐことで後々のmapping拡張を許したり、ill-formedなJSONを検知するなどの目的でこの設定が行われると考えられます。また、自由なフィールド追加を許すと[mapping explosion](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping.html#mapping-limit-settings)という現象が起きる可能性があります。これはindexに任意の入力を許すことによりmappingが増殖してパフォーマンスが劣化することです。
+
+ユーザーの任意な値を収める場合は[flattened]フィールドを使うか、objectのmapping設定で`"index":false`にするなどをしたほうが良いです。
 
 この記事の目的は主に、`"dynamic":"strict"`なmappingからGoの型を生成することで知識をコードにすることです。
 
 # お品書き
 
-それにあたって以下の作業が必要でした。
+`mapping.json`から型を作るcode generatorを作るにあたり以下の作業が必要でした。
 
-- `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
-- Elasticsearchに格納できるJSONの形を調査する。
-- Helper typeを実装する: ElasticsearchのField data typesのうち、単なる`string`や`int`などでない型に対するhelperを作成する。
-- date formatの変換: Elasticsearchの理解するtime formatをGoが理解するそれに変換する部分を実装する。
-- code generatorの作成: [github.com/dave/jennifer]を使ったcode generatorを作る。
+1. `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
+2. Elasticsearchに格納できるJSONの形を調査する。
+3. Helper typeを実装する: ElasticsearchのField data typesのうち、単なる`string`や`int`などでない型に対するhelperを作成する。
+4. date formatの変換: Elasticsearchの理解するtime formatをGoが理解するそれに変換する部分を実装する。
+5. code generatorの作成: [github.com/dave/jennifer]を使ったcode generatorを作る。
 
-これらによってElasticsearchを取り扱う際の知識をできるだけコード化することが目的となります。
+`4.`, `5.`は後続の記事で述べます。
 
 # `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
 
-すべてのフィールドは`undefined`であることが許され、ほとんどの[field data type(s)]において、`null`を受け付けます。[Arrays](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)の項に説明される通り、ほとんどの[field data types]において`T[]`も同じく受け付けられます。
+すべてのフィールドは`undefined`であることが許され、ほとんどの[field data type(s)]において、`null`を受け付けます。[Arrays](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)の項に説明される通り、ほとんどの[field data types]において`T[] | T[][]`も同じく受け付けられます。`T[][]`は`T[]`にflattenされると述べられています。
 
-デフォルトのドキュメントは`{}`を渡すことですべてのフィールドが空で作られます。もしくは後からmapping.jsonを拡張した場合でも、新しく追加されたフィールドはすべて`undefined`になるはずです。
+上記のすべてはオペレーション上混在しうることが考えられるため、これらすべてからunmarshalできる型があるとGoのコードからの扱いがよくなります。(`T[][]`はサポートしないことにしました)
 
-フィールドをクリアするのに最も手軽なのは[update APIのpartial update](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-update.html#_update_part_of_a_document)で値を空のarray`[]`、もしくは`null`で上書きすることです。
+混在する状況として考えらるのは
 
-ここから`null`と`undefined`の混在は普通のオペレーションの中でも発生しやすいといえます。
+- 全くデータを指定しない(`{}`)で初期化されたドキュメント
+  - すべてのフィールドが`undefined`
+- mappingが追加されてフィールドが拡張された場合の、それ以前にindexされたドキュメントのそのフィールドは`undefined`
+- フィールドをクリアするために[update APIのpartial update](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-update.html#_update_part_of_a_document)で`[]`、もしくは`null`で上書きされた場合
+- サービスで運用されていくうちに、もとは`T`だったフィールドが`T[]`にしたい場合、`T`と`T[]`は混在
 
-また、アプリが運用され続けていく中で、もとは`T`だったフィールドが`T[]`になることはElasticsearchにとっては合法なのでよくあることだとしましょう。
-
-これらすべては[reindex](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-reindex.html#reindex-with-an-ingest-pipeline)とpipelineなどででデータをいじって、[alias](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/aliases.html)をreindex先に切り替えれば無停止でこれらのルールの変換をできるはずです。しかし、ドキュメント数が多いとメモリやCPU使用率が高い状態が長時間続くため、しないでいいならしたくないでしょう。
+`undefined`と`null`、`T`と`T[]`の混在は、[reindex](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-reindex.html#reindex-with-an-ingest-pipeline)とpipelineなどででデータをいじって、[alias](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/aliases.html)をreindex先に切り替えれば無停止でそれぞれ片方に統一できます。しかし、ドキュメント数が多いとメモリやCPU使用率が高い状態が長時間続くため、あえてやりたい理由はないでしょう。
 
 上記の型を実装するには[前回の記事]でも述べた、[github.com/ngicks/und]を拡張し、`Elastic[T]`として実装しました。
 
@@ -244,7 +246,7 @@ https://github.com/ngicks/und/blob/fd0b45653fa93b1bb1ec1928253b563bd1d33eca/elas
 
 ## Elasticsearchのmappingとフィールドの形
 
-Elasticsearchでは、Indexごとに格納するJSON documentの形をmappingによって決めることができます。[spec](https://github.com/elastic/elasticsearch-specification/blob/76e25d34bff1060e300c95f4be468ef88e4f3465/specification/_types/mapping/TypeMapping.ts#L34-L56)によればトップは必ずJSON Objectであり、各フィールドは[field data type(s)]を指定することで、格納するデータの型とそれの意味が決められます。
+前述のとおり、[Elasticsearch]ではIndexごとに格納するJSON documentの形をJSONで表現されrうmappingによって決めることができます。[spec](https://github.com/elastic/elasticsearch-specification/blob/76e25d34bff1060e300c95f4be468ef88e4f3465/specification/_types/mapping/TypeMapping.ts#L34-L56)によればトップは必ずJSON Objectであり、各フィールドは[field data type(s)]を指定することで、格納するデータの型とそれの意味が決められます。
 
 前述のとおり、mappingはindex生成時などに事前に定義することができ、設定によって部分的に、あるいは完全にJSONの形を固定することができます。
 
@@ -255,6 +257,7 @@ mappingはJSONとして`PUT /<index_name>`にsettingとともに渡すことが�
 ```json
 {
   "mappings": {
+    "dynamic": "strict",
     "properties": {
       "name": {
         "type": "text"
@@ -308,8 +311,6 @@ mappingはJSONとして`PUT /<index_name>`にsettingとともに渡すことが�
 - single valueのarrayを受け付けるか
   - `dense_vector`以外は許されました。おそらく[Arrays](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/array.html)の項に説明がある通り、`T[][]`は`T[]`にflattenされるからでしょう。
 
-記事の都合上ここに書いてありますが作ってて、テストしてたら「あれエラー吐くな」って思って調べました。これを作らなかったらこんな細かく挙動を見なかったと思います。
-
 | field data type           | built-in / std       | 要mapping解析 | multi-value | null | 備考                                       |
 | ------------------------- | -------------------- | ------------- | ----------- | ---- | ------------------------------------------ |
 | [aggregate_metric_double] |                      | ⭕️            | ❌          |      |                                            |
@@ -318,7 +319,7 @@ mappingはJSONとして`PUT /<index_name>`にsettingとともに渡すことが�
 | [boolean]                 |                      |               |             |      |                                            |
 | [completion]              | `string`             |               |             | ❌   |                                            |
 | [date]/[date_nanos]       |                      | ⭕️            |             |      |                                            |
-| [dense_vector]            |                      | ⭕️            | ❌          | ❌   | `[[1,2,3]]`も受け付けない                  |
+| [dense_vector]            |                      | ⭕️            | ❌          | ❌   | `[[1,2,3]]`は受け付けない                  |
 | [flattened]               | `map[string]any`     |               |             |      |                                            |
 | [geo_point]               |                      |               |             |      |                                            |
 | [geo_shape]               |                      |               |             |      |                                            |
@@ -546,7 +547,7 @@ generatorなのでこの制限は特に問題ないとみなし、とりあえ�
 
 :::
 
-# date formatの変換
+## date helper typeの実装
 
 [date]および[date_nanos] field data
 typeは`"format"`フィールドで指定されたフォーマットに従う`string`もしくは`number`を収めることができ、フォーマット通りに解釈されて時間としてインデックスされます。
@@ -585,7 +586,7 @@ typeは`"format"`フィールドで指定されたフォーマットに従う`st
 
 `"format"`フィールドの展開や、built in formatの内容からレイアウト変換などはcode generatorの行いますのでこのセクションでは述べません。
 
-## optional sectionの展開
+### optional sectionの展開
 
 この機能は`optionalstring`という名前でパッケージにまとめてあります。
 
@@ -600,7 +601,7 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 実装の不備やバグは探せばいくらでもあると思いますがdate formatを展開するという用途には現状問題なく動作しています。
 
-## time tokenの変換
+### time tokenの変換
 
 こちらは以下のファイルで実装されています。
 
@@ -618,9 +619,9 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 とくにweekyear系トークンがないのでbuilt in date formatの中にいくつか使えないものが出てきます。
 
-## 複数フォーマットでパーズできる型を定義
+### 複数フォーマットでパーズできる型を定義
 
-### 複数のstringフォーマットを持つパーザ
+#### 複数のstringフォーマットを持つパーザ
 
 これ以下のファイルで実装しました。
 
@@ -643,7 +644,7 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 これは、Elasticsearch自身のソースを参考にしました。どうやっているんだろう、と思って見に行くと単にパーザーをイテレートしながらパーズを繰り返していたので、なるほど、と思いに似たような処理にしています。
 
-### numberもパーズ/フォーマットできるパーザ
+#### numberもパーズ/フォーマットできるパーザ
 
 これは前述のMultiLayoutとnumberを変換できるパーザを組み合わせます。
 
@@ -659,541 +660,14 @@ switch-caseによって`time.UnixMilli`と`time.Unix`を呼び出せば所望の
 
 https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L15-L24
 
-# code generatorの作成
-
-code generatorの目的はmapping.jsonを解析し、[Elasticsearch]にストアされるJSON Documentを円滑に生成/消費できるGoのstruct typeを作ることです。
-
-そのためには:
-
-- mapping.jsonの解析して型情報を取得し
-- ユーザーから設定値を受けとり
-- 設定と型情報に基づいてcode generateを行う
-
-最初のほうのセクションでのべた通り、
-
-- `T`と`T[]`
-- `undefined`と`null`
-
-などが混在することを許しながら、Goのほかのコードで円滑に消費できるplainでidiomaticな型を生成するのがこのcode generatorの目的です。これらの目的は互いに矛盾するため、それぞれの目的を達成する型をそれぞれ作り、ブリッジとなる相互変換メソッドを設けることと思案す。
-
-そのため、`Plain`と`Raw`の２つのタイプと、相互に変換を行うメソッドを実装する方針になっています。
-
-`Plain`は以下のサンプル生成コードのように「普通の」Go structのようなものです
-
-https://github.com/ngicks/estype/blob/main/generator/test/all.go#L14-L58
-
-`Raw`は`undefined | (null | T) | (null | T)[]`を許容するstructです
-
-https://github.com/ngicks/estype/blob/main/generator/test/all.go#L107-L151
-
-`Plain`はユーザーから設定値を受けとって、`T`、`[]T`、`*T`、`*[]T`のいずれであるかなどを決めます。
-
-## mapping.jsonの解析: specの実装
-
-mapping.jsonを解析するには、mapping.jsonの内容を定義したGo structを定義して`json.Unmarshal()`するか、jsonをパーズせずに手続き的にキーを探索するかなどを行うことになります。
-
-jsonをパーズしないまま探索を行う場合は、例えば、[github.com/tidwall/gjson](https://github.com/tidwall/gjson)を使います。
-
-今回はのちのことを考えて静的なstructを定義してそれを使うこととします。
-
-[github.com/elastic/go-elasticsearch]の`typedapi/types`以下には`IndexState`(index生成時に`/<index_name>`に`PUT`するJSON)や、`TypeMapping`が定義されています。当初はこれを使えばよいと思いましたが、`"type"`フィールドが存在しないとき`object`として扱われるというルールが正しく実装されていないことと、それを正しく修正する方法が不明であることからハンドポートを行いました。
-
-### specification
-
-今回のこれを実装するためにあれこれ調べるまで全然知らなかったのですが、[github.com/elastic/elasticsearch-specification](https://github.com/elastic/elasticsearch-specification)で、Elasticsearchの種々のJSON Documentの型をtypescriptの型定義として実装してあり、これをcompilerでJSONの何かしらのschemaに変換できます。これによって別言語のクライアントを作成するようです。
-
-goの公式clientライブラリである[github.com/elastic/go-elasticsearch]も、[typedapi](https://github.com/elastic/go-elasticsearch/tree/87bb1b42af071454319c73f91c6e5a35e7b6bc5b/typedapi)以下にここから生成されたコードがあります。
-
-https://github.com/elastic/go-elasticsearch/blob/87bb1b42af071454319c73f91c6e5a35e7b6bc5b/typedapi/types/typemapping.go#L33-L53
-
-ここでmappingの型が定義されています。
-
-ではこれを使えば目的が達せられるのかと言えばそうでもないんです。
-
-### go-elasticsearchのspecificationの変換に関する問題
-
-propertiesのデコード部分
-
-https://github.com/elastic/go-elasticsearch/blob/87bb1b42af071454319c73f91c6e5a35e7b6bc5b/typedapi/types/typemapping.go#L152-L447
-
-ここで、`"type"`フィールドが不在の場合がハンドルされていません。
-
-> 引用: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/object.html
->
-> You are not required to set the field type to object explicitly, as this is the default value.
-
-ドキュメント曰く、`"type"`がないと`"type":"object"`とみなされます。
-
-さらに悪いことに、PropertyにUnmarshalJSONが実装されているのではなく、Propertyをフィールドに持つ各種のstructにデコードのコードが分散しているため、1か所直したフォーク版をメンテすればいいというものではないようです。
-
-https://github.com/elastic/go-elasticsearch/issues/696
-
-go-elasticsearchのMakefileを見る限り、makeの範疇でこの型の生成を行っているわけではないようです。どう直していいやらわからないためPRも書けません。困りましたね。
-98%完璧に動いてるライブラリの2%のあまり考慮されてない部分を使いに行ってよくこういう問題にぶち当たります。
-
-### ハンドポート版の実装
-
-幸いなことに生成元のtypescript定義は前述のとおりわかっていますし、go-elasticsearchの各ソースファイルに生成元の定義が載っています。
-それさえわかれば後は単純なテキスト置換で実装しなおすことは自体は簡単そうです。
-
-https://github.com/ngicks/estype/blob/main/spec
-
-specというモジュールとして再実装しました。
-
-https://github.com/ngicks/estype/blob/main/spec/mapping/Property.go#L79-L81
-
-こちらでは、ハンドポートであるのでPropertyにUnmarshalJSONが実装される形に変わっています。もちろん`"type"`フィールドの不在もハンドルされています。
-
-https://github.com/ngicks/estype/blob/main/spec/mapping/Property.go#L87-L435
-
-(ちなみにtypedapiの中にははhelper typeで実装したような(rangeのような)型の定義は含まれておらず、無駄な努力をしたわけではなさそうでした。よかったよかった。)
-
-:::message
-
-執筆中にもう直されちゃいました
-
-https://github.com/elastic/go-elasticsearch/pull/706
-
-@non_exhaustiveタグが付いているデータはプラグインによって拡張されてもよい。そして、Propertyはそのタグが付いています。
-私の書いたハンドポートは全くその辺を考慮してないので8.9がリリースされたらこちらを使うように修正しましょうかね。
-
-:::
-
-## code generatorの実装
-
-このセクションではcode generator考慮すべきことを述べます。
-
-### dynamic inheritance
-
-mappingの`"dynamic"`の値によって、そのfield dataがmapping.jsonに載っていない値を持てるかが決まります。
-
-> 引用: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/dynamic.html
->
-> Inner objects inherit the dynamic setting from their parent object.
-
-とある通り、上位のオブジェクトから値を継承するため、再帰的な型の生成にはcontext情報が必要となります。
-nestedも同じく`"dynamic"`の値を継承します。これはElasticsearch 8.4.3相手に確認してあります。ドキュメントに明確に書かれてはいないですが「nestedは特殊版objectである」という記述はあります。
-
-`"dynamic":"strict"`以外はあればmapping.jsonに載っていないフィールドも受け付けるので、生成されるコードはこれをうまく格納できるフィールドと`MarshalJSON` / `UnmarshalJSON`を実装する必要があります。
-
-そこで、`strict`以外の場合、`AdditionalProps_ map[string]any`フィールドを追加し、MarshalJSONはこんな感じ、
-
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/dynamic.go#L109-L157
-
-UnmarshalJSONはこんな感じで生成されます
-
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/dynamic.go#L159-L208
-
-ポイントとしては`encoding/json`の挙動を再現するために以下をすることです
-
-- key, valueともに`<`, `>`などHTML tagの構成要素になる文字がunicode escapeされる
-- structの場合、定義順序でキーが出力される
-- `map[K]V`の場合、出力順序はkeyをunicode比較でascending orderにソートした順序
-  - goのrangeオペレータは`map`をrangeするとき順序をわざとばらばらにするので、こういった挙動になっているようです。
-
-Goのstruct fieldのルールにのっとり、mappingのpropertiesがUnicodeのLetterに当たらないとき、もしくはoperatorとして使われる文字の場合unicode escapeが必要です。
-
-```go
-// https://go.dev/play/p/qQdZ_FhJEUp
-package main
-
-import (
-	"encoding/json"
-	"fmt"
-)
-
-type Sample struct {
-	Foo string `json:"<foo>"`
-}
-
-func main() {
-	bin, _ := json.Marshal(Sample{Foo: "<bar>&&"})
-	fmt.Printf("%s\n", bin)
-	bin, _ = json.Marshal(map[string]string{"<foo>": "<bar>&&"})
-	fmt.Printf("%s\n", bin)
-	bin, _ = json.Marshal(map[string]string{"a": "", "A": "", "b": "", "B": "", "c": "", "C": ""})
-	fmt.Printf("%s\n", bin)
-}
-/*
-{"\u003cfoo\u003e":"\u003cbar\u003e\u0026\u0026"}
-{"\u003cfoo\u003e":"\u003cbar\u003e\u0026\u0026"}
-{"A":"","B":"","C":"","a":"","b":"","c":""}
-*/
-```
-
-unicode escapeされてても普通はdecode時にunescapeされるっぽいのであんまりこの辺は心配しなくても大丈夫です。
-
-```
-# deno
-Deno 1.32.4
-exit using ctrl+d, ctrl+c, or close()
-REPL is running with all permissions allowed.
-To specify permissions, run `deno repl` with allow flags.
-> JSON.parse(`{"\u003cfoo\u003e":"\u003cbar\u003e\u0026\u0026"}`)
-{ "<foo>": "<bar>&&" }
-```
-
-### null/multi-valueを許容しない型を考慮する
-
-[Elasticsearchの各field data typeのふるまい](#elasticsearchの各field-data-typeのふるまい)で述べた通り、一部のfield data typeはnullやmulti-valueをがあるとパーズ時にエラーとなります。これらはユーザーが渡す設定値よりも優先されますので、そのような挙動を作ります。
-
-## github.com/dave/jenniferによるcode generation
-
-code generationは[github.com/dave/jennifer]を使用します。
-
-### text/templateを使わない理由
-
-code generationを行うとき真っ先に思いつくのは[text/template](https://pkg.go.dev/text/template)を使う方法です。実際一度は検討しました。
-
-というか1度`text/template`で同じようなコードを書いたことがあるんですよ
-
-https://github.com/ngicks/elastic-type/blob/879d843a3a21c963793358ca705418f9f3247ea0/generate/date.go#L197-L295
-
-これ、見ただけで何してるかわかりますか？
-これは、mapping.jsonのformat解析済みのデータからdate型の生成を行っています。
-ほとんどは平叙なテキストなので、入力された値を取り扱う部分がなければを書いているかはわかりやすいです。
-`if`や`range`が二つネストするともうお手上げです。メンテする自信はありません。
-
-`text/template`を使う方法の問題点は
-
-- `range`, `if`などがネストするとよくわからなくなる
-- 改行や空白の制御がしにくい
-- パラメータを渡すときにstructを定義する必要がある。
-- 当然goのsyntax highlightがかからないので間違いに気づきにくい。
-
-もちろんこれは、`text/template`が複雑なgo codeの生成に使われる際、使う側のテクニックを要するというだけの話です。
-
-`text/template`の明確な良い点は
-
-- 外部からtemplate textの入力を受け付けるような使い方ができる
-  - dockerや互換cliの`--format`オプションは`text/template`が認識する文字列です
-- go code以外にも使える
-- templateから登録した任意の関数を呼び出せる。
-
-などがあります。
-ドキュメントが明確に述べる通り、data-drivenな使い道が主な用途でしょう。
-
-### github.com/dave/jennifer
-
-[awesome-go](https://github.com/avelino/awesome-go#generators)を見てみるとリストされているもので任意のgo codeの生成を行えるのはjenniferだけですね。
-`golang code generation`と検索して出てくるのもjenniferくらいのものです。
-
-とりあえず使ってみましたが、使い心地がよくてAPIも一貫性があります。これ以上のものは探してもないかもしれません。
-
-### jenniferを使ったcode generation
-
-上記のdate生成の部分をjenniferで書きなおすと以下のようになります。
-
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/genestime/gen.go#L14-L170
-
-うーんネストが深いですね。
-実際に生成されるコードと記述順序を一致させようとするとネストが深くなりがちです。ただ、jenniferを利用するとGo codeのトークンと対応づいた名前の関数を順番に呼ぶだけなので、書きにくいと感じることはなかったです。
-
-### jenniferのcode generationレシピ
-
-公式の[README.md](https://github.com/dave/jennifer)が丁寧なので、読めばわかると思います。
-
-最初に触ってすぐにはわからなかったことを書いていきます。これ別の記事に分けたほうがいいかな・・・
-
-#### 基本
-
-メソッドチェーンで書いていきます。
-
-https://go.dev/play/p/8KuGlxMIjX3
-
-```go
-// https://go.dev/play/p/8KuGlxMIjX3
-package main
-
-import (
-	"io"
-	"os"
-
-	"github.com/dave/jennifer/jen"
-)
-
-func main() {
-	f := jen.NewFile("main")
-	f.Func().Id("double").Params(jen.Id("v").Int()).Int().Block(
-		jen.Return(jen.Id("v").Op("*").Lit(int(2))),
-	).
-		Line()
-
-	f.Func().Id("main").Params().Block(
-		jen.Qual("fmt", "Println").Call(jen.Id("double").Call(jen.Lit(5))),
-	)
-
-	var out io.Writer = os.Stdout
-	if err := f.Render(out); err != nil {
-		panic(err)
-	}
-}
-```
-
-出力されるコードは
-
-```go
-package main
-
-import "fmt"
-
-func double(v int) int {
-	return v * 2
-}
-
-func main() {
-	fmt.Println(double(5))
-}
-```
-
-#### \*Tと書くとき
-
-```go
-jen.Op("*").Id("T")
-```
-
-operatorはすべて`Op()`です。何なら`Id("[]string")`や、`Id("*time.Time")`でも問題ありません。
-
-#### forを回しながらコードを生成する
-
-forでsliceやmapをイテレートしながら値に基づいてコードを生成するには、`jen.Do`もしくは`jen.*Func`を呼び出します。
-
-```go
-// https://go.dev/play/p/CfqJWyyH_ca
-package main
-
-import (
-	"bytes"
-	"crypto/rand"
-	"encoding/hex"
-	"io"
-	"os"
-
-	"github.com/dave/jennifer/jen"
-)
-
-func main() {
-	f := jen.NewFile("main")
-	f.Func().Id("main").Params().Block(
-		jen.Qual("fmt", "Println").Call(jen.Do(func(s *jen.Statement) {
-			buf := new(bytes.Buffer)
-			_, err := io.CopyN(buf, rand.Reader, 16)
-			if err != nil {
-				panic(err)
-			}
-			s.Id(`"` + hex.EncodeToString(buf.Bytes()) + `"`)
-		})),
-	)
-
-	if err := f.Render(os.Stdout); err != nil {
-		panic(err)
-	}
-}
-/*
-package main
-
-import "fmt"
-
-func main() {
-	fmt.Println("c1b78489a2894f8a8a04064ab205c235")
-}
-*/
-```
-
-`if`や`for`の後の`block`は`BlockFunc`、struct宣言には`StructFunc`、structやmapの初期化には`ValuesFunc`といった感じです。
-
-以下前述した収集した型情報から`type FooBar struct {...}`を生成するコードです。
-
-https://github.com/ngicks/estype/blob/main/generator/object.go#L150-L157
-
-#### Custom/CustomFuncをつかう
-
-- Dictを使うと`map[Code]Code`であることからキー順序がソートされる
-- Valuesは改行を自動で入れない
-
-ことから`Custom`/`CustomFunc`を使って以下のようにすると手動で`.Line()`を呼ばなくていいぶん楽です。
-
-多分こうするしかないかな？
-
-```go
-// https://go.dev/play/p/wkkwsrH6H-p
-package main
-
-import (
-	"os"
-
-	"github.com/dave/jennifer/jen"
-)
-
-func main() {
-	f := jen.NewFile("main")
-
-	f.Type().Id("SampleTy").Struct(
-		jen.Id("Foo").String(),
-		jen.Id("Bar").Int(),
-	)
-
-	f.Func().Id("main").Params().Block(
-		jen.Qual("fmt", "Println").Call(
-			jen.Id("SampleTy").Values(jen.Dict{
-				jen.Id("Foo"): jen.Lit("foo"),
-				jen.Id("Bar"): jen.Lit(123),
-			}),
-		),
-		jen.Qual("fmt", "Println").Call(
-			jen.Id("SampleTy").Values(
-				jen.Id("Foo").Op(":").Lit("foo"),
-				jen.Id("Bar").Op(":").Lit(123),
-			),
-		),
-		jen.Qual("fmt", "Println").Call(
-			jen.Id("SampleTy").Custom(
-				jen.Options{Open: "{", Close: "}", Separator: ",", Multi: true},
-				jen.Id("Foo").Op(":").Lit("foo"),
-				jen.Id("Bar").Op(":").Lit(123),
-			),
-		),
-	)
-
-	if err := f.Render(os.Stdout); err != nil {
-		panic(err)
-	}
-}
-/*
-package main
-
-import "fmt"
-
-type SampleTy struct {
-        Foo string
-        Bar int
-}
-
-func main() {
-        fmt.Println(SampleTy{
-                Bar: 123,
-                Foo: "foo",
-        })
-        fmt.Println(SampleTy{Foo: "foo", Bar: 123})
-        fmt.Println(SampleTy{
-                Foo: "foo",
-                Bar: 123,
-        })
-}
-*/
-```
-
-#### if err != nil ...を生成する
-
-以下のよく書くやつを生成するには
-
-```go
-if err != nil {
-  return nil, err
-}
-```
-
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a4
-
-#### 禁じ手: go codeを直接書く
-
-禁じ手ですが、決まり切ったgo codeなのでjenniferのメソッドチェーン外で生成したい場合は
-
-```go
-jen.
-  Line().
-  Line().
-  Id(`
-func foo() {
-  fmt.Prinln("bar")
-}
-`,
-  ).
-  Line().
-  Line()
-```
-
-とするとよいでしょう。
-調べた限り生のstringをそのまま入力させてくれるAPIはないです。
-`Id()`は入力をそのまま出力するので`Line()`で改行を挟んでおけば任意のコードを書き込めます。
-
-### 生成されるコード
-
-以下に置かれたデータを入力に
-
-https://github.com/ngicks/estype/blob/main/generator/test/testdata
-
-以下のような方が出力されます。
-
-https://github.com/ngicks/estype/blob/main/generator/test
-
-### テスト
-
-https://github.com/ngicks/estype/blob/main/test.compose.yml
-
-以上のcomposeを使って、elasticsearch 8.4.3相手に
-
-- mapping.jsonでindexを作れるか
-- 作られたindexに生成された型のサンプル入力を格納できるか
-  - plain, raw両方に対して
-- `null`やmulti-valueを許容しない型に対して、許容されない値を出力しないか
-
-などをテストしてパスするのを確認しました。長かった・・・。
-
-### cli
-
-cliからも呼び出せるように実行ファイルも作ってあります。
-
-```
-# go install github.com/ngicks/estype/cmd/genestype@latest
-root@16cb5614efe3:/mnt/git/github.com/ngicks/estype# genestype --help
-Usage of genestype:
-  -c string
-        path to config file.
-        see definition of github.com/ngicks/estype/generator.GeneratorOption.
-  -m string
-        path to mapping.json.
-        You can use one that can be fetched from '<index_name>/_mapping',
-        or one that you've sent when creating index.
-  -o string
-        [optional] path to output generated code. (default "--")
-  -p string
-        package name of generated code.
-```
-
-それぞれのフィールドの型名を決定する関数を渡すオプションがありませんが、ほかのオプションはわらせるようになりました。
-
-サンプルの型もこれによって生成されています。
-
 # まとめ
 
-- Elasticsearchの概要について説明した
-- Elasticsearchについて、JSONを格納したり引き出したりする場合に必要な知識を調査し、明示した
-- 以下を達成する型を作るcode generatorを作成した
-  - mapping.jsonからindexに格納されたJSONを容易に生成/消費できる
-  - Plain / Rawと二つに分け、アプリの決定事項を反映した型、Elasticsearchが受け入れるすべての値からUnmarshalできる型とそれぞれする
-    - 相互を適切に変換するメソッドを設ける
-  - `"dynamic"`値が`"strict"`以外の時にmapping.jsonに載っていない数値を格納できる
+- 1. Elasticsearchの概要について説明した
+- 2. Elasticsearchについて、JSONを格納したり引き出したりする場合に必要な知識を調査し、明示した
+  - 単に`string`, `int`などにできない型について型を定義し、必要であれば`json.Marshaler`, `json.Unmarshaler`を実装した。
+  - [date] / [data_nanos]のために時間フォーマットの変換部と複数レイアウトを保持してパーズができる型を実装した
 
-# おわりに
-
-雑多な知識を詰め込めるだけ詰め込んであるので、またスクロールバーが小指の先ほどの大きさになってしまいました。
-
-- これについて調べなかったら一生[github.com/elastic/elasticsearch-specification](https://github.com/elastic/elasticsearch-specification)の存在を知らなかったかもしれないので、やってよかった
-- [github.com/dave/jennifer]によるcode generationがすごく快適で、code generationいつでも任せてくださいって感じになれてうれしい。
-
-今後の課題は
-
-- 実際に使ってみて、使い勝手が悪いかなどを確かめる。
-- いくつかオプションを追加する
-  - SkipRaw
-  - Omit
-  - これらによって`_source`で`Elasticsearch`が返すフィールドの量を減らしとき、それ用の型をそれぞれに生成できる
-- QueryDSLのヘルパーも同様に生成する
-  - 今回の型生成に比べて見るべきmappingのパラメータが増えるので絶対に時間がかかる
-- `Plain`に`Diff(v Plain) Raw`を実装し、[update APIのpartial update](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-update.html#_update_part_of_a_document)で利用しやすくする
-
-最近Elasticsearchをいじくる業務から離れてしまって使う機会が確保できるか微妙です。
+次回の記事で`mapping.json`から型を生成するcode generatorを実装します。
 
 [elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html
 [ingest pipelines]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/ingest.html
