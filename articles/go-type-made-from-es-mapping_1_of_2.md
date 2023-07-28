@@ -19,6 +19,49 @@ published: false
 
 この記事は1．と2.を述べ、3.、4．は後続の記事で述べます。
 
+# 成果物
+
+- Helper Types: [Elasticsearch]にドキュメントとして格納するJSONのフィールドをmarshal / unmarshalする型
+- Code Generator: mappingからGoのstructを作るcode generator
+
+を作りました。
+
+成果物はこちらです。
+
+https://github.com/ngicks/estype
+
+以下でインストールし、
+
+```
+# go install github.com/ngicks/estype/cmd/genestype@latest
+```
+
+以下のようなオプションを受け付けます。
+
+```
+root@16cb5614efe3:/mnt/git/github.com/ngicks/estype# genestype --help
+Usage of genestype:
+  -c string
+        path to config file.
+        see definition of github.com/ngicks/estype/generator.GeneratorOption.
+  -m string
+        path to mapping.json.
+        You can use one that can be fetched from '<index_name>/_mapping',
+        or one that you've sent when creating index.
+  -o string
+        [optional] path to output generated code. (default "--")
+  -p string
+        package name of generated code.
+```
+
+サンプルで用意してあるmapping.jsonとオプションは以下に格納され
+
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/testdata
+
+それを`genestype`に食わせて以下のコードを生成してあります。
+
+https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test
+
 # 前提知識
 
 以下を有する
