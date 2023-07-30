@@ -17,7 +17,7 @@ published: false
   - `"dynamic"`値が`"strict"`以外の時にmapping.jsonに載っていない数値を格納できる
 - 4. 作成中に見つけたjenniferによるcode generationのポイントを述べる
 
-この記事は1．と2.を述べ、3.、4．は[part2]で述べます。
+この記事は`1.`と`2.`を述べ、`3.`、`4．`は[part2]で述べます。
 
 # 成果物
 
@@ -39,7 +39,7 @@ https://github.com/ngicks/estype
 以下のようなオプションを受け付けます。
 
 ```
-root@16cb5614efe3:/mnt/git/github.com/ngicks/estype# genestype --help
+# genestype --help
 Usage of genestype:
   -c string
         path to config file.
@@ -214,18 +214,7 @@ mappingはindex作成時などに[明確に指定することができます。]
 
 Indexは[Create index API](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/indices-create-index.html)で作成します。このAPIで同時にmappingを指定することができます。このmappingがこの記事で呼ぶ`mapping.json`のことです。
 
-> 引用:
-> https://www.elastic.co/guide/en/elasticsearch/reference/8.8/mapping-explosion.html
->
-> Mappings cannot be field-reduced once initialized. Elasticsearch indices
-> default to dynamic mappings which doesn’t normally cause problems unless it’s
-> combined with overriding index.mapping.total_fields.limit. The default 1000
-> limit is considered generous, though overriding to 10000 doesn’t cause
-> noticable impact depending on use case. However, to give a bad example,
-> overriding to 100000 and this limit being hit by mapping totals would usually
-> have strong performance implications.
-
-引用のように一度作られたindexのフィールド(mapping)は減らすはできません。
+一度作られたindexのフィールド(mapping)は減らすはできません。
 追加は[Update mapping API](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/indices-put-mapping.html)により可能です。
 
 ## `"dynamic": "strict"`によるmappingの固定
@@ -252,7 +241,7 @@ mappingはしばしば完全に固定にされる(`"dynamic":"strict"`)ことが
 4. date formatの変換: Elasticsearchの理解するtime formatをGoが理解するそれに変換する部分を実装する。
 5. code generatorの作成: [github.com/dave/jennifer]を使ったcode generatorを作る。
 
-`4.`は[part2]で述べます。
+`5.`は[part2]で述べます。
 
 # `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
 

@@ -243,6 +243,7 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/g
     - `mapping.json`解析時に`sort.Strings`でソートされるのでフィールド名をascendingの順です。
   - `AdditionalProps_`はキー名を`sort.Strings`でソートした順序で出力。
     - 有名な話ですが`map[K]V`を`range`オペレータでイテレートするとき、ランダムな順序になるように仕様が定義されています。
+    - `encoding/json`は`sort.Strings`でソートすることで結果をstableにします。
 - 生成されるGo codeはGoの[FieldDecl]に従い、exportされている必要がある
   - [identifier]になるように、[letter]以外をunicode escapeする
   - `_`がprefixされているとき、exportフィールドにするために`_`-suffixに変換する
@@ -253,7 +254,7 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/g
 [letter]: https://go.dev/ref/spec#letter
 [Operators and punctuation]: https://go.dev/ref/spec#Operators_and_punctuation
 
-`json.Marshal`の挙動は以下のようになります。
+`json.Marshal`の特定文字のunicode escapeと`map`のstable化の挙動はは以下のようになります。
 
 ```go
 // https://go.dev/play/p/qQdZ_FhJEUp
@@ -283,6 +284,8 @@ func main() {
 */
 ```
 
+見てのとおり、`map`のキーはunicodeで`ascending`順です(asciiコード表で分かる通り`'A' < 'a'`ですね)
+
 unicode escapeされてても普通はdecode時にunescapeされるっぽいのであんまりこの辺は心配しなくても大丈夫です。すくなくともjavascriptは以下のように`unescape`してくれます。
 
 ```
@@ -310,7 +313,7 @@ Goにはこの辺のことをする処理がぱっと調べた限り`strconv`に
 
 https://github.com/ngicks/estype/blob/main/generator/generate.go#L121-L164
 
-エスケープ処理はstrconvの中身を見て実装しなおしています。
+エスケープ処理は`strconv`の中身を見て実装しなおしています。
 
 https://github.com/ngicks/estype/blob/main/generator/generate.go#L166-L177
 
@@ -380,7 +383,7 @@ https://github.com/ngicks/elastic-type/blob/879d843a3a21c963793358ca705418f9f324
 https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/genestime/gen.go#L14-L170
 
 うーんネストが深いですね。
-実際に生成されるコードと記述順序を一致させようとするとネストが深くなりがちです。ただ、jenniferを利用するとGo codeのトークンと対応づいた名前の関数を順番に呼ぶだけなので、書きにくいと感じることはなかったです。
+実際に生成されるコードと記述順序を一致させようとするとネストが深くなりがちです。ただ、jenniferを利用するとGo codeのトークンと対応づいた名前の関数を順番に呼ぶだけなので、書きにくいと感じることはなかったです。分量が多くなるので書くのは大変です。コードなのでリファクタは簡単でした。
 
 ### jenniferのcode generationレシピ
 
@@ -516,7 +519,7 @@ func main() {
 
 こんな感じで、Doの特化版が`Custom/CustomFunc`, さらにそれぞれへの特化版が`BlockFunc`, `StructFunc`, `ValuesFunc`...といった感じのようです。
 
-以下前述した収集した型情報から`type FooBar struct {...}`を生成するコードです。
+以下`mapping.json`を解析して収集した`typeId`から`type FooBar struct {...}`を生成するコードです。
 
 https://github.com/ngicks/estype/blob/main/generator/object.go#L156-L163
 
