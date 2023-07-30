@@ -17,7 +17,7 @@ published: false
   - `"dynamic"`値が`"strict"`以外の時にmapping.jsonに載っていない数値を格納できる
 - 4. 作成中に見つけたjenniferによるcode generationのポイントを述べる
 
-この記事は1．と2.を述べ、3.、4．は後続の記事で述べます。
+この記事は1．と2.を述べ、3.、4．は[part2]で述べます。
 
 # 成果物
 
@@ -78,12 +78,12 @@ Elasticsearchついて、基本的な概要からJSONを生成、消費するこ
 # 対象読者
 
 - Elasticsearchとやり取りするアプリを書いてJSON構造がよくわからなくて困った人
-- Elasticsearchのmappingに関する細かい話が知りたい人
+- 格納できるJSONの生成に関するという観点のみだが、Elasticsearchのmappingに関する細かい話が知りたい人
 
 # 環境
 
 作り出した時期が大分前なので、elasticsearchは8.4.3を対象に作られています。
-ドキュメントも1つを除いてすべて8.4のものを参照しています。
+ドキュメントもすべて8.4のものを参照しています。
 
 ```
 # go version
@@ -199,7 +199,7 @@ ElasticsearchのIndexというのはRDBで言うところのTableに近く、
 > You can define rules to control dynamic mapping and explicitly define mappings
 > to take full control of how fields are stored and indexed.
 
-Elasticsearchはschema-lessで稼働して検索されることも可能です。この場合は[Dynamic field mapping](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/dynamic-field-mapping.html#dynamic-field-mapping)で述べられるように、格納されたJSONの内容から自動的にmappingを推定します。データの形が推定されるために手元にデータをとりあえず検索可能にするなどのユースケースには便利なのかもしれません。
+Elasticsearchはschema-lessで稼働して検索されることも可能です。この場合は[Dynamic field mapping](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/dynamic-field-mapping.html#dynamic-field-mapping)で述べられるように、格納されたJSONの内容から自動的にmappingを推定します。データの形が推定されるために手元のデータをとりあえず検索可能にするなどのユースケースには便利なのかもしれません。
 
 一方で、推定されるために
 
@@ -252,7 +252,7 @@ mappingはしばしば完全に固定にされる(`"dynamic":"strict"`)ことが
 4. date formatの変換: Elasticsearchの理解するtime formatをGoが理解するそれに変換する部分を実装する。
 5. code generatorの作成: [github.com/dave/jennifer]を使ったcode generatorを作る。
 
-`4.`, `5.`は後続の記事で述べます。
+`4.`は[part2]で述べます。
 
 # `undefined | null | T | (null | T)[]`をunmarshalできる型を作る。
 
@@ -289,7 +289,7 @@ https://github.com/ngicks/und/blob/fd0b45653fa93b1bb1ec1928253b563bd1d33eca/elas
 
 ## Elasticsearchのmappingとフィールドの形
 
-前述のとおり、[Elasticsearch]ではIndexごとに格納するJSON documentの形をJSONで表現されrうmappingによって決めることができます。[spec](https://github.com/elastic/elasticsearch-specification/blob/76e25d34bff1060e300c95f4be468ef88e4f3465/specification/_types/mapping/TypeMapping.ts#L34-L56)によればトップは必ずJSON Objectであり、各フィールドは[field data type(s)]を指定することで、格納するデータの型とそれの意味が決められます。
+前述のとおり、[Elasticsearch]ではIndexごとに格納するJSON documentの形を`mapping.json`によって決めることができます。[spec](https://github.com/elastic/elasticsearch-specification/blob/76e25d34bff1060e300c95f4be468ef88e4f3465/specification/_types/mapping/TypeMapping.ts#L34-L56)によればトップは必ずJSON Objectであり、各フィールドは[field data type(s)]を指定することで、格納するデータの型とそれの意味が決められます。
 
 前述のとおり、mappingはindex生成時などに事前に定義することができ、設定によって部分的に、あるいは完全にJSONの形を固定することができます。
 
@@ -333,9 +333,9 @@ mappingはJSONとして`PUT /<index_name>`にsettingとともに渡すことが�
 
 ドキュメントによると
 
-- [text]はその言葉の通り、`analyzer`にって解析されるfull-textコンテンツです。
+- [text]はその言葉の通り、`analyzer`にって解析されるfull-textコンテンツ
 - [binary]はbase64 encodeされたstring
-- [range]はサブフィールドに`gt`,`gte`,`lt`,`lte`を持つことでrangeを表現できる型です。
+- [range]はサブフィールドに`gt`,`gte`,`lt`,`lte`を持つことでrangeを表現できる型
 
 `text`や`keyword`は`string`、`integer`や`double`は`int32`や`float64`に単にすればよいですが、それ以外は大なり小なりフォーマットに意味があります。
 
@@ -710,7 +710,7 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
   - 単に`string`, `int`などにできない型について型を定義し、必要であれば`json.Marshaler`, `json.Unmarshaler`を実装した。
   - [date] / [data_nanos]のために時間フォーマットの変換部と複数レイアウトを保持してパーズができる型を実装した
 
-次回の記事で`mapping.json`から型を生成するcode generatorを実装します。
+[part2]で`mapping.json`から型を生成するcode generatorを実装します。
 
 [elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html
 [ingest pipelines]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/ingest.html
@@ -721,6 +721,7 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 [github.com/elastic/go-elasticsearch]: https://github.com/elastic/go-elasticsearch
 [github.com/dave/jennifer]: https://github.com/dave/jennifer
 [github.com/ngicks/und]: https://github.com/ngicks/und
+[part2]: https://zenn.dev/ngicks/articles/go-type-made-from-es-mapping_2_of_2
 [前回の記事]: https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined
 [range]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/range.html
 

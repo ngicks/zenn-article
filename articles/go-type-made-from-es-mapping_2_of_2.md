@@ -78,13 +78,12 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/g
 # 対象読者
 
 - Elasticsearchとやり取りするアプリを書いてJSON構造がよくわからなくて困った人
-- Elasticsearchのmappingに関する細かい話が知りたい人
-- code generationで躓きがちなところを知りたい人
+- Goのcode generationで躓きがちなところを知りたい人
 
 # 環境
 
 作り出した時期が大分前なので、elasticsearchは8.4.3を対象に作られています。
-ドキュメントも1つを除いてすべて8.4のものを参照しています。
+ドキュメントもすべて8.4のものを参照しています。
 
 ```
 # go version
@@ -124,7 +123,7 @@ go version go1.20.6 linux/amd64
 - `T`と`T[]`
 - `undefined`と`null`
 
-などが混在することを許しながら、Goのほかのコードで円滑に消費できるplainでidiomaticな型を生成するのがこのcode generatorの目的です。これらの目的は互いに矛盾するため、それぞれの目的を達成する型をそれぞれ作り、ブリッジとなる相互変換メソッドを設けることと思案す。
+などが混在することを許しながら、Goのほかのコードで円滑に消費できるplainでidiomaticな型を生成するのがこのcode generatorの目的です。これらの目的は互いに矛盾するため、それぞれの目的を達成する型をそれぞれ作り、ブリッジとなる相互変換メソッドを設けることとします。
 
 そのため、`Plain`と`Raw`の２つのタイプと、相互に変換を行うメソッドを実装する方針になっています。
 
@@ -142,7 +141,7 @@ https://github.com/ngicks/estype/blob/main/generator/test/all.go#L107-L151
 
 mapping.jsonを解析するには、mapping.jsonの内容を定義したGo structを定義して`json.Unmarshal()`するか、jsonをパーズせずに手続き的にキーを探索するかなどを行うことになります。
 
-jsonをパーズしないまま探索を行う場合は、例えば、[github.com/tidwall/gjson](https://github.com/tidwall/gjson)を使います。
+(jsonをパーズしないまま探索を行う場合は、例えば、[github.com/tidwall/gjson](https://github.com/tidwall/gjson)を使います。)
 
 今回はのちのことを考えて静的なstructを定義してそれを使うこととします。
 
@@ -205,7 +204,7 @@ https://github.com/ngicks/estype/blob/main/spec/mapping/Property.go#L87-L435
 https://github.com/elastic/go-elasticsearch/pull/706
 
 @non_exhaustiveタグが付いているデータはプラグインによって拡張されてもよい。そして、Propertyはそのタグが付いています。
-私の書いたハンドポートは全くその辺を考慮してないので8.9がリリースされたらこちらを使うように修正しましょうかね。
+私の書いたハンドポートは全くその辺を考慮してないのでそのうちこちらを使うように修正するかも。
 
 :::
 
@@ -234,14 +233,27 @@ UnmarshalJSONはこんな感じで生成されます
 
 https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/dynamic.go#L159-L208
 
-ポイントとしては`encoding/json`の挙動を再現するために以下をすることです
+ポイントは
 
-- key, valueともに`<`, `>`などHTML tagの構成要素になる文字がunicode escapeされる
-- structの場合、定義順序でキーが出力される
-- `map[K]V`の場合、出力順序はkeyをunicode比較でascending orderにソートした順序
-  - goのrangeオペレータは`map`をrangeするとき順序をわざとばらばらにするので、こういった挙動になっているようです。
+- MarshalJSONの結果であるJSONは`encoding/json`の挙動を模倣する
+  - `<`, `>`, `&`のようなhtmlに使われるキーワードを`\u003c`のようにunicode escapeする
+  - `Plain`ならば、`,omitempty`タグされているとき、`reflect.Value#IsZero`判定を行ったうえでゼロならフィールドをスキップする
+  - `Raw`ならば、`IsUndefined`のときフィールドをスキップする
+  - `AdditionalProps_`以外のフィールドは定義順に出力する
+    - `mapping.json`解析時に`sort.Strings`でソートされるのでフィールド名をascendingの順です。
+  - `AdditionalProps_`はキー名を`sort.Strings`でソートした順序で出力。
+    - 有名な話ですが`map[K]V`を`range`オペレータでイテレートするとき、ランダムな順序になるように仕様が定義されています。
+- 生成されるGo codeはGoの[FieldDecl]に従い、exportされている必要がある
+  - [identifier]になるように、[letter]以外をunicode escapeする
+  - `_`がprefixされているとき、exportフィールドにするために`_`-suffixに変換する
+  - [Operators and punctuation]を除くようにunicode escapeする
 
-Goのstruct fieldのルールにのっとり、mappingのpropertiesがUnicodeのLetterに当たらないとき、もしくはoperatorとして使われる文字の場合unicode escapeが必要です。
+[FieldDecl]: https://go.dev/ref/spec#FieldDecl
+[identifier]: https://go.dev/ref/spec#identifier
+[letter]: https://go.dev/ref/spec#letter
+[Operators and punctuation]: https://go.dev/ref/spec#Operators_and_punctuation
+
+`json.Marshal`の挙動は以下のようになります。
 
 ```go
 // https://go.dev/play/p/qQdZ_FhJEUp
@@ -271,7 +283,7 @@ func main() {
 */
 ```
 
-unicode escapeされてても普通はdecode時にunescapeされるっぽいのであんまりこの辺は心配しなくても大丈夫です。
+unicode escapeされてても普通はdecode時にunescapeされるっぽいのであんまりこの辺は心配しなくても大丈夫です。すくなくともjavascriptは以下のように`unescape`してくれます。
 
 ```
 # deno
@@ -283,9 +295,40 @@ To specify permissions, run `deno repl` with allow flags.
 { "<foo>": "<bar>&&" }
 ```
 
+`mapping.json`に記載できる値は有効なjsonならば何でもよいのか、✨のようなemojiでも許されました(前記のとおり8.4のみで確認)。
+しかし、Goにおける[FieldDecl]は[IdentifierList](https://go.dev/ref/spec#IdentifierList)であり、[identifier]は
+
+```
+identifier = letter { letter | unicode_digit } .
+```
+
+[unicode_digit]: https://go.dev/ref/spec#unicode_digit
+
+です。つまり、unicodeのletter categoryと`"_"`とnumber category以外はすべてescapeする必要があります。emojiはLetter categoryではないようです。
+
+Goにはこの辺のことをする処理がぱっと調べた限り`strconv`にいろいろ実装されているのですが、`strings.Builder`と組み合わせて使うには微妙に不都合なので適当に実装しなおしてあります。
+
+https://github.com/ngicks/estype/blob/main/generator/generate.go#L121-L164
+
+エスケープ処理はstrconvの中身を見て実装しなおしています。
+
+https://github.com/ngicks/estype/blob/main/generator/generate.go#L166-L177
+
+utf8は4byteまであり得るので、2byte以下の場合は`\u1234`、それ以上の場合は`\u12345678`になるようにする以外は`MSB`から順にhex encodeするといういつもの奴ですね。
+
 ### null/multi-valueを許容しない型を考慮する
 
-[Elasticsearchの各field data typeのふるまい](#elasticsearchの各field-data-typeのふるまい)で述べた通り、一部のfield data typeはnullやmulti-valueをがあるとパーズ時にエラーとなります。これらはユーザーが渡す設定値よりも優先されますので、そのような挙動を作ります。
+[Elasticsearchの各field data typeのふるまい](https://zenn.dev/ngicks/articles/go-type-made-from-es-mapping_1_of_2#elasticsearchの各field-data-typeのふるまい)で述べた通り、一部のfield data typeはnullやmulti-valueをがあるとパーズ時にエラーとなります。これらはユーザーが渡す設定値よりも優先されますので、そのような挙動を作ります。
+
+そこで、内部的な[field data type]に対応する型を表すための型を作り、そこに上記の各性質を反映するようにフィールドを定義します。
+
+https://github.com/ngicks/estype/blob/main/generator/typeid.go#L31-L39
+
+code generatorはこれらに基づいてコードを生成します
+
+https://github.com/ngicks/estype/blob/main/generator/field.go#L52-L87
+
+特別なgeneratorを必要としない[field data type]についてはこのようにテーブルを定義し、そこでまとめて管理するように実装しました。
 
 ## github.com/dave/jenniferによるcode generation
 
@@ -409,7 +452,7 @@ operatorはすべて`Op()`です。何なら`Id("[]string")`や、`Id("*time.Tim
 forでsliceやmapをイテレートしながら値に基づいてコードを生成するには、`jen.Do`もしくは`jen.*Func`を呼び出します。
 
 ```go
-// https://go.dev/play/p/CfqJWyyH_ca
+// https://go.dev/play/p/q-zgkBQwTQC
 package main
 
 import (
@@ -426,12 +469,14 @@ func main() {
 	f := jen.NewFile("main")
 	f.Func().Id("main").Params().Block(
 		jen.Qual("fmt", "Println").Call(jen.Do(func(s *jen.Statement) {
-			buf := new(bytes.Buffer)
-			_, err := io.CopyN(buf, rand.Reader, 16)
-			if err != nil {
-				panic(err)
+			for i := 0; i < 3; i++ {
+				buf := new(bytes.Buffer)
+				_, err := io.CopyN(buf, rand.Reader, 16)
+				if err != nil {
+					panic(err)
+				}
+				s.Id(`"` + hex.EncodeToString(buf.Bytes()) + `"`).Op(",")
 			}
-			s.Id(`"` + hex.EncodeToString(buf.Bytes()) + `"`)
 		})),
 	)
 
@@ -439,22 +484,41 @@ func main() {
 		panic(err)
 	}
 }
+
 /*
 package main
 
 import "fmt"
 
 func main() {
-	fmt.Println("c1b78489a2894f8a8a04064ab205c235")
+	fmt.Println("99efaa4504a933201846d83dce09967d", "6eec9aca8fb4c381e3ea5a96e5b4d75c", "575fa8f3d669d204071afb06575f0504")
 }
 */
+
 ```
 
-`if`や`for`の後の`block`は`BlockFunc`、struct宣言には`StructFunc`、structやmapの初期化には`ValuesFunc`といった感じです。
+これはListFuncで書きなおしても同じコードが得られます。
+
+```diff go
+-		jen.Qual("fmt", "Println").Call(jen.Do(func(s *jen.Statement) {
++		jen.Qual("fmt", "Println").Call(jen.ListFunc(func(g *jen.Group) {
+			for i := 0; i < 3; i++ {
+				buf := new(bytes.Buffer)
+				_, err := io.CopyN(buf, rand.Reader, 16)
+				if err != nil {
+					panic(err)
+				}
+-				s.Id(`"` + hex.EncodeToString(buf.Bytes()) + `"`).Op(",")
++				g.Id(`"` + hex.EncodeToString(buf.Bytes()) + `"`)
+			}
+		})),
+```
+
+こんな感じで、Doの特化版が`Custom/CustomFunc`, さらにそれぞれへの特化版が`BlockFunc`, `StructFunc`, `ValuesFunc`...といった感じのようです。
 
 以下前述した収集した型情報から`type FooBar struct {...}`を生成するコードです。
 
-https://github.com/ngicks/estype/blob/main/generator/object.go#L150-L157
+https://github.com/ngicks/estype/blob/main/generator/object.go#L156-L163
 
 #### Custom/CustomFuncをつかう
 
@@ -543,7 +607,45 @@ if err != nil {
 }
 ```
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a4
+```go
+// https://go.dev/play/p/ms2qGw7Zn27
+package main
+
+import (
+	"os"
+
+	"github.com/dave/jennifer/jen"
+)
+
+func main() {
+	f := jen.NewFile("main")
+	f.Func().Id("foo").Params().Params(jen.Error(), jen.Error()).Block(
+		jen.Var().Defs(
+			jen.Err().Error(),
+		),
+		jen.If(jen.Err().Op("!=").Nil()).Block(
+			jen.Return(jen.Nil(), jen.Err()),
+		),
+	)
+
+	if err := f.Render(os.Stdout); err != nil {
+		panic(err)
+	}
+}
+
+/*
+package main
+
+func foo() (error, error) {
+	var (
+		err error
+	)
+	if err != nil {
+		return nil, err
+	}
+}
+*/
+```
 
 #### 禁じ手: go codeを直接書く
 
@@ -651,6 +753,7 @@ Usage of genestype:
 
 [elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html
 [ingest pipelines]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/ingest.html
+[field data type]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping-types.html
 [field data type(s)]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping-types.html
 [field data types]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/mapping-types.html
 [GeoJSON]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-shape.html#:~:text=GeoJSON%20or%20Well%2DKnown%20Text
