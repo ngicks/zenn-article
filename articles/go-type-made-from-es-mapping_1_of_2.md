@@ -712,7 +712,7 @@ https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/f
 - 1. Elasticsearchの概要について説明した
 - 2. Elasticsearchについて、JSONを格納したり引き出したりする場合に必要な知識を調査し、明示した
   - 単に`string`, `int`などにできない型について型を定義し、必要であれば`json.Marshaler`, `json.Unmarshaler`を実装した。
-  - [date] / [dat_nanos]のために時間フォーマットの変換部と複数レイアウトを保持してパーズができる型を実装した
+  - [date] / [date_nanos]のために時間フォーマットの変換部と複数レイアウトを保持してパーズができる型を実装した
 
 [part2]で`mapping.json`から型を生成するcode generatorを実装します。
 
