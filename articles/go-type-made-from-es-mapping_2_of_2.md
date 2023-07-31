@@ -3,7 +3,7 @@ title: "ElasticsearchのmappingからGoのTypeを作る(2/2)"
 emoji: "📝"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Elasticsearch", "go"]
-published: false
+published: true
 ---
 
 # Overview
@@ -56,11 +56,11 @@ Usage of genestype:
 
 サンプルで用意してあるmapping.jsonとオプションは以下に格納され
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/testdata
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test/testdata
 
 それを`genestype`に食わせて以下のコードを生成してあります。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test
 
 # 前提知識
 
@@ -118,6 +118,8 @@ go version go1.20.6 linux/amd64
 - ユーザーから設定値を受けとり
 - 設定と型情報に基づいてcode generateを行う
 
+以降では`mapping.json`の解析に関する情報と、code generateにおける注意点について述べます。
+
 [part1]でのべた通り、
 
 - `T`と`T[]`
@@ -129,11 +131,13 @@ go version go1.20.6 linux/amd64
 
 `Plain`は以下のサンプル生成コードのように「普通の」Go structのようなものです
 
-https://github.com/ngicks/estype/blob/main/generator/test/all.go#L14-L58
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test/all.go#L14-L58
 
 `Raw`は`undefined | (null | T) | (null | T)[]`を許容するstructです
 
-https://github.com/ngicks/estype/blob/main/generator/test/all.go#L107-L151
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test/all.go#L109-L153
+
+[part1]で説明した`elastic.Elastic[T]`などを使うことでこれを実現します。[前回の記事]で説明した通り`serde`パッケージで`Marshal`した場合のみフィールドのスキップが起きます。
 
 `Plain`はユーザーから設定値を受けとって、`T`、`[]T`、`*T`、`*[]T`のいずれであるかなどを決めます。
 
@@ -178,39 +182,41 @@ https://github.com/elastic/go-elasticsearch/blob/87bb1b42af071454319c73f91c6e5a3
 https://github.com/elastic/go-elasticsearch/issues/696
 
 go-elasticsearchのMakefileを見る限り、makeの範疇でこの型の生成を行っているわけではないようです。どう直していいやらわからないためPRも書けません。困りましたね。
-98%完璧に動いてるライブラリの2%のあまり考慮されてない部分を使いに行ってよくこういう問題にぶち当たります。
+
+:::message
+
+執筆中にもう直されてリリースされちゃいました。なのでここに書かれた内容は古いです。
+
+https://github.com/elastic/go-elasticsearch/releases/tag/v8.9.0
+
+@non_exhaustiveタグが付いているデータはプラグインによって拡張されてもよい。そして、Propertyはそのタグが付いているとのことです。
+
+私の書いたハンドポートは全くその辺を考慮してないのでそのうちこちらを使うように修正します。
+
+:::
 
 ### ハンドポート版の実装
 
 幸いなことに生成元のtypescript定義は前述のとおりわかっていますし、go-elasticsearchの各ソースファイルに生成元の定義が載っています。
 それさえわかれば後は単純なテキスト置換で実装しなおすことは自体は簡単そうです。
 
-https://github.com/ngicks/estype/blob/main/spec
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/spec
 
 specというモジュールとして再実装しました。
 
-https://github.com/ngicks/estype/blob/main/spec/mapping/Property.go#L79-L81
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/spec/mapping/Property.go#L79-L81
 
 こちらでは、ハンドポートであるのでPropertyにUnmarshalJSONが実装される形に変わっています。もちろん`"type"`フィールドの不在もハンドルされています。
 
-https://github.com/ngicks/estype/blob/main/spec/mapping/Property.go#L87-L435
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/spec/mapping/Property.go#L87-L435
 
 (ちなみにtypedapiの中にははhelper typeで実装したような(rangeのような)型の定義は含まれておらず、無駄な努力をしたわけではなさそうでした。よかったよかった。)
-
-:::message
-
-執筆中にもう直されてリリースされちゃいました。
-
-https://github.com/elastic/go-elasticsearch/pull/706
-
-@non_exhaustiveタグが付いているデータはプラグインによって拡張されてもよい。そして、Propertyはそのタグが付いています。
-私の書いたハンドポートは全くその辺を考慮してないのでそのうちこちらを使うように修正するかも。
-
-:::
 
 ## code generatorの実装
 
 このセクションではcode generator考慮すべきことを述べます。
+
+実装の詳細については述べません。今までのセクションと違い、詳細に説明しても、別段ElasticsearchやGoへの理解が深まるわけでもありませんので。GoやElasticsearchや周辺ライブラリの知識が深まりそうなところだけポイントとして説明します。
 
 ### dynamic inheritance
 
@@ -227,11 +233,11 @@ nestedも同じく`"dynamic"`の値を継承します。これはElasticsearch 8
 
 そこで、`strict`以外の場合、`AdditionalProps_ map[string]any`フィールドを追加し、MarshalJSONはこんな感じ、
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/dynamic.go#L109-L157
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test/dynamic.go#L123-L171
 
 UnmarshalJSONはこんな感じで生成されます
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/dynamic.go#L159-L208
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test/dynamic.go#L173-L222
 
 ポイントは
 
@@ -311,13 +317,17 @@ identifier = letter { letter | unicode_digit } .
 
 Goにはこの辺のことをする処理がぱっと調べた限り`strconv`にいろいろ実装されているのですが、`strings.Builder`と組み合わせて使うには微妙に不都合なので適当に実装しなおしてあります。
 
-https://github.com/ngicks/estype/blob/main/generator/generate.go#L121-L164
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/generate.go#L121-L164
 
 エスケープ処理は`strconv`の中身を見て実装しなおしています。
 
-https://github.com/ngicks/estype/blob/main/generator/generate.go#L166-L177
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/generate.go#L166-L177
 
 utf8は4byteまであり得るので、2byte以下の場合は`\u1234`、それ以上の場合は`\u12345678`になるようにする以外は`MSB`から順にhex encodeするといういつもの奴ですね。
+
+激しい例ですと以下のようにコードを生成します
+
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test/additional_prop_escape.go#L16-L20
 
 ### null/multi-valueを許容しない型を考慮する
 
@@ -325,11 +335,11 @@ utf8は4byteまであり得るので、2byte以下の場合は`\u1234`、それ�
 
 そこで、内部的な[field data type]に対応する型を表すための型を作り、そこに上記の各性質を反映するようにフィールドを定義します。
 
-https://github.com/ngicks/estype/blob/main/generator/typeid.go#L31-L39
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/typeid.go#L31-L39
 
 code generatorはこれらに基づいてコードを生成します
 
-https://github.com/ngicks/estype/blob/main/generator/field.go#L52-L87
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/field.go#L52-L87
 
 特別なgeneratorを必要としない[field data type]についてはこのようにテーブルを定義し、そこでまとめて管理するように実装しました。
 
@@ -380,12 +390,16 @@ https://github.com/ngicks/elastic-type/blob/879d843a3a21c963793358ca705418f9f324
 
 上記のdate生成の部分をjenniferで書きなおすと以下のようになります。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/genestime/gen.go#L14-L170
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/genestime/gen.go#L14-L170
 
 うーんネストが深いですね。
 実際に生成されるコードと記述順序を一致させようとするとネストが深くなりがちです。ただ、jenniferを利用するとGo codeのトークンと対応づいた名前の関数を順番に呼ぶだけなので、書きにくいと感じることはなかったです。分量が多くなるので書くのは大変です。コードなのでリファクタは簡単でした。
 
 ### jenniferのcode generationレシピ
+
+プルダウンの下でjenniferの使い方にいくらか触れます。書くだけ書いて、このセクション過剰に詳細かなと思えてきましたが、記事をいじくっていられる時間が無くなってきたのでとりあえずdetailsに隠します。
+
+:::details jenniferのcode generationレシピ
 
 公式の[README.md](https://github.com/dave/jennifer)が丁寧なので、読めばわかると思います。
 
@@ -521,7 +535,7 @@ func main() {
 
 以下`mapping.json`を解析して収集した`typeId`から`type FooBar struct {...}`を生成するコードです。
 
-https://github.com/ngicks/estype/blob/main/generator/object.go#L156-L163
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/object.go#L156-L163
 
 #### Custom/CustomFuncをつかう
 
@@ -672,19 +686,21 @@ func foo() {
 調べた限り生のstringをそのまま入力させてくれるAPIはないです。
 `Id()`は入力をそのまま出力するので`Line()`で改行を挟んでおけば任意のコードを書き込めます。
 
+:::
+
 ### 生成されるコード
 
 以下に置かれたデータを入力に
 
-https://github.com/ngicks/estype/blob/main/generator/test/testdata
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test/testdata
 
 以下のような方が出力されます。
 
-https://github.com/ngicks/estype/blob/main/generator/test
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test
 
 ### テスト
 
-https://github.com/ngicks/estype/blob/main/test.compose.yml
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/test.compose.yml
 
 以上のcomposeを使って、elasticsearch 8.4.3相手に
 
@@ -744,6 +760,8 @@ Usage of genestype:
 今後の課題は
 
 - 実際に使ってみて、使い勝手が悪いかなどを確かめる。
+- 似たようなことをしてる人がいないことを祈る
+  - いた場合、そちらに貢献する
 - いくつかオプションを追加する
   - SkipRaw
   - Omit
@@ -753,6 +771,8 @@ Usage of genestype:
 - `Plain`に`Diff(v Plain) Raw`を実装し、[update APIのpartial update](https://www.elastic.co/guide/en/elasticsearch/reference/8.4/docs-update.html#_update_part_of_a_document)で利用しやすくする
 
 最近Elasticsearchをいじくる業務から離れてしまって使う機会が確保できるか微妙です。
+
+まとめきれなくて取り留めのない感じになってしまったのが悔やまれます。誰かの役に立つ文章であることを祈ります。
 
 [elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/elasticsearch-intro.html
 [ingest pipelines]: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/ingest.html

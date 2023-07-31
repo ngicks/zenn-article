@@ -3,7 +3,7 @@ title: "ElasticsearchのmappingからGoのTypeを作る(1/2)"
 emoji: "📝"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["Elasticsearch", "go"]
-published: false
+published: true
 ---
 
 # Overview
@@ -56,11 +56,11 @@ Usage of genestype:
 
 サンプルで用意してあるmapping.jsonとオプションは以下に格納され
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test/testdata
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test/testdata
 
 それを`genestype`に食わせて以下のコードを生成してあります。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/test
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/test
 
 # 前提知識
 
@@ -116,7 +116,7 @@ go version go1.20.6 linux/amd64
 - JSON.parseしただけでは[Date]型がjavascriptのDate型に変換できず、アプリケーションの中で変換コードが散らばってしまう。
 - [Boolean]型が`true` / `false`だけでなく`"true"` / `"false"`を受け付けるため、アプリ内で非常に煩雑なコードで判別することになってしまう。
 
-後ろの二つは明らかに筆者が未熟でした。JSON.parseした後に、アプリに都合のいいフォーマットに変換する変換部を設けるべきでした。後悔は先に立たないものですね。
+後ろの二つは明らかに筆者が未熟でした。JSON.parseした後に、アプリに都合のいいフォーマットに変換する変換部を設けるべきでした。後悔は先に立たないものですね。(最近は[zod](https://zod.dev/)を使えばいい感じにできるかもしれませんん。)
 
 一方で、Goではある型が[json.Marshaler](https://pkg.go.dev/encoding/json#Marshaler),[json.Unmarshaler](https://pkg.go.dev/encoding/json#Unmarshaler)を実装している場合、`json.Marshal()`,`(*json.Encoder).Encode()`, `json.Unmarshal()`,`(*json.Decoder).Decode()`などの対応する関数の中で、デフォルトの挙動の代わりにそれらが呼び出されるという挙動があります。
 
@@ -443,11 +443,11 @@ type Range[T comparable] struct {
 
 ４種類のサブフィールドの組み合わせですから、15種類の型を定義しておけばよいです。そこで:
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/generator/gen_aggregate_metric_double/gen.go#L24-L70
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/generator/gen_aggregate_metric_double/gen.go#L24-L70
 
 以上のように、フラグのon/offの全パターン網羅は`for`文で容易に実装できます。これによって事前にすべてのパターンを事前に生成しておけばよいのです。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/aggregate_metric_double.go
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/aggregate_metric_double.go
 
 この型のうちmappingに対し適切なものをcode generatorによって選択してもらえばいいわけですね。
 
@@ -460,13 +460,13 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 boolをbase typeと持つ型とし、`MarshalJSON` / `UnmarshalJSON`を実装すればよいでしょう。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L70-L83
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/boolean.go#L70-L83
 
 困ったことに、stringの`"true"` / `"false"`を好むプロジェクトが存在する(筆者が実際に参加していました)ため、`MarshalJSON`で出すのがboolean literalになる型とstring literalになる型をそれぞれ作ってcode generatorの設定値でどちらを使うか決める決断を下しました。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L10-L17
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/boolean.go#L10-L17
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/boolean.go#L39-L47
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/boolean.go#L39-L47
 
 ### geo_point
 
@@ -481,11 +481,11 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 多いですね。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geopoint.go#L15-L147
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/geopoint.go#L15-L147
 
 頑張って実装しました。これで少なくとも公式のサンプルを全部パーズできます。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geopoint.go#L149-L159
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/geopoint.go#L149-L159
 
 この型はシンプルな`{"lat":123,"lon":456}`フォーマットにMarshalします。
 boolと同じく、どのフォーマットに対してmarshalするかを設定で決められるようにすればよかったと思いますが、力尽きてしまいました・・・。
@@ -501,7 +501,7 @@ https://www.elastic.co/guide/en/elasticsearch/reference/8.4/geo-shape.html#input
 
 そこで実装は、
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/geoshape.go#L18-L44
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/geoshape.go#L18-L44
 
 特にデータフォーマットを制限したりせず、[github.com/go-spatial/geom](https://github.com/go-spatial/geom)に委譲してしまう実装にしました。内部の実装を読む限り、wktはbboxをサポートしていないのでそれを使われるとデコードできないですが、それ以外は網羅できています。
 
@@ -511,7 +511,7 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 これはシンプルに
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/histogram.go
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/histogram.go
 
 というだけです。
 
@@ -534,7 +534,7 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 `version_range`が存在しないのがちょっと気になるところですが、semverを数値に変換すれば実現可能なので優先度が低いんでしょうか。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/range.go
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/range.go
 
 各フィールドは`null`を許容しないため、`,omitempty`が必要です。試してないですが`Gt`と`Gte`、`Lt`と`Lte`は同時に存在してはいけないはずです。これに関しては特に型やメソッドによってvalidationをかけられるようにはしていません。
 
@@ -581,8 +581,7 @@ generatorなのでこの制限は特に問題ないとみなし、とりあえ�
 
 ## date helper typeの実装
 
-[date]および[date_nanos] field data
-typeは`"format"`フィールドで指定されたフォーマットに従う`string`もしくは`number`を収めることができ、フォーマット通りに解釈されて時間としてインデックスされます。
+[date]および[date_nanos] field data typeは`"format"`フィールドで指定されたフォーマットに従う`string`もしくは`number`を収めることができ、フォーマット通りに解釈されて時間としてインデックスされます。
 
 ```json
 // 引用: https://www.elastic.co/guide/en/elasticsearch/reference/8.4/date.html#multiple-date-formats
@@ -622,7 +621,7 @@ typeは`"format"`フィールドで指定されたフォーマットに従う`st
 
 この機能は`optionalstring`という名前でパッケージにまとめてあります。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/optionalstring
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/optionalstring
 
 パパっと調べた限り、特定のトークンで囲まれたstringをoptionalとみなして展開し列挙する、というほしい機能を備えたパッケージは見つかりませんでした。
 探し方が悪いだけな可能性が高いですが、いいんですこれは趣味プロジェクトなんだから作ってしまえば。
@@ -637,17 +636,33 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 こちらは以下のファイルで実装されています。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/convert.go
 
 中身は`time.Parse`を簡易化したような実装をしており、愚直にswitch-caseを書いてパフォーマンスを求めるより、トークンをテーブル化して実装の負担を減らす方針でいきました。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go#L236-L258
+すなわち
+
+```go
+func convert(input string) string {
+  var prefix, token, suffix, out string
+  for len(input) > 0 {
+    prefix, token, suffix = nextToken(input)
+    input = suffix
+    out += prefix + fromJavaLikeToGoToken(token)
+  }
+  return out
+}
+```
+
+のような感じです。`time.Parse`では上記の`nextToken`に当たる関数の中で膨大な`switch-case`を走らせてトークンを抽出しています。
+
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/convert.go#L236-L258
 
 こういったtableを作ることで、switch-caseの量を大分減らせます。
 
 doc commentでも述べていますが、Goが同じ機能を持つトークンを持たない以下はサポートされません
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/convert.go#L28-L41
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/convert.go#L28-L41
 
 とくにweekyear系トークンがないのでbuilt in date formatの中にいくつか使えないものが出てきます。
 
@@ -657,47 +672,47 @@ https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/f
 
 これ以下のファイルで実装しました。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/multi_layout.go
 
 これはとっても簡単ですね。
 
 複数のレイアウトを保持
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L9-L13
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/multi_layout.go#L9-L13
 
 イニシャライズ時にlengthでdescending, 文字コードでdescendingでソート、dedupe,
 validateし、
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L15-L55
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/multi_layout.go#L15-L55
 
 順番にパーズを試みて成功したらそのまま値を返します。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/multi_layout.go#L79-L89
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/multi_layout.go#L79-L89
 
-これは、Elasticsearch自身のソースを参考にしました。どうやっているんだろう、と思って見に行くと単にパーザーをイテレートしながらパーズを繰り返していたので、なるほど、と思いに似たような処理にしています。
+順番にレイアウトを試していくのはElasticsearch自身のソースを参考にしました(すみません、出展なしです)。どうやっているんだろう、と思って見に行くと単にパーザーをイテレートしながらパーズを繰り返していたので、なるほど、と思いに似たような処理にしています。
 
 #### numberもパーズ/フォーマットできるパーザ
 
 これは前述のMultiLayoutとnumberを変換できるパーザを組み合わせます。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L51-L54
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/estime.go#L51-L54
 
 numberのパーザ/フォーマッタはElasticsearchのそれと一致したstring typeであると非常に楽です。つまり
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L11-L13
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/estime.go#L11-L13
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L35-L39
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/estime.go#L35-L39
 
 switch-caseによって`time.UnixMilli`と`time.Unix`を呼び出せば所望の動作を実現できます。
 
-https://github.com/ngicks/estype/blob/45f4eb8bad861432af49f2c333975855f2f0b78a/fielddatatype/estime/estime.go#L15-L24
+https://github.com/ngicks/estype/blob/cbfaf3aa60e2fb2eaf9a3c25aca2716966d521b1/fielddatatype/estime/estime.go#L15-L24
 
 # まとめ
 
 - 1. Elasticsearchの概要について説明した
 - 2. Elasticsearchについて、JSONを格納したり引き出したりする場合に必要な知識を調査し、明示した
   - 単に`string`, `int`などにできない型について型を定義し、必要であれば`json.Marshaler`, `json.Unmarshaler`を実装した。
-  - [date] / [data_nanos]のために時間フォーマットの変換部と複数レイアウトを保持してパーズができる型を実装した
+  - [date] / [dat_nanos]のために時間フォーマットの変換部と複数レイアウトを保持してパーズができる型を実装した
 
 [part2]で`mapping.json`から型を生成するcode generatorを実装します。
 
