@@ -8,6 +8,8 @@ published: false
 
 # Goのrange over func proposal
 
+(9月頃に書いてずいぶん長いこと放置していたのでちょっと見直して投稿しています。)
+
 https://github.com/golang/go/issues/61405
 
 上記のproposalで述べられているrange over funcを試し見てみます。
@@ -15,14 +17,16 @@ https://github.com/golang/go/issues/61405
 # 対象読者
 
 - [The Go Programming Language](https://go.dev/)に対してある程度の習熟している
+- ユーザーがカスタマイズできる`for range loop`に興味があるけどこういうproposalが出てたのは知らなかった。もしくは
 - 上記のproposalのinterfaceの感触が気になってるけど自分で実装してみるほどじゃない
 
 # この記事のすること
 
-- 上記issueの特記すべき(というか筆者が気になった)ところを取り上げます
-- sliceやmapからこのiterator funcを作る関数を書いてみます
-- iterator funcから得られる値を加工するadapter funcを書きます
-  - e.g. filter, map
+- 上記issueの筆者が気になったところを取り上げます
+- このproposalで述べられている新しい構文を試します。
+  - sliceやmapからこのiterator funcを作る関数を書いてみます
+  - iterator funcから得られる値を加工するadapter funcを書きます
+    - e.g. filter, map
 
 # Proposalの概要
 
@@ -116,6 +120,8 @@ https://github.com/golang/go/issues/61405#issuecomment-1638896606
 
 このissueコメントでモチベーション、その他もろもろが述べられていますが、そのうち筆者が気になったものだけピックアップします
 
+このコメントは2023/07/23から現在(2023/11/25)まで更新されていません。
+
 ### What if the iterator function ignores yield returning false? / What if the iterator function saves yield and calls it after returning?
 
 - 現在のプロトタイプ実装では特にチェックされない
@@ -126,7 +132,7 @@ https://github.com/golang/go/issues/61405#issuecomment-1638896606
 ### What if the iterator function calls yield on a different goroutine?
 
 - まだ決まってない
-  - Goはgoroutineを特定できないようにしてきたので、yieldだけ「iteratorが呼びだれたgoroutineから呼ばれなければならない(_must_ be called)」としてしまうのは変(_strange_)
+  - Goはgoroutineを特定できないようにしてきたので、yieldだけ「iteratorが呼びだれたgoroutineから呼ばれなければならない(_must_ be called)」としてしまうのは変
   - iteratorを呼び出したgoroutine以外でyieldを呼ぶとpanicするというのはさらに変だが、だとしてもそうする価値があるかもしれない。
 
 ### What happens if the iterator function recovers a panic in the loop body?
@@ -139,7 +145,7 @@ https://github.com/golang/go/issues/61405#issuecomment-1638896606
 
 ### Can range over a function perform as well as hand-written loops?
 
-yes.
+はい。
 
 このループは
 
@@ -149,7 +155,7 @@ for i, x := range slices.Backward(x) {
 }
 ```
 
-いかにダイレクトに変換され、
+以下にダイレクトに変換され、
 
 ```go
 slices.Backward(s)(func(i int, x string) bool {
@@ -235,13 +241,22 @@ for i := len(s)-1; i >= 0; i-- {
 }
 ```
 
-この最適化は閾値以下の単純なloop bodyと単純なiteratorに対してのみおこなわれる。逆に複雑なloop bodyやiteratorに対しては関数呼び出しのオーバーヘッドは重大ではない・・・そうです。
+この最適化は閾値以下の単純なloop bodyと単純なiteratorに対してのみおこなわれる。逆に複雑なloop bodyやiteratorに対しては関数呼び出しのオーバーヘッドは重大ではない。
 
-(多分コンパイルの速さは損なわれないということを言いたいのかな)
+# 現状
+
+- https://github.com/golang/go/commit/e82cb14255cc63099e5c728676506cb4d0d97378
+  - プロポーザルの準備。mainブランチへの変更。
+- https://github.com/golang/go/issues/61898
+  - `x/exp/xiter`を追加しようというproposal
+- https://github.com/golang/go/issues/64277
+  - `GOEXPERIMENT=rangefunc-limited`付きでメインラインに取り込まれることになりそうです
 
 # 実装
 
-実際に実装してみてgotipで実行してみましょう。
+実際にproposalの構文でiteratorやadapterを実装してみてgotipで実行してみましょう。
+
+上記`x/exp/xiter`のproposalで基本的なアダプター類の実装例は述べられています。以下の実装はそれらと重複するところがあります。
 
 書いたコードはこのrepositoryに入っています
 
@@ -296,9 +311,13 @@ func ChanIter[V any](ch <-chan V) func(yield func(V) bool) {
 
 ## base for custom-container
 
-- 前述のproposalに含まれる`range over int`で、0からnの`loop`はコンパイラサポートによってできるようになることになっていますが、nからmのループは頻出パターンではないものとして考慮から外すようなことがプロポーザルで述べられていますね。なのでnからmのfuncを作っときます。
-- このproposalの目的の一つに、「genericsの追加によってもたらされたcustom containerに統一的なiterate-overのinterfaceを与えること」のようなことが書いてあります。custom containerの例としてordered mapが上がっていますので、例として作っておきました。
-- 同じく、`strings.Line()`のようなものが追加できると述べています。`bufio.Scanner`をfunction iteratorに適合させたアダプタも作ってみます。
+- `RangeIter`: nからmのint型を列挙する
+  - 前述のproposalには`range over int`が含まれ、個の構文で、0から`n`を列挙できます。0 to nは頻出で一般的であるとされる一方で、`n to m`は比較的一般的でないとみなされたようです。
+  - type paramをつけて`type Numeric interface { ~int | ~int8 | ~int16 | ~int32 | ~int64 ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 }`を定義し、`func RangeIter[T Numeric](start, end T) func(yield func(T) bool)`としたほうがつぶしがきくなと後から思いましたがわざわざ直す気がしないのでこのままです。
+- `OrderedMapIter`: `github.com/wk8/go-ordered-map/v2`のOrderedMapの要素を古いものから新しいものに向けて列挙くする
+  - このproposalの目的の一つに、「genericsの追加によってもたらされたcustom containerに統一的なiterate-overのinterfaceを与えること」のようなことが書いてあります。custom containerの例としてordered mapが上がっていますので、例として作っておきました。
+- `Scan`: `io.Reader`を読んでテキストとして解釈し、`bufio.SplitFunc`に応じて列挙する
+  - 同じく、proposalには`strings.Line()`のようなものが追加できると述べています。`bufio.Scanner`をfunction iteratorに適合させたアダプタも作ってみます。
 
 ```go
 package iteratorhelper
@@ -338,17 +357,16 @@ func Scan(r io.Reader, split bufio.SplitFunc) func(yield func(text string, err e
 
 	return func(yield func(text string, err error) bool) {
 		for scanner.Scan() {
-			if scanner.Err() != nil {
-				yield("", scanner.Err())
-				return
-			}
 			if !yield(scanner.Text(), nil) {
 				return
 			}
 		}
+		if scanner.Err() != nil {
+			_ = yield("", scanner.Err())
+			return
+		}
 	}
 }
-
 ```
 
 ## adapter
@@ -372,7 +390,11 @@ baseで作られたfuncを加工するadapter funcを作ります。ほかの言
   - [echoなどのmiddleware](https://github.com/labstack/echo/blob/a2e7085094bda23a674c887f0e93f4a15245c439/middleware/slash.go#L44-L72)と大体似たようなものですね。
 - とりあえず作ってみたっていうだけなので、`func(func(K, V)bool) bool`向けのみのadapterの未実装しています。
   - 例外として`func(func(V)bool) bool`を`func(func(K, V)bool) bool`に変換するためにEnumerateを作ってあります。
-- ただしzipだけは特別な考慮が必要ですので、後述します。
+- `func(yield func(k K, v V) bool)`を`func(yield func(v V, k K) bool)`に変換するSwapも定義してあります。
+- Windowはぱっと見でも全然実用的ではないですがPoCなのでこんなもので
+  - `size - 1`個数要素のコピーが起きています。実用的にはring bufferなりを使ってコピーが最小になるようにしたほうがよいでしょうね。
+  - `yield`に渡す値は毎回クローンされています。これは安全性を考慮した結果ですが、普通は呼び出す側がクローンを行ってきそうなので、冗長になるのは予想されます。
+- zipだけは特別な考慮が必要ですので、後述します。
 
 ```go
 func Chain[K, V any](
@@ -501,12 +523,11 @@ func TakeWhile[K, V any](
 	predicate func(k K, v V) bool,
 ) func(yield func(k K, v V) bool) {
 	return func(yield func(k K, v V) bool) {
-		taking := true
 		iter(func(k K, v V) bool {
-			if taking && !predicate(k, v) {
+			if !predicate(k, v) {
 				return false
 			}
-			if taking && !yield(k, v) {
+			if !yield(k, v) {
 				return false
 			}
 			return true
@@ -521,6 +542,7 @@ func Window[K, V any](iter func(yield func(k K, v V) bool), size uint) func(yiel
 	return func(yield func(k []K, v []V) bool) {
 		bufK, bufV := make([]K, size), make([]V, size)
 		idx := uint(0)
+		ended := false
 		iter(func(k K, v V) bool {
 			if idx < size {
 				bufK[idx] = k
@@ -535,6 +557,7 @@ func Window[K, V any](iter func(yield func(k K, v V) bool), size uint) func(yiel
 
 			if idx == size {
 				if !yield(append([]K{}, bufK...), append([]V{}, bufV...)) {
+					ended = true
 					return false
 				}
 			}
@@ -542,9 +565,20 @@ func Window[K, V any](iter func(yield func(k K, v V) bool), size uint) func(yiel
 			return true
 		})
 
-		if idx != size {
+		if !ended && idx != size {
 			_ = yield(append([]K{}, bufK[:idx]...), append([]V{}, bufV[:idx]...))
 		}
+	}
+}
+
+func Swap[K, V any](iter func(yield func(k K, v V) bool)) func(yield func(v V, k K) bool) {
+	return func(yield func(v V, k K) bool) {
+		iter(func(k K, v V) bool {
+			if !yield(v, k) {
+				return false
+			}
+			return true
+		})
 	}
 }
 ```
@@ -553,9 +587,10 @@ func Window[K, V any](iter func(yield func(k K, v V) bool), size uint) func(yiel
 
 zipは、二つのiteratorを受けとり、両方を同時にiterator overするというiteratorです。
 
-今回のproposalでは単なる関数を連続して呼ぶという仕組みであるため、コントロールをループの呼び出し側に戻すタイミングがありません。そのため二つのiteratorを一緒に進めるというのはcoroutineベースの実装にするか、明示的にNextメソッドを呼ぶような方式にしなければ、実際上おそらく不可能でしょう
+今回述べられるproposalはいわゆるPush型のiteratorであり、明示的にPullするタイミングを制御できないため、コントロールをループの呼び出し側に戻すタイミングがありません。
+そのため二つのiteratorを一緒に進めるというのは不可能であり、pushをいかにしてかpullに変換する必要があります。
 
-そこで、受け取った二つのiteratorをgoroutineの中で消費し、1つ要素を受けとるたびにチャネルを通して元の実行コンテキストに送信します。
+そこで、受け取った二つのiteratorをgoroutineの中で消費し、1つ要素を受けとるたびにチャネルを通して元の実行コンテキストに送信します。channelをunbufferedにしておけば、Pull型への変換が可能となるわけです。
 
 ```go
 func Zip[V1, V2 any](
@@ -608,15 +643,17 @@ func Zip[V1, V2 any](
 
 # 感想
 
-- 3つシグネチャがあるので、少なくとも2つずつadapterを作る必要があるのでそこが少し手間かなという感じです。
+- 3つシグネチャがあるので、少なくとも2つずつadapterを作る必要があるのでそこが少し手間に感じます。
 - どうやってFilterのようなアダプタ関数を定義するか一瞬わかりませんでした。
 - 全体を書くのに3から4時間ぐらいかかりました。
   - VS CodeのGo extensionのサポートを正常に得られなくなりますので、エラーなどがすぐにわからなくなったためです。
     - 今思えばコンソールで`watch GOEXPERIMENT=range gotip vet ./...`を実行しておけばよかったです。
   - やっぱり普段の環境はすごく助かっているんだなっていうことがよくわかりました。
 - 前からiterator protocolをユーザーのコードに向けて公開してほしいと思っていたので、この変更はすごく歓迎です。
-- Goにとってあまりない構文の追加でありますので、for range loopを見て何かしらのcode generationを行っているようなコードは影響を受けますね。
-- [github.com/golang/go/commit/390763ae](https://github.com/golang/go/commit/390763aed84189cb360e7ceb94aef56125fb140d), [github.com/golang/go/commit/e82cb142](https://github.com/golang/go/commit/e82cb14255cc63099e5c728676506cb4d0d97378) などでメインラインのコンパイラに`GOEXPERIMENT`ガード付きで取り込まれていますね。これが順調に進んでるとみなしていいのかよくわかりませんが。
+- Goにとってあまりない構文の追加でありますので、for range loopを見て何かしらのcode generationを行っているようなコードは影響を受けるかもしれませんね。
+- `x/exp/xiter`で普段つかうようなものは実装されると思いますので、基本的には`xiter`定義のアダプタを組み合わせるアダプタを書くことになるかな・・・未来は明るいですね。
+- 上記述べた通りメインラインに`GOEXPERIMENT=rangefunc-limited`のガード付きで入るproposalも出ています。
+  - これが`1.22`になるのかマイナーバージョンで入ってくるのか筆者にはわかっていませんが。
 
 どんどん使いやすくなって助かりますね。このまま取り込まれるのかはわかりませんが楽しみです。
 
