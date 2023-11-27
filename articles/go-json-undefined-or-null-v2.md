@@ -1,5 +1,5 @@
 ---
-title: "GoでJSONのundefinedとnullを表現するv2(候補)版"
+title: "encoding/json v2(候補)について紹介してundefined | null | Tを表現する"
 emoji: "💬"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
@@ -134,19 +134,26 @@ value = , undefined = true, null = false, err = <nil>
 */
 ```
 
-これでおわりです。
-
-これだけだとあんまりなのでもう少し詳しく触れていきましょう。
+簡単ですね！
 
 # 想定読者
 
 - [Go programming language](https://go.dev/) で [encoding/json](https://pkg.go.dev/encoding/json)の機能を十分理解している人。
+- `encoding/json/v2`の候補版実装について興味がある人
 
-# GoでJSONのundefinedとnullを表現するv2(候補)版
+# 前書き
 
 以前書いた[Goのstruct fieldでJSONのundefinedとnullを表現する](https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined)では、[jsoniter](https://github.com/json-iterator/go)の [Extension](https://pkg.go.dev/github.com/json-iterator/go#Extension) を駆使していろいろ頑張ることで`undefined | null | T`を出し分けることが実現できることを確認しました。記事中では同様に、`encoding/json/v2`でstdライブラリとして同様のことができるようになるかもしれないということも触れました。
 
 先日(`2023-10-05T17:14:54Z`)、記事内で触れた[issue comment](https://github.com/golang/go/issues/5901#issuecomment-907696904)の筆者が[encoding/json/v2](https://github.com/golang/go/discussions/63397)というタイトルのdiscussionを作りました。
+
+# やること
+
+この記事は以下を行います。
+
+- `encoding/json/v2`のモチベーションを紹介する
+- `encoding/json/v2`の候補実装である[github.com/go-json-experiment/json](https://github.com/go-json-experiment/json)(以降`v2`と呼ばれる)の実装やAPI構造を紹介する
+- `v2`でstruct fieldのみで`undefined | null | T`を実現する(半分実施済み)
 
 # encoding/json/v2
 
