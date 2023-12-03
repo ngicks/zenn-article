@@ -3,7 +3,7 @@ title: "Goの1.22にGOEXPERIMENTガード下で導入されるrange over func pr
 emoji: "🔁"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 # Goのrange over func proposal
@@ -124,7 +124,7 @@ https://github.com/golang/go/issues/61405#issuecomment-1638896606
 
 このissueコメントでモチベーション、その他もろもろが述べられていますが、そのうち筆者が気になったものだけピックアップします
 
-このコメントは2023/07/23から現在(2023/11/25)まで更新されていません。
+このコメントは2023-07-23から現在(2023-12-04)まで更新されていません。
 
 ### What if the iterator function ignores yield returning false? / What if the iterator function saves yield and calls it after returning?
 
@@ -407,7 +407,7 @@ iteratorに渡されるyield funcを即時関数として、自身に渡され�
 
 ### Chain
 
-渡されたiteratorを順番に一つずつiterateしていきます。yieldがfalseを返した後にyieldを呼ぶのはprotocol違反なので適当なフラグが必要です。
+渡されたiteratorを順番に一つずつiterateしていきます。yieldがfalseを返した後にyieldを呼ぶのはプロトコル違反なので適当なフラグが必要です。
 
 ```go
 func Chain[K, V any](
@@ -807,7 +807,7 @@ type coro struct {
 }
 ```
 
-`g`(goroutineのことですね)を拡張してcoroをトラックできるようにします。
+`g`(goroutineのことですね)を拡張して`coro`をトラックできるようにします。
 
 ```diff go
 type g struct {
