@@ -1,5 +1,5 @@
 ---
-title: "Goのrange over func proposalを試してみる"
+title: "Goの1.22にGOEXPERIMENTガード下で導入されるrange over func proposalを試してみる"
 emoji: "🔁"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
@@ -7,8 +7,6 @@ published: false
 ---
 
 # Goのrange over func proposal
-
-9月頃に書いてずいぶん長いこと放置していたのでちょっと見直して投稿しています。
 
 https://github.com/golang/go/issues/61405
 
@@ -259,6 +257,7 @@ for i := len(s)-1; i >= 0; i-- {
   - 新しいsub repositoryのpackage `x/exp/xiter`を追加しようというproposal
 - https://github.com/golang/go/issues/64277
   - `GOEXPERIMENT=rangefunc-limited`付きでメインラインに取り込まれることになりそうです
+- [このコメントによれば](https://github.com/golang/go/issues/61897#issuecomment-1790799275)、`range-over-func`は`1.22`で`GOEXPERIMENT`ガード下で利用化になります。`1.23`で正式に実装される可能性があります。
 
 # 実装
 
@@ -325,7 +324,7 @@ func ChanIter[V any](ch <-chan V) func(yield func(V) bool) {
 sliceやmapは元から`for range loop`でiterate可能でしたが、このproposalではほかのデータソースからもiteratorを作成できます。そのためのサンプルを以下に示します。
 
 - `RangeIter`: nからmの数値型を列挙する
-  - 前述のproposalには`range over int`が含まれ、個の構文で、0から`n`を列挙できます。0 to nは頻出で一般的であるとされる一方で、`n to m`は比較的一般的でないとみなされたようです。
+  - 前述のproposalには`range over int`が含まれ、この構文で、0から`n`を列挙できます。0 to nは頻出で一般的であるとされる一方で、`n to m`は比較的一般的でないとみなされたようです。
 - `OrderedMapIter`: `github.com/wk8/go-ordered-map/v2`のOrderedMapの要素を古いものから新しいものに向けて列挙くする
   - このproposalの目的の一つに、「genericsの追加によってもたらされたcustom containerに統一的なiterate-overのinterfaceを与えること」のようなことが書いてあります。custom containerの例としてordered mapが上がっていますので、例として作っておきました。
 - `Scan`: `io.Reader`を読んでテキストとして解釈し、`bufio.SplitFunc`に応じて列挙する
@@ -487,6 +486,8 @@ func CollectMap[K comparable, V any](iter func(yield func(k K, v V) bool)) map[K
 }
 ```
 
+実際には`iter`か`x/exp/xiter`に定義されたものを使うことになると思うので深く考えてないです。
+
 ### Enumerate
 
 ほかの言語では筆者はまあまあな頻度で使います。１要素しか返さないiteratorを受け取って、何個目の要素かを表す`int`要素を足して２要素のiteratorに変換します。
@@ -603,10 +604,11 @@ func TakeWhile[K, V any](
 
 ### Window
 
-iteratorの返す値をsize個のwindowを移動しながら値を返すadapterです。例えば`[1,2,3,4,5]`のsliceを一要素ずつ返すiteratorがあり、size=3である場合、Windowを適用後は`[1,2,3], [2,3,4], [3,4,5]`が返されるようになります。
+iteratorの返す値をバッファーしてsize個のwindowを１つずつ移動しているかのような値を返すadapterです。例えば`[1,2,3,4,5]`のsliceを一要素ずつ返すiteratorがあり、size=3である場合、Windowを適用後は`[1,2,3], [2,3,4], [3,4,5]`が返されるようになります。
+
 移動平均取るときとか、筆者はごくたまにしか使わないですが便利です。
 
-サンプルなのでものすごくコピーが生じる実装です。実用的なものを作るならコピーを少なくするためにバッファーサイズをsizeの数倍にしてコピーの頻度を下げるとか、そういった工夫が必要ですね。
+サンプルなのでものすごくコピーが生じる実装です。実用的なものを作るならコピーを少なくするためにバッファーサイズをsizeの数倍にしてコピーの頻度を下げるとか、sliceから直接生成させるようにするとか、たぶんそういった工夫が必要ですね。
 
 ```go
 func Window[K, V any](iter func(yield func(k K, v V) bool), size uint) func(yield func(k []K, v []V) bool) {
@@ -665,9 +667,9 @@ func Swap[K, V any](iter func(yield func(k K, v V) bool)) func(yield func(v V, k
 
 ### Zip
 
-zipは、二つのiteratorを受けとり、両方を同時にiterator overするというiteratorです。
+zipは、二つのiteratorを受けとり、両方を同時にiterate overするというiteratorです。
 
-今回述べられるproposalはいわゆるPush型のiteratorであり、明示的にPullするタイミングを制御できないため、コントロールをループの呼び出し側に戻すタイミングがありません。
+今回述べられるproposalはいわゆるPush型のiteratorであり、明示的にPullするタイミングを制御できないため、１個要素取得したらコントロールを呼び出し側に戻す、というようなことはできません。
 そのため二つのiteratorを一緒に進めるというのは不可能であり、pushをいかにしてかpullに変換する必要があります。
 
 そこで、受け取った二つのiteratorをgoroutineの中で消費し、1つ要素を受けとるたびにチャネルを通して元の実行コンテキストに送信します。channelをunbufferedにしておけば、Pull型への変換が可能となるわけです。
@@ -721,6 +723,113 @@ func Zip[V1, V2 any](
 }
 ```
 
+### Zip(iter.Pull版)
+
+https://github.com/golang/go/issues/61897#issuecomment-1818871435
+
+新しいCLで`iter` packageが使用できるようになったため`iter.Pull`を利用したZipを実装します。
+
+`iter.Pull`および`iter.Pull2`は新しいcoroutineの中でiteratorを実行することでPush型iteratorをPull型に変換すると述べています。
+
+```
+go install golang.org/dl/gotip@latest
+gotip download 543319
+GOEXPERIMENT=rangefunc gotip test ./...
+```
+
+```go
+import (
+	"iter"
+)
+
+func ZipPull[V1, V2 any](
+	left func(yield func(v V1) bool),
+	right func(yield func(v V2) bool),
+) func(yield func(l V1, r V2) bool) {
+	return func(yield func(l V1, r V2) bool) {
+		nextL, stopL := iter.Pull(left)
+		nextR, stopR := iter.Pull(right)
+		defer stopL()
+		defer stopR()
+
+		for {
+			l, lOk := nextL()
+			r, rOk := nextR()
+
+			if !lOk || !rOk {
+				return
+			}
+			if !yield(l, r) {
+				return
+			}
+		}
+	}
+}
+```
+
+:::details coroの実装
+
+えっcoroutine？となると思います。私はなりました。
+`Go`はcoroutineをサポートしていませんし、追加したともテキスト中に書かれていませんので急にしれっと出てきました。
+
+[Wikipedia](https://en.wikipedia.org/wiki/Coroutine)によればcoroutineは実行を一時中断、再開させれるコンピュータプログラムコンポーネントです。
+
+どういうことなのかわからなかったので[CL](https://go-review.googlesource.com/c/go/+/543319)を読んでみることにします。
+
+[CL](https://go-review.googlesource.com/c/go/+/543319)によれば、coroutineは[/src/runtime/coro.go](https://go-review.googlesource.com/c/go/+/543319/1/src/runtime/coro.go)で定義されています。
+
+やはりこのCLでcoroutineを実装しているということで間違いないようです。
+
+> // A coro represents extra concurrency without extra parallelism,
+> // as would be needed for a coroutine implementation.
+> // The coro does not represent a specific coroutine, only the ability
+> // to do coroutine-style control transfers.
+> // It can be thought of as like a special channel that always has
+> // a goroutine blocked on it. If another goroutine calls coroswitch(c),
+> // the caller becomes the goroutine blocked in c, and the goroutine
+> // formerly blocked in c starts running.
+> // These switches continue until a call to coroexit(c),
+> // which ends the use of the coro by releasing the blocked
+> // goroutine in c and exiting the current goroutine.
+> //
+> // Coros are heap allocated and garbage collected, so that user code
+> // can hold a pointer to a coro without causing potential dangling
+> // pointer errors.
+
+いきなりcoroutineじゃないって言ってますね。`coro`はcoroutineそのものではないが、既存のgoroutineの仕組みを利用して、上記Zip実装の中でやっていたようなことをするより効率的にcoroutine的なコントロールを実現するものと述べられていますね。
+
+`coro`を定義することで、coroutineとして動作させるgoroutineと、coroutineの中で動作させる関数を記録します。
+
+```go
+type coro struct {
+	gp guintptr
+	f  func(*coro)
+}
+```
+
+`g`(goroutineのことですね)を拡張してcoroをトラックできるようにします。
+
+```diff go
+type g struct {
+	// 中略
++	coroexit     bool // argument to coroswitch_m
+	// 中略
++	coroarg *coro // argument during coroutine transfers
+	// 中略
+}
+```
+
+`getg()`という関数(実際にはコンパイラがTLSから`*g`を取得するようにリライトするらしい)があるので、現在の`*g`は割とどこからでも取得可能です。
+実装の中で`func newproc1(fn *funcval, callergp *g, callerpc uintptr) *g`(新しいgoroutineを作成する)や`func mcall(fn func(*g))`(`*m`の`g0`のスタックで`fn`を実行する)を利用するため、自由に引数を渡せたりできません。そのため`*g`にcoroutine関連の情報をストアしておく必要があるようですね。
+
+`c := newcoro(f func(*coro))`で、`f`を新しいgoroutineの中で実行、`f`は引数に渡される`*coro`を引数に`coroswitch(*coro)`を呼び出すことが期待されているようです。`newcoro`を呼び出した側のgoroutineで`coroswitch(c)`を呼ぶことで、`f`とその外側が交互に実行・ブロッキングが切り替えられます。
+
+`corostart()`, `coroswitch()`によって`newproc1`で作られた新しいgoroutineのスケジュール状態を手動で切り替えてしまうことで、重いスケジューラ部分をスキップする、それよによってcoroutine-likeなコントロールを効率的に実現するということのようです。
+
+`iter.Pull`はこの挙動を利用することで、goroutineからparallelismをなくしてconcurrencyだけ得ることでPush型iteratorを効率的にPull型に変換するということらしいですね。
+
+:::
+
 ## 複数adapterの適用
 
 ```go
@@ -759,27 +868,18 @@ method chainによるadapterの適用はできません。
 [#49085](https://github.com/golang/go/issues/49085)がないため、methodが新しいtype parameterを追加できないためです。このためMapのような型の変換を行うadapterはmethod chainで実装できません。
 このproposal上のコメントでもある通り[type parameterのあるmethodがinterfaceを実装すべきなのかという問題](https://go.googlesource.com/proposal/+/refs/heads/master/design/43651-type-parameters.md#No-parameterized-methods)があるため、実装される可能性も低いです。
 
-# 今後
-
-- [#61897]にまとめられていますが、各種適切なstd libraryにiteratorを返すAPIを追加しようというproposalも同時にあげられています。
-- coroutine?
-  - [#61897]の中でしれっと`Pull`がcoroutineの中でiteratorを実行することでPull型iteratorに変換すると述べています。
-  - あれっ？と思ってプロポーザルをいくらかスクロールすると、[coroutineサポートを含むCLが出ていました](https://github.com/golang/go/issues/61897#issuecomment-1818871435)
-  - [CL](https://go-review.googlesource.com/c/go/+/543319)を見る限り、`src/runtime/coro.go`でcoroutineが定義され、`iter.Pull`および`iter.Pull2`以外からは特に公開しない形です。
-
 # 感想
 
 - 3つシグネチャがあるので、少なくとも2つずつadapterを作る必要があるのでそこが少し手間に感じます。
 - どうやってFilterのようなアダプタ関数を定義するか一瞬わかりませんでした。
-- 書くのにずいぶん時間がかかりました。ちょこちょこいじっていますが大体3，4時間ぐらいかけて書きました
+- 書くのにずいぶん時間がかかりました。あとからちょこちょこいじっていますが、最初に大体のコードを書き上げるのに3，4時間ぐらいかかりました
   - 構文追加によってVS CodeのGo extensionなどエディター上での支援が得られなくなるためです。
     - 今思えばコンソールで`watch GOEXPERIMENT=range gotip vet ./...`を実行しておけばよかったです。
   - やっぱり言語サーバーの支援は偉大です。
 - 前からiterator protocolをユーザーのコードに向けて公開してほしいと思っていたので、この変更はすごく歓迎です。
 - Goにとってあまりない構文の追加でありますので、for range loopを見て何かしらのcode generationを行っているようなコードは影響を受けるかもしれませんね。
+- いろいろ呼んでるとこの構文追加による利益は「シーケンスデータの生成および加工の標準的な方法が決まること」であって、シーケンスデータの加工さえしていれば`for-range`を使わないコードベースであっても同様に利益を得ますね。
 - `iter`および`x/exp/xiter`で普段つかうようなものは実装されると思いますので、基本的にはそれらのアダプタを組み合わせるアダプタを書くことになるかな・・・未来は明るいですね。
-- 上記述べた通りメインラインに`GOEXPERIMENT=rangefunc-limited`のガード付きで入るproposalも出ています。
-  - これが`1.22`になるのかマイナーバージョンで入ってくるのか筆者にはわかっていませんが。
 
 どんどん使いやすくなって助かりますね。このまま取り込まれるのかはわかりませんが楽しみです。
 
