@@ -66,8 +66,11 @@ published: false
   - `json.Unmarshal(data, &v)`のターゲット(=`v`)がzero valueでない時に起きるマージの挙動に一貫性がない: 例えばnon-zeroなsliceを使用した場合、Unmarshal後のsliceのlengthとcapacityの間の値はゼロ化されずにマージされる。
   - 一貫しないエラー値: 現在の`encoding/json`の返すエラーは構造化されている部分とされていない部分があり一貫しない。実際には3つのクラスのエラーが起きるはずである: 文法エラー、意味論エラー、I/Oエラー。
 
-キー名とのマッチングがcase-insensitive名のかなり驚きました。
-[diff_test.go](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/diff_test.go)を見ると`json:"name"`で名前を明確に指定していたとしてもcase-insensitiveなんですね。知らなかった。すごい驚きです。
+Behavioral flawsの部分は破壊的変更なしに修正できないし、`json`パッケージにオプションという形で実装することはできるが、望ましい挙動がデフォルトでないことは不幸なことである。
+デフォルトの挙動を変える必要があることから`v2`の必要性を示唆する。
+
+(キー名とのマッチングがcase-insensitive名のかなり驚きました。
+[diff_test.go](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/diff_test.go)を見ると`json:"name"`で名前を明確に指定していたとしてもcase-insensitiveなんですね。知らなかった。すごい驚きです。)
 
 ## 実装
 
