@@ -248,8 +248,6 @@ depth = 0
 
 jsonをparseするときに面倒な「今objectがいくつネストしているか」というのが`StackDepth`で取得できます。
 
-`StackPointer`でJSON Pointer (RFC 6901)が取得できます。これはJSON全体をデコードせずにJSON Pointer一致する任意の値まで呼び飛ばすのに使うんでしょうか？
-
 ```go
 package main
 
@@ -295,6 +293,127 @@ off = 56, kind = }, token = }, depth = 0, index = <invalid json.Kind: '\x00'>, l
 off = 57, kind = <invalid json.Kind: '\x00'>, token = <invalid json.Token>, depth = 0, index = <invalid json.Kind: '\x00'>, length = 1, pointer = , err = EOF
 	*/
 }
+```
+
+`StackPointer`でJSON Pointer (RFC 6901)が取得できます。これはJSON全体をデコードせずにJSON Pointer一致する任意の値まで読み飛ばすのに使うんでしょうか？
+
+以下のようにすればJSON Pointerに一致するまで読み飛ばすことができますね。
+
+```go
+package main
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+
+	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
+)
+
+func readJsonAt(data io.Reader, pointer string, read func(dec *jsontext.Decoder) error) (err error) {
+	i := strings.LastIndex(pointer, "/")
+	var idx int64 = -1
+	if i > 0 && strings.IndexFunc(pointer[i+1:], func(r rune) bool { return '0' <= r && r <= '9' }) >= 0 {
+		idx, err = strconv.ParseInt(pointer[i+1:], 10, 64)
+		if err != nil {
+			panic(err)
+		}
+		pointer = pointer[:i]
+	}
+
+	fmt.Printf("pointer = %s, last idx = %d\n", pointer, idx)
+
+	dec := jsontext.NewDecoder(data)
+	for {
+		_, err = dec.ReadToken()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		p := dec.StackPointer()
+		fmt.Printf("current pointer = %s\n", p)
+		if pointer == p {
+			if idx >= 0 {
+				// skip '['
+				_, err = dec.ReadToken()
+				if err != nil {
+					return err
+				}
+				for ; idx > 0; idx-- {
+					err := dec.SkipValue()
+					if err != nil {
+						return err
+					}
+				}
+			}
+			return read(dec)
+		}
+	}
+	return nil
+}
+
+func main() {
+	jsonBuf := []byte(`{"yay":"yay","nay":[{"boo":"boo"},{"bobo":"bobo"}],"foo":{"bar":{"baz":"baz"}}}`)
+
+	type gibberish struct {
+		Boo  string `json:"boo"`
+		Bobo string `json:"bobo"`
+		Baz  string `json:"baz"`
+	}
+	for _, pointer := range []string{"/foo/bar", "/nay/0", "/nay/1"} {
+		var gib gibberish
+		found := false
+		err := readJsonAt(
+			bytes.NewBuffer(jsonBuf),
+			pointer,
+			func(dec *jsontext.Decoder) error {
+				found = true
+				return json.UnmarshalDecode(dec, &gib)
+			},
+		)
+		fmt.Printf("decoded = %#v, found = %t, err = %v\n", gib, found, err)
+	}
+}
+
+/*
+pointer = /foo/bar, last idx = -1
+current pointer =
+current pointer = /yay
+current pointer = /yay
+current pointer = /nay
+current pointer = /nay
+current pointer = /nay/0
+current pointer = /nay/0/boo
+current pointer = /nay/0/boo
+current pointer = /nay/0
+current pointer = /nay/1
+current pointer = /nay/1/bobo
+current pointer = /nay/1/bobo
+current pointer = /nay/1
+current pointer = /nay
+current pointer = /foo
+current pointer = /foo
+current pointer = /foo/bar
+decoded = main.gibberish{Boo:"", Bobo:"", Baz:"baz"}, found = true, err = <nil>
+pointer = /nay, last idx = 0
+current pointer =
+current pointer = /yay
+current pointer = /yay
+current pointer = /nay
+decoded = main.gibberish{Boo:"boo", Bobo:"", Baz:""}, found = true, err = <nil>
+pointer = /nay, last idx = 1
+current pointer =
+current pointer = /yay
+current pointer = /yay
+current pointer = /nay
+decoded = main.gibberish{Boo:"", Bobo:"bobo", Baz:""}, found = true, err = <nil>
+*/
 ```
 
 ### struct tag周りの挙動変更
