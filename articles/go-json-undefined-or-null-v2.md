@@ -11,9 +11,11 @@ published: false
 以前書いた[Goのstruct fieldでJSONのundefinedとnullを表現する](https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined)では、[jsoniter](https://github.com/json-iterator/go)の [Extension](https://pkg.go.dev/github.com/json-iterator/go#Extension) を駆使していろいろ頑張ることで`undefined | null | T`を出し分けることが実現できることを確認しました。記事中では同様に、`encoding/json/v2`でstdライブラリとして同様のことができるようになるかもしれないということも触れました。
 
 先日(`2023-10-05T17:14:54Z`)、記事内で触れた[issue comment](https://github.com/golang/go/issues/5901#issuecomment-907696904)の筆者が[encoding/json/v2](https://github.com/golang/go/discussions/63397)というタイトルのdiscussionを作りました。
-`v2`はproposalに近づいてきました。
 
-そこで、この`encoding/json/v2`の候補版の実装を用いて以前の記事と同じようなことを実現します。
+このdiscussionを経て正式なproposalを出す予定とのことですので、`encoding/json/v2`も今すぐではないですが具体的にリリースが見えてくる段階になっているようです。
+[1.22で`math/v2`がリリースされる予定](https://tip.golang.org/doc/go1.22#math_rand_v2)ですので、順調にいけばおそらくスタンダードライブラリの中で二つ目の`v2`になります。
+
+この記事では`encoding/json/v2`の候補版の実装を用いて以前の記事と同じように「struct fieldだけで`undefined | null | T`を表現する」ことを実現します。
 
 # やること
 
