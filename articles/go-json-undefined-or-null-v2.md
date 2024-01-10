@@ -13,9 +13,9 @@ published: false
 先日(`2023-10-05T17:14:54Z`)、記事内で触れた[issue comment](https://github.com/golang/go/issues/5901#issuecomment-907696904)の筆者が[encoding/json/v2](https://github.com/golang/go/discussions/63397)というタイトルのdiscussionを作りました。
 
 このdiscussionを経て正式なproposalを出す予定とのことですので、`encoding/json/v2`も今すぐではないですが具体的にリリースが見えてくる段階になっているようです。
-[1.22で`math/v2`がリリースされる予定](https://tip.golang.org/doc/go1.22#math_rand_v2)ですので、順調にいけばおそらくスタンダードライブラリの中で二つ目の`v2`になります。
+[1.22で`math/rand/v2`がリリースされる予定](https://tip.golang.org/doc/go1.22#math_rand_v2)ですので、順調にいけばおそらくスタンダードライブラリで二つ目の`v2`になります。
 
-この記事では`encoding/json/v2`の候補版の実装を用いて以前の記事と同じように「struct fieldだけで`undefined | null | T`を表現する」ことを実現します。
+この記事では`encoding/json/v2`の候補版の実装を用いて、以前の記事と同じように「struct fieldだけで`undefined | null | T`を表現する」ことを実現します。
 
 # やること
 
@@ -28,7 +28,8 @@ published: false
 # 想定読者
 
 - [Go programming language](https://go.dev/) で [encoding/json](https://pkg.go.dev/encoding/json)の機能を十分理解している人。
-- `encoding/json/v2`の候補版実装について興味がある人
+- `v1`で痛しかゆしな思いをした人
+- `v2`が待ちきれない人
 
 # encoding/json/v2
 
@@ -56,15 +57,17 @@ published: false
     - (これは私も大分不思議に思っていました。私の使い方的には困らないので別によかったのですが、`[]byte`や`io.Writer`を使うAPIのほうが驚きは少ないですね)
 - Performance limitations
   - `MarshalJSON`メソッドが返り値の`[]byte`をallocateすることを強制してしまう。同様に、このsemanticsは`json`パッケージに返り値のバリデーションと、インデント付けの両方で解析を必要としてしまう。
-  - `UnmarshalJSON`メソッドが一つの完全な、かつ、末尾にデータのないJSON valueを必要とする。`json`パッケージは`UnmarshalJSON`を呼び出す前に1つのJSON valueが終わるまで解析が必要であり、さらに`UnmarshalJSON`の実装でJSON valueを解析しなおす必要がある。`UnmarshalJSON`の呼び出しが再帰してしまうと劇的なパフォーマンス低下をもたらす。
-  - streaming encoder APIが存在しない。`Encoder.EncodeToken` proposalは通過したが、実装はされていない([#40127](https://github.com/golang/go/issues/40127))
-  - `json.Token`はinterfaceであるため、JSON numberやstringをbox化するときにallocateしてしまう。
-  - steaming APIが存在しない: 理屈上最も大きなJSON Tokenのみバッファーすればよいはずだが、`Encoder.Encode`および`Decoder.Decode`はJSON全体をバッファーしてしまう。
+    - ([`MarshalJSON`の返り値を`json.Compact`とほぼ同一の処理にかけ](https://cs.opensource.google/go/go/+/refs/tags/go1.21.6:src/encoding/json/encode.go;l=442-448)、[最後に`Indent`をつける](https://cs.opensource.google/go/go/+/refs/tags/go1.21.6:src/encoding/json/stream.go;l=224;bpv=1)動作になっています。)
+  - `UnmarshalJSON`メソッドが一つの完全な、かつ、末尾にデータのないJSON valueを必要とする。`json`パッケージは`UnmarshalJSON`を呼び出す前に1つのJSON valueが終わるまで解析する必要があり、さらに`UnmarshalJSON`の実装もJSON valueを解析しなおすことになる。`UnmarshalJSON`の呼び出しが再帰してしまうと劇的なパフォーマンス低下をもたらす。
+  - streaming encoder APIが存在しない:
+    - `Encoder.EncodeToken` proposalは通過したが、実装はされていない([#40127](https://github.com/golang/go/issues/40127))
+    - `json.Token`はinterfaceであるため、JSON numberやstringをbox化するときにallocateしてしまう。
+    - 理屈上最も大きなJSON Tokenのみバッファーすればよいはずだが、`Encoder.Encode`および`Decoder.Decode`はJSON全体をバッファーしてしまう。
 - Behavioral flaws
-  - 時間とともにJSONに関する標準は増えている ([RFC 4627](https://tools.ietf.org/html/rfc4627), [RFC 7159](https://tools.ietf.org/html/rfc7159), [RFC 7493](https://tools.ietf.org/html/rfc7493), [RFC 8259](https://tools.ietf.org/html/rfc8259))。一般的に言って、これらのRFCは徐々により厳密な定義になっていっているが、`encoding/json`は新しいRFCに適合していない。例えば、[RFC 8259](https://tools.ietf.org/html/rfc8259)ではinvalidなUTF-8のシーケンスを許さないが、`encoding/json`はそれらを許容する。
+  - 不適切なJSON構文の取り扱い: 時間とともにJSONに関する標準は増えている ([RFC 4627](https://tools.ietf.org/html/rfc4627), [RFC 7159](https://tools.ietf.org/html/rfc7159), [RFC 7493](https://tools.ietf.org/html/rfc7493), [RFC 8259](https://tools.ietf.org/html/rfc8259))。一般的に言って、これらのRFCは徐々により厳密な定義になっていっているが、`encoding/json`は新しいRFCに適合していない。デフォルトの挙動は少なくとも[RFC 8259](https://tools.ietf.org/html/rfc8259)に従うべきである。このRFCはinvalidなUTF-8を許さない。
     - ([Go v1のリリース日は2012-03-28](https://go.dev/doc/devel/release#go1)であり、[RFC 7159](https://tools.ietf.org/html/rfc7159)が2014-03、, [RFC 7493](https://tools.ietf.org/html/rfc7493)は2015-03, [RFC 8259](https://tools.ietf.org/html/rfc8259)は2017-12です)
   - Unmarshal時のGo struct fieldとJSON objectのキー名とのマッチングがでcase-insensitiveである。
-  - underlying typeがnon-addressableである型の`MarshalJSON` / `UnmarshalJSON`が呼ばれない。しかし、この挙動を修正することもbreaking changeである。
+  - underlying typeがnon-addressableである型の`MarshalJSON` / `UnmarshalJSON`が呼ばれない。しかし、この挙動を修正することも破壊的変更である。
   - `json.Unmarshal(data, &v)`のターゲット(=`v`)がzero valueでない時に起きるマージの挙動に一貫性がない: 例えばnon-zeroなsliceを使用した場合、Unmarshal後のsliceのlengthとcapacityの間の値はゼロ化されずにマージされる。
   - 一貫しないエラー値: 現在の`encoding/json`の返すエラーは構造化されている部分とされていない部分があり一貫しない。実際には3つのクラスのエラーが起きるはずである: 文法エラー、意味論エラー、I/Oエラー。
 
@@ -88,7 +91,25 @@ Committer: GitHub <noreply@github.com>
 Date: Fri Nov 03 2023 08:28:22 GMT+0900 (Japan Standard Time)
 ```
 
+### 方針
+
 実装は[discussion](https://github.com/golang/go/discussions/63397)で述べられた`v1`のよくなかったところを改善し、`v1`から続くコアコンセプトである、`unsafe`を使わない、読みやすくセキュア、`Easy to use(hard to misuse)`をそのまま反映したようなものになっています。
+
+- `time.Time`などのフォーマットを指定できない => `json:",format:RFC3339"`のようにstruct tag optionで指定できるように
+- 任意値をエンコード時にスキップできない => `json:",omitzero"`の追加
+- 値のinline化 => `json:",inline"`, `json:",unknown"`の追加
+- streaming APIの不在 => Encoder / Decoderを引数に取るAPIの追加, Encoder / Decoderの再実装で本当にstreamingできるように
+- `json.Token`がinterfaceである => `jsontext.Kind`は`byte`, `jsontext.Value`は`[]byte`することで、それらを返す時にメモリがallocateされることがないように
+- 不適切なJSON構文の取り扱い => 新しいRFC準拠した挙動がデフォルトに
+- non-addressableな型の`MarshalJSON ` / `UnmarshalJSON`が呼ばれない => [reflect.ValueをembedしたaddressableValueのみを取り扱うように](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal.go#L203-L210)
+- エラーが一貫しない => [SyntacticError](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/jsontext/errors.go#L25-L36), [SemanticError](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/errors.go#L17-L40), [ioError](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/jsontext/errors.go#L13-L16)
+  - モチベーションの中で述べられるI/O Errorは単純に`io`パッケージから提供されるエラーという意味で言っているっぽいですね。
+  - `io.Reader`や`io.Writer`のcall siteを見てると([ここ](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/jsontext/decode.go#L218)と[ここ](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/jsontext/encode.go#L173))、単純にそれらをラップして返しています。
+  - `*ioError`はもちろん`interface { Unwrap() error }`を実装しています。
+  - コードを検索すると`io.ErrUnexpectedEOF`を返すところも多いので、Reader / Writerの返すエラー+`io.ErrUnexpectedEOF`をチェックしておけばI/O Errorを全部拾いきれますね。
+  - もしエラーをきちんと判別したいなら`io.Reader` / `io.Writer`の実装で返しうるエラーを把握しておく必要があります。
+
+### 構成
 
 以下はdiscussion上に貼られた`encoding/json/v2`の構造を表した図への直リンクです
 
@@ -104,6 +125,25 @@ Date: Fri Nov 03 2023 08:28:22 GMT+0900 (Japan Standard Time)
 
 ### Encoder / Decoder
 
+`v1`では[encodeState](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/encode.go;l=250-261), [decodeState](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/decode.go;l=210-220)というステーマシンを定義して、内部的にそれらを呼び出すことでそれらの挙動が実現されていました([json.Marshal](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/encode.go;l=159), [Encoder.Encode](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/stream.go;l=206), [json.Unmarshal](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/decode.go;l=101), [Decoder](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/stream.go;l=17))。
+
+`v2`でも同様にステートマシンを利用しますが、中身の実装そのものはだいぶ違った形相を呈しています。
+
+`jsontext`パッケージで実装される`jsontext.Encoder`, `jsontext.Decoder`はこれらをラップしたものとして定義されています。
+
+https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/jsontext/encode.go#L46-L48
+
+https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/jsontext/decode.go#L76-L78
+
+ユーザーは`jsontext`の提供する高級なインターフェイスを操作してJSONをトークン単位で処理できます。
+
+`json`パッケージはinternal packageとして定義された`export`を利用してステートマシンを取り出して利用していますね。
+switch-caseを回避して直接バッファーを操作するのでそっちのほうが効率的だからですね。
+
+https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_default.go#L121-L127
+
+### Marshal / Unmarshal
+
 `v2`では`Marshal`/`Unmarshal`のみならず、`MarshalWrite`, `MarshalEncode`, `UnmarshalRead`, `UnmarshalDecode`が追加され、用途に応じて使い分けられるようになりました。下記の通り、今まで通りの`any` -> `[]byte`の変換、`io.Writer`へ直接書き込み、`*jsontext.Encoder`への書き出しとそれぞれ対応しています。
 
 https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal.go#L163
@@ -112,25 +152,13 @@ https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e
 
 https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal.go#L189
 
-`v1`では[encodeState](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/encode.go;l=250-261), [decodeState](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/decode.go;l=210-220)というステーマシンを定義して、内部的にそれらを呼び出すことでそれらの挙動が実現されていました(呼び出し箇所: [json.Marshal](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/encode.go;l=159), [Encoder.Encode](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/stream.go;l=206), [json.Unmarshal](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/decode.go;l=101), [Decoder](https://cs.opensource.google/go/go/+/refs/tags/go1.21.4:src/encoding/json/stream.go;l=17))。
-
-`v2`では同様にステートマシンを利用しますが、`jsontext.Encoder`, `jsontext.Decoder`はこれらをラップしたものとして定義されています。
-
-https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/jsontext/encode.go#L46-L48
-
-https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/jsontext/decode.go#L76-L78
-
-これをinternal packageとして定義されたexporterを利用して取り出して利用しています。
-
-https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_default.go#L121-L127
-
 `v1`で問題だったのはモチベーションで述べられていた通り、
 
 - 不要なallocateが生じてしまう
 - `MarshalJSON` / `UnmarshalJSON`の呼び出しごとに`encodeState`/`decodeState`がallocateされてしまう
 - [(&json.Encoder{}).SetEscapeHTML](https://pkg.go.dev/encoding/json@go1.21.5#Encoder.SetEscapeHTML)などのoptionが`MarshalJSON`実装に伝えられない
 
-であり、
+でした。
 `v2`では以下のように、`MarshalJSONV2`/`UnmarshalJSONV2`は`*jsontext.Encoder`/`*jsontext.Decoder`および`jsontext.Options`を受け取るデザインにすることでそれらを回避しています。
 
 https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_methods.go#L50-L64
@@ -172,7 +200,15 @@ func (f *foo) UnmarshalJSONV2(dec *jsontext.Decoder, opt jsontext.Options) error
 }
 ```
 
-#### jsontext.Encoder
+逆に、`MarshalJSONV2`/`UnmarshalJSONV2`を実装するためには`v2`をimportしなければならなくなりました。
+
+importを増やさないために、`time.Time`のmarshaler/unmarshalerは`v2`の`json`パッケージ内で行われています([arshal_time.go](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_time.go))
+
+`v2`には`json.MarshalFuncV2[T]`および`json.UnmarshalFuncV2[T]`という、任意の型に対するMarshaler/Unmarshalerを差し替えるためのOptionを作成するための関数が提供されるため、importを増やしたくない場合には別のパッケージで作成することもできます。
+
+## Encoder / Decoderを使ってみる
+
+### jsontext.Encoder
 
 `WriteToken`、`WriteValue`で値を書き込みますが、内部のステートマシンが状態を覚えているので`:`とか`,`とかを手動で書き込む必要はないです。これはいいデザインですね。
 
@@ -244,7 +280,7 @@ depth = 0
 }
 ```
 
-#### jsontext.Decoder
+### jsontext.Decoder
 
 `jsontext.Decoder`では`PeekKind`で値を消費せずに`jsontext.Kind`を取得し、`ReadToken`, `ReadValue`で値を読み込めます。
 
@@ -297,9 +333,12 @@ off = 57, kind = <invalid json.Kind: '\x00'>, token = <invalid json.Token>, dept
 }
 ```
 
-`StackPointer`でJSON Pointer (RFC 6901)が取得できます。これはJSON全体をデコードせずにJSON Pointer一致する任意の値まで読み飛ばすのに使うんでしょうか？
+`StackPointer`でJSON Pointer (RFC 6901)が取得できます。
+これはJSON全体をデコードせずにJSON Pointer一致する任意の値まで読み飛ばすのに使うんでしょうか？
 
 以下のようにすればJSON Pointerに一致するまで読み飛ばすことができますね。
+
+`UnmarshalJSONV2`がdecを受けとることができる以外はおおむね`v1`似たような使用感だと思います。
 
 ```go
 package main
@@ -418,19 +457,22 @@ decoded = main.gibberish{Boo:"", Bobo:"bobo", Baz:""}, found = true, err = <nil>
 */
 ```
 
-### struct tag周りの挙動変更
+## struct tag周りの挙動変更
+
+大きな破壊的変更としてstruct tag周りの変更があります。
 
 すべてのoptionは[ここ](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/fields.go#L432-L446)を参照
 詳細な挙動の変更は[diff_test.go](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/diff_test.go)を参照ください。
 
-- optionが追加、optionの挙動変更
+- optionの追加および挙動変更
 
   - `omitzero`: フィールドが型に対応する _zero_ である場合、フィールドがMarshal時にスキップされる
-    - _zero_ とは、[`reflect.Value{}.IsZero`](https://pkg.go.dev/reflect#Value.IsZero)がtrueを返すような値、もしくは`interface { IsZero() bool }`を実装する場合、`true`が返されるような値のことです。
-  - `time.Time{}.IsZero`が`true`を返す時フィールドをスキップしたいという要望は多くあったのでそれに対応した実装です。
+    - _zero_ とは、[`reflect.Value{}.IsZero`](https://pkg.go.dev/reflect#Value.IsZero)がtrueを返すような値、もしくは型が`interface { IsZero() bool }`を実装する場合、`true`が返されるような値のことです。
+    - `time.Time{}.IsZero`が`true`を返す時フィールドをスキップしたいという要望は多くあったのでそれに対応した実装です。
   - `omitempty`: `omitzero`の追加に伴い、`omitempty`はJSONとして _empty_ な値をスキップするように変わりました
     - _epmty_ な値とは`null`, `""`, `{}`, `[]`のいずれかのことであり、`MarshalJSON`および`MarshalJSONV2`でこれらを返した場合にもskipされるようです。
-    - ここに`0`が含まれていないのはJSON的に`0`, `-0`, `0.000`などの複数のバリエーションで表現可能だからとのことです。([参考](https://github.com/golang/go/discussions/63397#discussioncomment-7201224))
+    - `jsontext.Value("null")`とした場合でもスキップされます。
+    - ここに`0`が含まれていないのはJSON的に`0`, `-0`, `0.000`などの複数のバリエーションで表現可能で定義としてあいまいなことと、`0`が有効な値であると思われることが多いからだそうです。([参考](https://github.com/golang/go/discussions/63397#discussioncomment-7201224))
   - `format`: `time.Time`や`[]byte`および`[N]byte`などに任意のフォーマットを設定できます。
     - 今までは[`time.Time{}`が実装する`MarshalJSON`](https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/time/time.go;l=1343)で定義された`time.RFC3339Nano`以外のフォーマットを利用したい場合は`MarshalJSON`を実装した新しい型を定義するほかなかったですが、`v2`ではstruct tagのみで設定できるようになりました。
   - `format:emitnull`を指定することで、`nil slice`や`nil map`がマーシャル時に`null`を出力するようになります。
@@ -475,7 +517,7 @@ func (o tagOptions) Contains(optionName string) bool {
 
 https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/fields.go#L486-L543
 
-### めちゃくちゃ読みやすい
+## めちゃくちゃ読みやすい
 
 ざっくり大雑把に読み進めていますが`v1`に比べてものすごい読みやすいです。
 
@@ -632,27 +674,53 @@ value = , undefined = true, null = false, err = <nil>
 
 struct fieldだけで`undefined | null | T`を実現するためにもう少し工夫してみます。
 
-`v2`のフィールドスキップの挙動は以下の行で実装されています
+### 方針
 
-https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_default.go#L933-L948
-
-当然ではありますが部分的にロジックを取り出せるようにはなっていませんので、特定のinterfaceを実装するとき`structField.omitzero = true`にするというようなことはできません。
-(`//go:linkname`で関数を呼び出せても難しそう)
-
-ところで、`v2`には以下のように特定の型のMarshaler, Unmarshalerを差し替えるoptionがありますので、こちらを利用することにします。
+`v2`には以下のように特定の型のMarshaler, Unmarshalerを差し替えるoptionがありますので、こちらを利用すれば任意のmarshaler/unmarshalerに差し替えが可能です。
 
 ```go
-marshaller := json.MarshalFuncV2[some](func(e *jsontext.Encoder, s some, o json.Options) error {
+marshaller := json.MarshalFuncV2[T](func(e *jsontext.Encoder, s T, o json.Options) error {
 	// ...snip...
 })
 out, err := json.Marshal(v, json.WithMarshalers(marshaller))
 ```
 
+これを利用することを前提として、ぱっと思いつく実装方針は
+
+- 内部的なロジックを取り出して一部のフィールドのomitzeroが有効になるように変更する
+- 型からmarshaler/unmarshalerを組む
+- `reflect.StructOf`を利用してstruct tagに`json:",omitzero"`オプションを追加した型をランタイムで作成し、`json.MarshalEncode`にそれを渡す。
+
+#### ロジックを取り出す
+
+結論から言うとこの方法は難しそうなので諦めます。
+
+`v2`のフィールドスキップの挙動は以下の行で実装されています
+
+https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_default.go#L933-L948
+
+当然ではありますが部分的にロジックを取り出せるようにはなっていませんので、特定のinterfaceを実装するとき`structField.omitzero = true`にするというようなことはできません。
+`//go:linkname`で関数を呼び出せても難しそう
+
+#### 型からmarshaler/unmarshalerを組む
+
+これは[arshal.go](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal.go)が行う手間をまるきり再現することになるのでやりません！
+
+#### ランタイムで型を作る
+
+この方向で行くことにします。
+
 [`reflect.StructOf`](https://pkg.go.dev/reflect@go1.21.5#StructOf)を利用するとランタイムで型を生成できるので、struct tagを差し替えた型を作成し、元の型から生成した型へ変換をかけてからデフォルトの`json.MarshalEncode`の挙動を呼び出すだけで機能を実現できます。
 
-### struct tagだけ差し替えた型を作成する
+[`reflect.StructField`](https://pkg.go.dev/reflect@go1.21.5#StructField)の`Tag`フィールドをいじくるだけなので案外簡単そうです。
+
+### ランタイムで型を作って、json.MarshalFuncV2を呼び出す
+
+#### struct tagだけ差し替えた型を作成する
 
 Goのstructは別の型をembedできたり、embedした型が再帰できたりと、reflectを使った型の変換は簡単そうで厄介なのですが、struct tagをいじるだけならば以下のようなコードで十分です。
+
+特定の型いかには進まなくていいので、skipできる仕組みも整えておきます。
 
 ```go
 package faketagencoder
@@ -743,12 +811,12 @@ func MutateTag(
 }
 ```
 
-多分この実装では再帰のある型だとstack overflowしますね。
+十分ですとか書いておいてなんですが、多分この実装では再帰のある型だとstack overflowしますね。
 `sync.Pool`に型をキャッシュするようにしてすでに作成済みの型はキャッシュから引き出すようにするとかそういった処理が必要ですがこのコードは実用するつもりがないのでまあこのままでいいでしょう。
 
-### struct tagにoptionを追加する
+#### struct tagにoptionを追加する
 
-[前回の記事のこの部分](https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined#jsoniter-%E3%81%AE-extension-%E3%81%A7%E4%BD%95%E3%81%A8%E3%81%8B%E3%81%99%E3%82%8B)で`reflect.StructTag`を引数に`omitempty`がなければ追加するという処理を書きましたが、
+[前回の記事のこの部分](https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined#jsoniter-%E3%81%AE-extension-%E3%81%A7%E4%BD%95%E3%81%A8%E3%81%8B%E3%81%99%E3%82%8B)で`reflect.StructTag`を引数に`omitzero`がなければ追加するという処理を書きましたが、
 前述のとおり`v2`はstruct tag optionがsingle-quotationでエスケープされた文字列や、`format:RFC3339`のように`:`で区切りの文字列を許すように拡張されたそれに合わせた処理が必要です。
 
 ```go
@@ -777,20 +845,6 @@ import (
 var (
 	ErrUnpairedKey = errors.New("unpaired key")
 )
-
-func AddOption(tag string, opt string, ignoreIf func(t reflect.Type) bool) TagMutator {
-	return func(sf reflect.StructField) reflect.StructTag {
-		if ignoreIf(sf.Type) {
-			return sf.Tag
-		}
-		added, err := AddTagOption(sf.Tag, tag, opt)
-		if err != nil {
-			// downstream may return same error
-			return sf.Tag
-		}
-		return added
-	}
-}
 
 type Tag struct {
 	Key   string
@@ -1006,12 +1060,33 @@ func unescape(s string) (unescaped string, n int, err error) {
 }
 ```
 
-### 呼び出す
+上記の`AddTagOption`を利用することで`reflect.StructField`が特定の型(今回の場合`interface { IsUndefined() bool }`)を実装するときだけ、struct tagにオプションを追加する処理が実現できます。
+
+```go
+func AddOption(tag string, opt string, ignoreIf func(t reflect.Type) bool) TagMutator {
+	return func(sf reflect.StructField) reflect.StructTag {
+		if ignoreIf(sf.Type) {
+			return sf.Tag
+		}
+		added, err := AddTagOption(sf.Tag, tag, opt)
+		if err != nil {
+			// downstream may return same error
+			return sf.Tag
+		}
+		return added
+	}
+}
+```
+
+#### json.MarshalFuncV2でエンコーダーを差し替えて呼び出す
 
 以下のように呼び出します。
+
+実際に`omitzero`がstruct tagに追記されて、フィールドのスキップが怒ることが確認できました。
+
 `reflect`に依存する都合上exported fieldしかコピーできませんが、よく考えたら`json.Marshal`もunexported fieldを無視しますので問題ありませんでした。
 
-作っておいてなんですが、`reflect`によるコピーが生じるぶんパフォーマンス的にもメモリー的にも負荷が上がるはずなので`omitzero`を手書きでしたほうがいいと思います！
+作っておいてなんですが、`reflect`によるコピーが生じるぶんパフォーマンス的にもメモリー的にも負荷が上がるはずなので`omitzero`を手書きしたほうがいいと思います！
 
 ```go
 package main
@@ -1131,4 +1206,5 @@ func main() {
 
 [このコメント曰く](https://github.com/golang/go/discussions/63397#discussioncomment-7438359)proposalになる前にdiscussionを受けたAPIの変更と`v1`との互換性レイヤーを実装するとのことなので、
 `v2`がこのまま実装されるわけでもなさそうですし、すぐリリースということでもなさそうです。
-非常に楽しみです。
+
+しかし洗練されたAPI、内部実装、より厳格なデフォルト挙動などstd入りするのが非常に楽しみなライブラリです。
