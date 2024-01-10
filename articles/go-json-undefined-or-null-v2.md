@@ -69,7 +69,7 @@ published: false
 Behavioral flawsの部分は破壊的変更なしに修正できないし、`json`パッケージにオプションという形で実装することはできるが、望ましい挙動がデフォルトでないことは不幸なことである。
 デフォルトの挙動を変える必要があることから`v2`の必要性を示唆する。
 
-(キー名とのマッチングがcase-insensitive名のかなり驚きました。
+(キー名とのマッチングがcase-insensitiveなのかなり驚きました。
 [diff_test.go](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/diff_test.go)を見ると`json:"name"`で名前を明確に指定していたとしてもcase-insensitiveなんですね。知らなかった。すごい驚きです。)
 
 ## 実装
@@ -365,13 +365,13 @@ https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e
 
 https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/fold.go#L15-L20
 
-[#19348](https://github.com/golang/go/issues/19348)のこの[issueコメント](https://github.com/golang/go/issues/19348#issuecomment-480994586)を見ると、この機能の実装時期は`2019-04-09`のあたりのようです。コンパイラの発達によって関数を分割してもパフォーマンスが落ちにくくなりつつあるから読みやすいコードでも大丈夫になっているのだと思います（がコンパイラには全く詳しくないので多分そうなんだろうなぐらいの感想です）
+[#19348](https://github.com/golang/go/issues/19348)のこの[issueコメント](https://github.com/golang/go/issues/19348#issuecomment-480994586)を見ると、`mid-stack inliner`の実装時期は`2019-04-09`のあたりのようです。コンパイラの発達によって関数を分割してもパフォーマンスが落ちにくくなりつつあるから読みやすいコードでも大丈夫になっているのだと思います（がコンパイラには全く詳しくないので多分そうなんだろうなぐらいの感想です）
 
 すごく読みやすいのでこれ以上実装について記事内で説明する必要性を感じなくなってきましたのでこの辺にしておきます。
 
 # `v2`で`undefined | null | T`を表現する
 
-冒頭で述べた通り、`v2`ならstdの範疇で`undefined | null | T`が表現可能になります。v
+冒頭で述べた通り、`v2`ならstdの範疇で`undefined | null | T`が表現可能になります。
 
 ## `omitzero`を使う
 
@@ -513,7 +513,7 @@ struct fieldだけで`undefined | null | T`を実現するためにもう少し�
 
 `v2`のフィールドスキップの挙動は以下の行で実装されています
 
-https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_default.go#L927-L948
+https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_default.go#L933-L948
 
 当然ではありますが部分的にロジックを取り出せるようにはなっていませんので、特定のinterfaceを実装するとき`structField.omitzero = true`にするというようなことはできません。
 (`//go:linkname`で関数を呼び出せても難しそう)
@@ -890,7 +890,7 @@ func unescape(s string) (unescaped string, n int, err error) {
 以下のように呼び出します。
 `reflect`に依存する都合上exported fieldしかコピーできませんが、よく考えたら`json.Marshal`もunexported fieldを無視しますので問題ありませんでした。
 
-作っておいてなんですが、`reflect`によるコピーが生じるぶんパフォーマンス的にもメモリー的にも負荷が上がるのでおとなしく`omitzero`をつけていったほうがいいと思います！
+作っておいてなんですが、`reflect`によるコピーが生じるぶんパフォーマンス的にもメモリー的にも負荷が上がるはずなので`omitzero`を手書きでしたほうがいいと思います！
 
 ```go
 package main
