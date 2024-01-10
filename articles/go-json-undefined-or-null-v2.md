@@ -34,7 +34,7 @@ published: false
 
 - discussion: [encoding/json/v2](https://github.com/golang/go/discussions/63397)
 
-ざっくりdiscussionの中で述べられるモチベーションを列挙します。かっこ(`()`)で囲まれた部分は筆者の注釈です。
+ざっくりdiscussionの中で述べられるモチベーションを列挙します。かっこ(`()`)で囲まれた部分は私の注釈です。
 
 `v2`で解決したい`v1`の欠点を以下の４つの観点で述べる
 
@@ -51,7 +51,7 @@ published: false
       - (エラーになってほしい場合、`Decode`を呼んだ後に`dec.More()`が`true`を返すときエラーを返すような処理をユーザーが書く必要があります)
   - `Decoder`, `Encoder`にOptionを設定する方法があるが([SetEscapeHTML](https://pkg.go.dev/encoding/json#Encoder.SetEscapeHTML)とか[DisallowUnknownFields](https://pkg.go.dev/encoding/json#Decoder.DisallowUnknownFields)とかのこと)、`json.Marhsal`, `json.Unmarshal`にはない
   - `json.Compact`, `json.Indent`, `json.HTMLEscape`などが`bytes.Buffer`を使っていること。より柔軟な`[]byte`, `io.Writer`などを使わないこと。
-    - (これは筆者も大分不思議に思っていました。筆者の使い方的には困らないので別によかったのですが、`[]byte`や`io.Writer`を使うAPIのほうが驚きは少ないですね)
+    - (これは私も大分不思議に思っていました。私の使い方的には困らないので別によかったのですが、`[]byte`や`io.Writer`を使うAPIのほうが驚きは少ないですね)
 - Performance limitations
   - `MarshalJSON`メソッドが返り値の`[]byte`をallocateすることを強制してしまう。同様に、このsemanticsは`json`パッケージに返り値のバリデーションと、インデント付けの両方で解析を必要としてしまう。
   - `UnmarshalJSON`メソッドが一つの完全な、かつ、末尾にデータのないJSON valueを必要とする。`json`パッケージは`UnmarshalJSON`を呼び出す前に1つのJSON valueが終わるまで解析が必要であり、さらに`UnmarshalJSON`の実装でJSON valueを解析しなおす必要がある。`UnmarshalJSON`の呼び出しが再帰してしまうと劇的なパフォーマンス低下をもたらす。
