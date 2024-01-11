@@ -31,6 +31,18 @@ published: false
 - `v1`で痛しかゆしな思いをした人
 - `v2`が待ちきれない人
 
+# 背景: なぜ`undefined | null | T`が表現できるとよいか
+
+今日の多くのシステムは物理的、仮想的ネットワークによって連結される複数のプログラムからなり、プログラム間でデータを交換して協調してアプリケーションを構成します。
+プログラム間のデータ交換フォーマットには様々な物がありますが、JSONはその中でももっとも広く使われているものの一つです。
+
+[The Go Programming Language](https://go.dev/)ではJSONとプログラム内の値との相互変換のために普通JSONのスキーマに合わせたstructを定義し、`encoding/json`パッケージを通して変換を行います。
+JSONがJavaScriptに端を発するフォーマットであり、その事情を多分に含む一方で、Goが目指す方向の違いと`encoding/json`の特定の機能の欠落が、JSONがナチュラルにもつ`undefined`(フィールドがない), `null`, `T`(=任意の型)をGoの型、struct fieldだけで表現することを妨げてしまいます。
+
+`undefined | null | T`がfieldのみで表現できないと一部の処理が煩雑になります。もっとも典型的な例の一つはJSONで`PATCH`リクエストを受け付けるAPIの実装であると考えられ、現状では`map[string]any`に一旦デコードするなどの方法でフィールドの有無を事前に検査する必要があるはずです。
+
+`encoding/json/v2`では`v1`で欠落していた任意の値をエンコード時にスキップする機能が追加されることとなったため、`v2`では`undefined | null | T`を表現することができるようになります。
+
 # encoding/json/v2
 
 ## モチベーション
@@ -105,8 +117,8 @@ Date: Fri Nov 03 2023 08:28:22 GMT+0900 (Japan Standard Time)
 の2つに分割されるようになり、`Encoder` / `Decoder`が中心的に取り扱われるようになりました。
 `json`パッケージは従来通り`reflect`を通してmarshaler / unmarshalerを作成して`sync.Map`にキャッシュするなどの挙動を行いますが、`jsontext`はjsonを`[]byte`や`io.Reader` / `io.Writer`から読み書きする機能のみを取り扱います。`jsontext`は「比較的軽量な依存ツリーであるので`TinyGo`/ `GopherJS` / `WASI`のようなバイナリの肥大化が気になるアプリケーションに適している」とのことです。
 
-Encoder / Decoderの間のやり取りはValue, Tokenとなるため、理屈上最も大きなJSON Value(長いstringとかですね)がバッファされるメモリの最大値となります。
-Valueは`[]byte`、Tokenは`byte`であるので、Tokenを取り扱うときにbox化によるmemory allocationは生じません。
+Encoder / Decoderの間のやり取りはValue, Tokenとなるため、理屈上最も大きなJSON Token(長いstringとかですね)がバッファされるメモリの最大値となります。
+Valueは`[]byte`、Tokenは`struct`であり、interfaceではないのでbox化によるmemory allocationは生じません。
 
 ### 方針
 
@@ -163,14 +175,9 @@ https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e
 
 `Unmarshal`, `UnmarshalRead`, `UnmarshalDecode`も似たような感じなので省略。
 
-`v1`で問題だったのはモチベーションで述べられていた通り、
+`v1`では`MarshalJSON`/`UnmarshalJSON`メソッドが呼び出しごとに`[]byte`の解析やallocationを必要とすることや、呼び出しごとに`encodeState`、`decodeState`を作成することでパフォーマンス低下が起きていました。
+また、[(&json.Encoder{}).SetEscapeHTML](https://pkg.go.dev/encoding/json@go1.21.5#Encoder.SetEscapeHTML)などのoptionが`MarshalJSON`実装に伝搬しないことが問題でした。
 
-- `json.Token`などで不要なallocateが生じてしまう
-- `Encoder` / `Decoder`が1つのJSON valueをバッファしてしまう
-- `MarshalJSON` / `UnmarshalJSON`の呼び出しごとに`encodeState`/`decodeState`がallocateされてしまう
-- [(&json.Encoder{}).SetEscapeHTML](https://pkg.go.dev/encoding/json@go1.21.5#Encoder.SetEscapeHTML)などのoptionが`MarshalJSON`実装に伝えられない
-
-でした。
 `v2`では以下のように、`MarshalJSONV2`/`UnmarshalJSONV2`は`*jsontext.Encoder`/`*jsontext.Decoder`および`jsontext.Options`を受け取るデザインにすることでそれらを回避しています。
 
 https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_methods.go#L50-L64
@@ -179,9 +186,12 @@ https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e
 
 逆に、`MarshalJSONV2`/`UnmarshalJSONV2`を実装するためには`v2`をimportしなければならなくなりました。
 
-`time`パッケージのimportを増やさないために、`time.Time`のmarshaler/unmarshalerは`v2`の`json`パッケージ内で行われています([arshal_time.go](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_time.go))
+`time`パッケージのimportを増やさないために、`time.Time`と`time.Duration`のmarshaler/unmarshalerは`v2`の`json`パッケージ内で行われています([arshal_time.go](https://github.com/go-json-experiment/json/blob/2e55bd4e08b08427ba10066e9617338e1f113c53/arshal_time.go))
 
 `v2`には`json.MarshalFuncV2[T]`および`json.UnmarshalFuncV2[T]`という、任意の型に対するMarshaler/Unmarshalerを差し替えるためのOptionを作成するための関数が提供されるため、importを増やしたくない場合には別のパッケージで作成することもできます。
+
+ただしこれらの方法は型に`MarshalJSONV2`メソッドを実装するのとは異なる挙動をするため注意が必要です。
+メソッドを実装した場合、ほかのstructにembedした際にそれらのメソッドがforwardされますが、`time.Time`や`MarshalFuncV2`で差し替えられた挙動はforwardされません。
 
 ## struct tag周りの挙動変更
 
@@ -247,8 +257,8 @@ double-quotationの代わりにsingle-quotationを使う以外は`strconv.Quote`
 
 ざっくり大雑把に読み進めていますが`v1`に比べてものすごい読みやすいです。
 
-歴史が浅いこと、それによってコンパイラの最適化をよりあてにできるようになったこと、セキュリティーが重視されるためパフォーマンスよりも可読性が優先されていることなどが要因であると思われます。
-作者他の実力の高さと経験がよくわかりますね。
+長い知見の蓄積、歴史が浅いこと、それによってコンパイラの最適化をよりあてにできるようになったこと、セキュリティーが重視されるためパフォーマンスよりも可読性が優先されていることなどが要因であると思われます。
+著者らの長年の検討の結果です。
 
 例えば以下の`foldName`では`mid-stack inliner`によってinline化可能なことが述べられていますが、
 
@@ -349,7 +359,6 @@ time.Date(2024, time.January, 11, 12, 48, 37, 661204014, time.UTC)
 
 ただし注意点として、struct tagをMarshalJSONV2 / UnmarshalJSONV2メソッドに引き回す方法はありません！
 [このコメント](https://github.com/golang/go/discussions/63397#discussioncomment-7206575)でのやり取りのとおり、過去の議論の結果見送られたらしいです。
-[この動画](https://www.youtube.com/watch?v=w0RzixmxmoQ&t=712s)を流し聞きした感じ、ユーザーが`jsontext.Options`を`MarshalJSONV2`メソッドや`json.MarshalEncode`に横流ししちゃう事故がすごく起こりやすいことが予測されるので`hard to misuse`のコンセプトに反するから・・・みたいなことを言ってました。確かになと思いました。詳細はご自身で確認ください。
 
 ## jsontext.Encoder
 
@@ -612,6 +621,8 @@ decoded = main.gibberish{Boo:"", Bobo:"bobo", Baz:""}, found = true, err = <nil>
 
 `omitzero`オプションが追加されたため、`interface { IsZero() bool }`を実装し、`IsZero`メソッド内で`IsUndefined`呼び出せば`undefined`時にフィールドのスキップができます。
 
+まず前回の記事と同様に`option[T]`を定義し、`option[option[T]]`によって`undefined | null | T`を表現可能な型とします。
+
 ```go
 package main
 
@@ -630,7 +641,11 @@ type opt[V any] struct {
 type und[V any] struct {
 	opt opt[opt[V]]
 }
+```
 
+初期関数
+
+```go
 func Undefined[V any]() und[V] {
 	return und[V]{}
 }
@@ -654,11 +669,11 @@ func Defined[V any](v V) und[V] {
 		},
 	}
 }
+```
 
-func (u *und[V]) IsZero() bool {
-	return u.IsUndefined()
-}
+外側のoptionに値がない時`undefined`,内側のoptionに値がない時`null`とします。
 
+```go
 func (u *und[V]) IsUndefined() bool {
 	return !u.opt.valid
 }
@@ -666,7 +681,11 @@ func (u *und[V]) IsUndefined() bool {
 func (u *und[V]) IsNull() bool {
 	return !u.IsUndefined() && !u.opt.v.valid
 }
+```
 
+`MarshalJSONV2` / `UnmarshalJSONV2`を以下のように実装し、
+
+```go
 func (u *und[V]) Value() V {
 	if u.IsUndefined() || u.IsNull() {
 		var zero V
@@ -707,7 +726,19 @@ func (u *und[V]) UnmarshalJSONV2(dec *jsontext.Decoder, opt json.Options) error 
 	u.opt.v.v = v
 	return nil
 }
+```
 
+`omitzero`にスキップしてもらうため、`IsZero`を実装します。
+
+```go
+func (u *und[V]) IsZero() bool {
+	return u.IsUndefined()
+}
+```
+
+`und[T]`のフィールドに`omitzero`があれば`undefined`であるときスキップされます。
+
+```go
 func main() {
 	type some struct {
 		Foo und[string] `json:",omitzero"`
@@ -1128,7 +1159,7 @@ func unescape(s string) (unescaped string, n int, err error) {
 }
 ```
 
-上記の`AddTagOption`を利用することで`reflect.StructField`が特定の型(今回の場合`interface { IsUndefined() bool }`)を実装するときだけ、struct tagにオプションを追加する処理が実現できます。
+上記の`AddTagOption`を利用することで`reflect.StructField`が特定のinterface(今回の場合`interface { IsUndefined() bool }`)を実装するときだけ、struct tagにオプションを追加する処理が実現できます。
 
 ```go
 func AddOption(tag string, opt string, ignoreIf func(t reflect.Type) bool) TagMutator {
@@ -1152,9 +1183,8 @@ func AddOption(tag string, opt string, ignoreIf func(t reflect.Type) bool) TagMu
 
 実際に`omitzero`がstruct tagに追記されて、フィールドのスキップが起こることが確認できました。
 
-`reflect`に依存する都合上exported fieldしかコピーできませんが、よく考えたら`json.Marshal`もunexported fieldを無視しますので問題ありませんでした。
-
-作っておいてなんですが、`reflect`によるコピーが生じるぶんパフォーマンス的にもメモリー的にも負荷が上がるはずなので`omitzero`を手書きしたほうがいいと思います！
+今回のような簡単なケースでは以下のコードでも意図通りに動作しますが、気付いていないだけでたくさんのエッジケースが存在するんだろうと思います。
+よほどのことがない限り`omitzero`を手書きで追加していくほうが好ましいと思われます。
 
 ```go
 package main
