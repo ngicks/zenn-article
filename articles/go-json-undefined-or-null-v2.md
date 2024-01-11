@@ -3,7 +3,7 @@ title: "encoding/json v2(候補)について紹介してundefined | null | Tを�
 emoji: "💬"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 # はじめに
