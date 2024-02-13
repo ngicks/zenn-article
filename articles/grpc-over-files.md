@@ -23,7 +23,7 @@ published: false
 - プログラミングに対する一定の理解を有する
 - [Go]の文法を理解している
 
-## Background
+# Background
 
 アプリケーションが複数のプログラミング言語を用いて開発されるとき(あるいは同じ言語同士でも)、それらのプログラムがお互いの機能を呼び出しあうときいくつかのことなる方法をとることができます。
 
@@ -73,6 +73,529 @@ published: false
   - https://github.com/golang/go/blob/e17e5308fd5a26da5702d16cc837ee77cdb30ab6/src/cmd/go/internal/modfetch/codehost/git.go#L249
 
 `git`コマンドがそのまま呼び出されるのは環境のセットアップ、例えば`pass`プログラムや`wincred`などのとの連携がそのまま持ち込めるので都合がいいからだと思われます。
+
+# 実装
+
+## fakeconn
+
+```go
+package fakeconn
+
+import (
+	"context"
+	"io"
+	"net"
+	"sync"
+	"time"
+)
+
+var _ net.Conn = (*FakeConn)(nil)
+
+// FakeConn is a faked connection which reads from a reader and writes to a writer.
+type FakeConn struct {
+	name    string
+	rFeeder *feeder
+	wFeeder *feeder
+	cancel  func()
+}
+
+func New(name string, r io.Reader, w io.Writer) *FakeConn {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &FakeConn{
+		name:    name,
+		rFeeder: newFeeder(ctx, r.Read),
+		wFeeder: newFeeder(ctx, w.Write),
+		cancel:  cancel,
+	}
+}
+
+// Run runs FakeConn and blocks the current goroutine until c is closed.
+// Calling Run twice or more causes undefined behavior.
+//
+// Run starts 2 additional goroutines.
+func (c *FakeConn) Run() {
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		c.rFeeder.run()
+	}()
+	go func() {
+		defer wg.Done()
+		c.wFeeder.run()
+	}()
+	wg.Wait()
+}
+
+func (c *FakeConn) Read(b []byte) (n int, err error)  { return c.rFeeder.do(b) }
+func (c *FakeConn) Write(b []byte) (n int, err error) { return c.wFeeder.do(b) }
+func (c *FakeConn) Close() error {
+	c.cancel()
+	return nil
+}
+func (c *FakeConn) LocalAddr() net.Addr                { return fakeAddr(c.name) }
+func (c *FakeConn) RemoteAddr() net.Addr               { return fakeAddr(c.name) }
+func (c *FakeConn) SetDeadline(t time.Time) error      { return nil } // TODO: maybe implement?
+func (c *FakeConn) SetReadDeadline(t time.Time) error  { return nil } // TODO: maybe implement?
+func (c *FakeConn) SetWriteDeadline(t time.Time) error { return nil } // TODO: maybe implement?
+
+// feeder serializes io operations.
+type feeder struct {
+	ctx      context.Context
+	fn       func(b []byte) (int, error)
+	bufCh    chan []byte
+	resultCh chan feederResult
+}
+
+type feederResult struct {
+	n   int
+	err error
+}
+
+func newFeeder(ctx context.Context, fn func(b []byte) (int, error)) *feeder {
+	return &feeder{
+		ctx:      ctx,
+		fn:       fn,
+		bufCh:    make(chan []byte),
+		resultCh: make(chan feederResult),
+	}
+}
+
+func (f *feeder) do(b []byte) (n int, err error) {
+	select {
+	case f.bufCh <- b:
+	case <-f.ctx.Done():
+		return 0, io.EOF
+	}
+	select {
+	case result := <-f.resultCh:
+		return result.n, result.err
+	case <-f.ctx.Done():
+		return 0, io.EOF
+	}
+}
+
+func (f *feeder) run() {
+	for {
+		var buf []byte
+		select {
+		case <-f.ctx.Done():
+			return
+		case buf = <-f.bufCh:
+		}
+		n, err := f.fn(buf)
+		select {
+		case <-f.ctx.Done():
+			return
+		case f.resultCh <- feederResult{n, err}:
+		}
+	}
+}
+
+var _ net.Addr = fakeAddr("")
+
+type fakeAddr string
+
+func (a fakeAddr) Network() string { return "fake" }
+func (a fakeAddr) String() string  { return string(a) }
+
+```
+
+## fakelistener
+
+```go
+package fakeconn
+
+import (
+	"net"
+	"slices"
+	"sync"
+)
+
+var _ net.Listener = (*FakeListener)(nil)
+
+type FakeListener struct {
+	addr      net.Addr
+	mu        sync.Mutex
+	done      chan struct{}
+	closeOnce func()
+	updateCh  chan struct{}
+	queue     []net.Conn
+}
+
+// NewFakeListener returns a newly allocated *FakeListener.
+func NewFakeListener(addr net.Addr) *FakeListener {
+	done := make(chan struct{})
+	return &FakeListener{
+		addr:      addr,
+		done:      done,
+		closeOnce: sync.OnceFunc(func() { close(done) }),
+		updateCh:  make(chan struct{}),
+	}
+}
+
+// AddConn adds
+func (l *FakeListener) AddConn(conn net.Conn) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.queue = append(l.queue, conn)
+	l.notify()
+}
+
+func (l *FakeListener) notifier() chan struct{} {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.updateCh
+}
+
+func (l *FakeListener) notify() {
+	ch := l.updateCh
+	l.updateCh = make(chan struct{})
+	close(ch)
+}
+
+func (l *FakeListener) Accept() (net.Conn, error) {
+	l.mu.Lock()
+	select {
+	case <-l.done:
+		l.mu.Unlock()
+		// TODO: use a more appropriate error
+		return nil, net.ErrClosed
+	default:
+	}
+	if len(l.queue) > 0 {
+		defer l.mu.Unlock()
+		return l.consumeOne()
+	}
+	l.mu.Unlock()
+
+	for {
+		select {
+		case <-l.done:
+			return nil, net.ErrClosed
+		case <-l.notifier():
+			l.mu.Lock()
+			if len(l.queue) > 0 {
+				defer l.mu.Unlock()
+				return l.consumeOne()
+			}
+			l.mu.Unlock()
+		}
+	}
+}
+
+func (l *FakeListener) consumeOne() (net.Conn, error) {
+	conn := l.queue[0]
+	l.queue = slices.Delete(l.queue, 0, 1)
+	return conn, nil
+}
+
+// Close closes the listener.
+// Any blocked Accept operations will be unblocked and return errors.
+func (l *FakeListener) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closeOnce()
+	return nil
+}
+
+// Addr returns the listener's network address.
+func (l *FakeListener) Addr() net.Addr {
+	return l.addr
+}
+```
+
+## client
+
+```go
+package main
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/exec"
+	"os/signal"
+	"runtime"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/golang/protobuf/ptypes/wrappers"
+	"github.com/ngicks/example-grpc-over-file/api/echoer"
+	"github.com/ngicks/example-grpc-over-file/internal/fakeconn"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/anypb"
+)
+
+var (
+	p          = flag.Bool("p", false, "whether to use stdio or os.Pipe")
+	subCmdPath = flag.String("c", "./sub", "path to built sub command")
+)
+
+func main() {
+	flag.Parse()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	cmdCtx, cmdCancel := context.WithCancel(ctx)
+	defer cmdCancel()
+	cmd := subCmd(cmdCtx, *subCmdPath, *p)
+	stderr, _ := cmd.StderrPipe()
+
+	var (
+		r io.ReadCloser
+		w io.WriteCloser
+	)
+	if *p {
+		pr1, pw1, err := os.Pipe()
+		if err != nil {
+			panic(err)
+		}
+		pr2, pw2, err := os.Pipe()
+		if err != nil {
+			panic(err)
+		}
+		defer func() {
+			for _, f := range []*os.File{pr1, pw1, pr2, pw2} {
+				_ = f.Close()
+			}
+		}()
+		cmd.ExtraFiles = []*os.File{pr1, pw2}
+		r, w = pr2, pw1
+	} else {
+		r, _ = cmd.StdoutPipe()
+		w, _ = cmd.StdinPipe()
+	}
+
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for ctx.Err() == nil && scanner.Scan() {
+			fmt.Printf("cmd stderr: %s\n", scanner.Text())
+		}
+		err := scanner.Err()
+		if err != nil && !errors.Is(err, ctx.Err()) {
+			fmt.Printf("cmd err: %s\n", err)
+		}
+	}()
+
+	err := cmd.Start()
+	if err != nil {
+		panic(err)
+	}
+	defer func() { _ = cmd.Wait() }()
+
+	fakeConn := fakeconn.New("fake", r, w)
+	go fakeConn.Run()
+	defer func() { _ = fakeConn.Close() }()
+
+	conn, err := grpc.DialContext(
+		ctx,
+		"",
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(ctx context.Context, s string) (net.Conn, error) {
+			return fakeConn, nil
+		}),
+	)
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	c := echoer.NewEchoerClient(conn)
+
+	runCtx, runCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer runCancel()
+
+	stream, err := c.Echo(runCtx)
+	if err != nil {
+		panic(err)
+	}
+
+	closeOnce := sync.OnceValue(func() error { return stream.CloseSend() })
+	defer func() { _ = closeOnce() }()
+
+	for _, msg := range []string{"foo", "bar", "baz"} {
+		fmt.Printf("sending %s\n", msg)
+		err = stream.Send(&echoer.EchoRequest{Payload: must(anypb.New(&wrappers.StringValue{Value: msg}))})
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("sent %s\n", msg)
+		fmt.Printf("receiving %s\n", msg)
+		resp, err := stream.Recv()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("received %s\n", msg)
+		fmt.Printf("seq = %d, payload = %s\n", resp.GetSeq(), resp.GetPayload().String())
+	}
+
+	if err := closeOnce(); err != nil {
+		panic(err)
+	}
+	fmt.Printf("closed\n")
+
+	if runtime.GOOS == "windows" {
+		// I'm not sure why but sending SIGTERM on the process blocks long on Windows.
+		err = cmd.Process.Kill()
+	} else {
+		err = cmd.Process.Signal(syscall.SIGTERM)
+	}
+	if err != nil {
+		panic(err)
+	}
+	err = cmd.Wait()
+	fmt.Printf("wait error: %v\n", err)
+	fmt.Printf("exit code = %d\n", cmd.ProcessState.ExitCode())
+}
+
+func must[V any](v V, err error) V {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+func subCmd(ctx context.Context, cmdPath string, usePipe bool) *exec.Cmd {
+	args := []string{}
+	if usePipe {
+		args = append(args, []string{"-r", "3", "-w", "4"}...)
+	}
+	return exec.CommandContext(ctx, cmdPath, args...)
+}
+```
+
+## server
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"sync/atomic"
+	"syscall"
+
+	"github.com/ngicks/example-grpc-over-file/api/echoer"
+	"github.com/ngicks/example-grpc-over-file/internal/fakeconn"
+	"google.golang.org/grpc"
+)
+
+var (
+	r = flag.Int("r", -1, "fd for read. defaults to stdin")
+	w = flag.Int("w", -1, "fd for write. defaults to stdout")
+)
+
+type server struct {
+	printf func(format string, args ...any)
+	seq    atomic.Int64
+	echoer.UnimplementedEchoerServer
+}
+
+func (s *server) Echo(req echoer.Echoer_EchoServer) error {
+	s.printf("receiving on echo method\n")
+	defer func() {
+		s.printf("echo exiting\n")
+	}()
+
+	for req.Context().Err() == nil {
+		s.printf("receiving on msg\n")
+		msg, err := req.Recv()
+		if err != nil {
+			if errors.Is(err, req.Context().Err()) {
+				err = nil
+			}
+			return err
+		}
+		s.printf("received on msg\n")
+		newSeq := s.seq.Add(1)
+		payload := msg.GetPayload()
+		err = req.Send(&echoer.EchoResponse{Seq: newSeq, Payload: payload})
+		if err != nil {
+			if errors.Is(err, req.Context().Err()) {
+				err = nil
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func main() {
+	flag.Parse()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	// logFile, err := os.OpenFile("./log", os.O_APPEND|os.O_CREATE|os.O_RDWR, fs.ModePerm)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer func() {
+	// 	_ = logFile.Sync()
+	// 	_ = logFile.Close()
+	// }()
+
+	log := func(s string, args ...any) {
+		// _, _ = fmt.Fprintf(logFile, s, args...)
+		_, _ = fmt.Fprintf(os.Stderr, s, args...)
+	}
+
+	var rFile, wFile *os.File
+	if *r < 0 {
+		rFile = os.Stdin
+	} else {
+		rFile = os.NewFile(uintptr(*r), "in")
+	}
+
+	if *w < 0 {
+		wFile = os.Stdout
+	} else {
+		wFile = os.NewFile(uintptr(*w), "out")
+	}
+
+	defer func() {
+		_ = rFile.Close()
+		_ = wFile.Close()
+	}()
+
+	log("cmd staring, r = %v, w = %v\n", rFile.Fd(), wFile.Fd())
+
+	fakeConn := fakeconn.New("sub-fake", rFile, wFile)
+	go fakeConn.Run()
+	defer func() { _ = fakeConn.Close() }()
+
+	fakeListener := fakeconn.NewFakeListener(fakeConn.LocalAddr())
+	fakeListener.AddConn(fakeConn)
+
+	s := grpc.NewServer()
+	echoer.RegisterEchoerServer(s, &server{printf: log})
+
+	go func() {
+		<-ctx.Done()
+		log("context signaled\n")
+		_ = fakeListener.Close()
+		s.Stop()
+	}()
+
+	if err := s.Serve(fakeListener); err != nil {
+		log("serve error = %v\n", err)
+	}
+	log("done\n")
+}
+```
 
 [Rust]: https://www.rust-lang.org/
 [Go]: https://go.dev/
