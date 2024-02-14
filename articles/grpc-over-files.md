@@ -25,7 +25,40 @@ published: false
 
 # Background
 
-アプリケーションが複数のプログラミング言語を用いて開発されるとき(あるいは同じ言語同士でも)、それらのプログラムがお互いの機能を呼び出しあうときいくつかのことなる方法をとることができます。
+アプリケーションを開発しているとき、そのアプリケーションとは別の言語で作られた資産を活用したくなる時がしばしばあります。
+
+そもそも普通にプログラムをlinuxなどでビルドしてリンクされる[libc](https://en.wikipedia.org/wiki/C_standard_library)はC言語で書かれたライブラリです。
+
+以下の標準出力に`"foobar"`と出力するだけのプログラムを`cargo`でビルドすると、
+
+```rust
+fn main() {
+    println!("foobar")
+}
+```
+
+```
+# cargo build --release
+# ldd target/release/main
+        linux-vdso.so.1 (0x00007ffc1a952000)
+        libgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f1ff6b3e000)
+        libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f1ff6916000)
+        /lib64/ld-linux-x86-64.so.2 (0x00007f1ff6bc0000)
+```
+
+という感じで`libc`がリンクされます。
+
+それ以外の例でいえば、[PDFium](https://pdfium.googlesource.com/pdfium/), [Libre Office](https://github.com/LibreOffice)などはほかの言語からよく利用されていると思います。
+
+- [pdfium-render](https://github.com/ajrcarey/pdfium-render)
+- [Pdfium.NET SDK](https://pdfium.patagames.com/help/html/Welcome-to-the-Pdfium-NET-SDK.htm)
+- [pypdfium2](https://pypi.org/project/pypdfium2/1.0.0/)
+- [libreoffice-rs](https://github.com/undeflife/libreoffice-rs)
+- [github.com/dveselov/go-libreofficekit](https://github.com/dveselov/go-libreofficekit)
+
+こういったほか言語で書かれたプログラムを呼び出すのを[ffi]などと呼び、呼び出しのラッパーライブラリのことを`binding`などと呼んだりします。
+
+静的にコンパイルされる言語は
 
 例えば
 
