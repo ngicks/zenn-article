@@ -18,18 +18,20 @@ published: false
 
 ことを実現できることを確認します。
 
-# 前提知識
+# 対象読者
+
+この記事は以下の人々を念頭において書かれています
 
 - プログラミングに対する一定の理解を有する
-- [Go]の文法を理解している
+- 新卒で入社して1年ちょうど経過したぐらいの人
 
-# Background
+# 背景: 別のプログラミング言語で作られた資産の利用
 
 アプリケーションを開発しているとき、そのアプリケーションとは別の言語で作られた資産を活用したくなる時がしばしばあります。
 
 そもそも普通にプログラムをlinuxなどでビルドしてリンクされる[libc](https://en.wikipedia.org/wiki/C_standard_library)はC言語で書かれたライブラリです。
 
-以下の標準出力に`"foobar"`と出力するだけのプログラムを`cargo`でビルドすると、
+以下は[Rust]で書かれた標準出力に`"foobar"`と出力するだけのプログラムです。これを`cargo`でビルドすると、
 
 ```rust
 fn main() {
@@ -48,19 +50,41 @@ fn main() {
 
 という感じで`libc`がリンクされます。
 
-それ以外の例でいえば、[PDFium](https://pdfium.googlesource.com/pdfium/), [Libre Office](https://github.com/LibreOffice)などはほかの言語からよく利用されていると思います。
+`Rust`から`C言語`で書かれた標準ライブラリを利用しています。
 
-- [pdfium-render](https://github.com/ajrcarey/pdfium-render)
-- [Pdfium.NET SDK](https://pdfium.patagames.com/help/html/Welcome-to-the-Pdfium-NET-SDK.htm)
-- [pypdfium2](https://pypi.org/project/pypdfium2/1.0.0/)
-- [libreoffice-rs](https://github.com/undeflife/libreoffice-rs)
-- [github.com/dveselov/go-libreofficekit](https://github.com/dveselov/go-libreofficekit)
+## FFI
 
-こういったほか言語で書かれたプログラムを呼び出すのを[ffi]などと呼び、呼び出しのラッパーライブラリのことを`binding`などと呼んだりします。
+ほか言語で書かれたプログラムを呼び出す機構のことを[ffi]などと呼び、呼び出しコードのことを`binding`などと呼びます。
 
-静的にコンパイルされる言語は
+ほかのプログラミング言語から利用されるライブラリの中で代表的なものは[The GIMP Toolkit(GTK)](https://www.gtk.org/)や[SQLite](https://sqlite.org/index.html), [OpenSSL](https://www.openssl.org/)があります。
+これらは`C言語`で書かれています。
 
-例えば
+[GTKのLanguage Bindings](https://www.gtk.org/docs/language-bindings/index)のページ曰く`C++`, `D`, `Go`, `JavaScript`, `Perl`, `Python`, `Rust`, `Vala`への`binding`がメンテナンスされていると述べられています。
+[SQLite](https://sqlite.org/index.html)の`biding`やラッパーライブラリが存在しない(実用的な)言語はもしかしたらないかもっていうぐらい広く利用されています。[Most Widely Deployed and Used Database Engine](https://www.sqlite.org/mostdeployed.html)というページが存在するぐらいです。
+[OpenSSL](https://www.openssl.org/)は知っている限りでは[CPython](https://peps.python.org/pep-0644/), [Node.js](https://nodejs.org/en/blog/vulnerability/openssl-november-2022), [Ruby](https://docs.ruby-lang.org/ja/3.2/library/openssl.html)の標準ライブラリや内部的に利用されています。
+
+それ以外で言えば[PDFium](https://pdfium.googlesource.com/pdfium/), [Libre Office](https://github.com/LibreOffice)などはほかの言語からよく利用されていると思います。
+
+- [pdfium-render](https://github.com/ajrcarey/pdfium-render)(`Rust`)
+- [Pdfium.NET SDK](https://pdfium.patagames.com/help/html/Welcome-to-the-Pdfium-NET-SDK.htm)(`C#`)
+- [pypdfium2](https://pypi.org/project/pypdfium2/1.0.0/)(`python`)
+- [libreoffice-rs](https://github.com/undeflife/libreoffice-rs)(`Rust`)
+- [github.com/dveselov/go-libreofficekit](https://github.com/dveseov/go-libreofficekit)(`Go`)
+
+`C` / `C++` / [Rust] / [Zig]のような、コンパイルしてネイティブバイナリを出力する言語は[shared library](https://en.wikipedia.org/wiki/Shared_library)を出力するなどして、例えば[python]から利用するようなことをよくします(例: [Adam Serafini: Speeding up Python with Zig](https://www.youtube.com/watch?v=O0MmmZxdct4))
+[Java] / [C#]のようなランタイムがついて回る`GC`をする言語ではあまり`shared library`作成はやられない・・・と思っていましたが調べてみるとできるみたいです。
+
+- `C#`の例: [How to Build a Shared Library in C# and Call it From Java Code](https://medium.com/@sixpeteunder/how-to-build-a-shared-library-in-c-sharp-and-call-it-from-java-code-6931260d01e5)
+- `Java`の(というか`GraalVM`の)例: [Build a Native Shared Library](https://www.graalvm.org/latest/reference-manual/native-image/guides/build-native-shared-library/)
+
+[ffi]は([Rust]のビルドターゲットの名前が [cdylib](https://doc.rust-lang.org/reference/linkage.html) であることからもわかる通り)、`C言語`のヘッダーファイルを出力するため、生成元のプログラミング言語の表現力が失われます。
+
+言語によっては[ffi]入りのプログラム(特に静的リンクする場合)に[cross compilation](https://en.wikipedia.org/wiki/Cross_compiler)がやりにくくなることがあったり、
+あり物のcliアプリが存在する場合は[ffi]で関数単位で呼び出し方を調べて実装していくより簡単な場合もあるため、そちらを用いることも同様によくあると思います。
+
+## サブプロセス
+
+[ffi]は柔軟で関数単位で
 
 - 独立した実行ファイルとして各部をビルドし、サブプロセスとしてそれらを起動したうえで何かしらの方法で通信する
 - [ffi]を用いてプログラムから直接関数を呼び出す
@@ -631,6 +655,10 @@ func main() {
 ```
 
 [Rust]: https://www.rust-lang.org/
+[Zig]: https://ziglang.org/
+[Java]: https://www.java.com/en/
+[C#]: https://learn.microsoft.com/en-us/dotnet/csharp/
+[Python]: https://www.python.org/
 [Go]: https://go.dev/
 [ffi]: https://en.wikipedia.org/wiki/Foreign_function_interface
 [wasm]: https://webassembly.org/
