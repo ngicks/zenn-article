@@ -82,9 +82,23 @@ fn main() {
 言語によっては[ffi]入りのプログラム(特に静的リンクする場合)に[cross compilation](https://en.wikipedia.org/wiki/Cross_compiler)がやりにくくなることがあったり、
 あり物のcliアプリが存在する場合は[ffi]で関数単位で呼び出し方を調べて実装していくより簡単な場合もあるため、そちらを用いることも同様によくあると思います。
 
-## サブプロセス
+## Child process
 
-[ffi]は柔軟で関数単位で
+[Child process](https://en.wikipedia.org/wiki/Child_process)は`Linux`などの`mulitasking OS`が別の実行ファイルを呼び出したときの、呼び出された側のプロセスのことを指します。
+
+ありもののプログラムをcliのコマンドとして直接呼び出す例として典型的なものとしてここで`git`コマンドを上げます。
+
+例えば、[vscode](https://code.visualstudio.com/)の`git extension`は`git`コマンドを直接使います。ほかには`go`コマンドも内部的に`git`コマンドを直接呼んでいます。
+
+- `vscode`の`git extension`
+  - https://github.com/microsoft/vscode/blob/8edcc2d9d83926ec73932b05e13eeafbe330ca32/extensions/git/src/git.ts#L668
+  - https://github.com/microsoft/vscode/blob/8edcc2d9d83926ec73932b05e13eeafbe330ca32/extensions/git/src/git.ts#L583
+  - https://github.com/microsoft/vscode/blob/8edcc2d9d83926ec73932b05e13eeafbe330ca32/extensions/git/src/git.ts#L561
+  - https://github.com/microsoft/vscode/blob/8edcc2d9d83926ec73932b05e13eeafbe330ca32/extensions/git/src/git.ts#L2032
+- `go get`
+  - https://github.com/golang/go/blob/e17e5308fd5a26da5702d16cc837ee77cdb30ab6/src/cmd/go/internal/modfetch/codehost/git.go#L249
+
+`git`コマンドがそのまま呼び出されるのは環境のセットアップ、例えば`pass`プログラムや`wincred`などのとの連携がそのまま持ち込めるので都合がいいからだと思われます。
 
 - 独立した実行ファイルとして各部をビルドし、サブプロセスとしてそれらを起動したうえで何かしらの方法で通信する
 - [ffi]を用いてプログラムから直接関数を呼び出す
@@ -117,19 +131,7 @@ fn main() {
 
 書き出せばこれ以上に長所短所があると思いますので、最適な方法を決定する際にはもちろん読者自身の調査と判断によって行ってください。
 
-ほかのプログラムをcliのコマンドとして直接呼び出す例として典型的なものとしてここで`git`コマンドを上げます
-
-例えば、
-
-- vscodeのgit extension
-  - https://github.com/microsoft/vscode/blob/8edcc2d9d83926ec73932b05e13eeafbe330ca32/extensions/git/src/git.ts#L668
-  - https://github.com/microsoft/vscode/blob/8edcc2d9d83926ec73932b05e13eeafbe330ca32/extensions/git/src/git.ts#L583
-  - https://github.com/microsoft/vscode/blob/8edcc2d9d83926ec73932b05e13eeafbe330ca32/extensions/git/src/git.ts#L561
-  - https://github.com/microsoft/vscode/blob/8edcc2d9d83926ec73932b05e13eeafbe330ca32/extensions/git/src/git.ts#L2032
-- go get
-  - https://github.com/golang/go/blob/e17e5308fd5a26da5702d16cc837ee77cdb30ab6/src/cmd/go/internal/modfetch/codehost/git.go#L249
-
-`git`コマンドがそのまま呼び出されるのは環境のセットアップ、例えば`pass`プログラムや`wincred`などのとの連携がそのまま持ち込めるので都合がいいからだと思われます。
+## WASM
 
 # 実装
 
