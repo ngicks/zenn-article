@@ -8,11 +8,11 @@ published: false
 
 # Goで開発して3年たったのでプラクティスをまとめる
 
-筆者はGoを触りだして3年ぐらいたったので、触りだしてからもっと早く知りたかったこととかをまとめて置くことで筆者の知識の整理を行います。
+筆者は[Go]を触りだして3年ぐらいたったので、触りだしてからもっと早く知りたかったこととかをまとめて置くことで筆者の知識の整理を行います。
 
-なるだけワンストップでたくさんの話題を扱うようにして、なんとなくイディマティックなコードを書けるようにするのが目的です。
-
-誰かの役に立つことを願います。
+なるだけワンストップでたくさんの話題を扱うようにして、
+読んだ人がなんとなく開発を始められるようになって、
+なんとなくイディマティックなコードを書けるようにするのが目的です。
 
 # 筆者のバックグラウンド
 
@@ -32,17 +32,21 @@ published: false
 - [Node.js]
 - [TypeScript]
 - [Rust]
-- [Linux]上でファイルを読み書きしたりデータストレージとやり取りするときに起きる諸般の問題
+- `Linux`上でファイルを読み書きしたりデータストレージとやり取りするときに起きる諸般の問題
   - [open(2)](https://man7.org/linux/man-pages/man2/open.2.html)を`O_TRUNC`付きで呼んでから[write(2)](https://man7.org/linux/man-pages/man2/write.2.html)がリターンするまでの間にファイルが0バイトの状態が観測できる、とか
 
-筆者は[linux]が動作する小さ目のデバイスで動くプログラムしか書かないので、クラウドとかそういったものが視点に入っていません。
+筆者は`Linux`が動作する小さ目のデバイスで動くプログラムしか書かないので、クラウドとかそういったものが視点に入っていません。
 結構特殊な視点で書かれているかもしれないです。
 
 # 対象読者
 
-- メインは会社の同僚です。
 - いままで[Go]を使ってこなかった人
 - ある程度コンピュータとネットワークとプログラムを理解している人
+
+# 対象環境
+
+- メインは`linux/amd64`です
+- 別段`OS`/`arch`固有な要素は少ない(インストールの部分のみ)と思いますが、適宜読み替えてほしいです。
 
 # 基本
 
@@ -72,7 +76,7 @@ TODO: 読む
   - コードの書き方以外も含めた基本的なトピック
 - Effective Go: https://go.dev/doc/effective_go
   - Goのイディオム集
-- Go Wiki: Go Code Review Comments: https://go.dev/wiki/CodeReviewComments#mixed-caps
+- Go Wiki: Go Code Review Comments: https://go.dev/wiki/CodeReviewComments
   - よくされるCode review comment集らしいです
 
 ## Std library
@@ -83,8 +87,19 @@ https://pkg.go.dev/std
 
 standard libraryです。
 
-HTTP(1.1 or 2)で動作するサーバープログラムを作るのに大体必要な機能がそろっています。
+HTTPなどで動作するサーバープログラムを作るのに大体必要な機能がそろっています。
 できれば開発に着手する前にすべてのインターフェイスとdoc commentを読んでおくがよいと思います。
+
+https://pkg.go.dev/golang.org/x
+
+こっちはsub-repositoriesです。説明のとおり、Go Projectの一環ですがstd libほど厳密なバージョン管理がされていません。
+std libに入ると厳密な後方互換性の約束を守る必要があるため、変更の可能性が高かったり、stdに入れるほどの重要度がないものがこちらにあるというコンセプトのはずです。
+
+- ここで先に実装されてからstdに昇格されたり(`maps`, `slices`など)、
+- stdがFrozenなので代わりにこちらのものを使うべきだったり(`syscall`の代わりに[golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys#section-readme))
+- 1ファイルにバンドルされてstdに組み込まれていたり([golang.org/x/net/http2](https://pkg.go.dev/golang.org/x/net/http2))
+
+することもあります。
 
 ## golang/example
 
@@ -96,15 +111,389 @@ https://github.com/golang/example
 
 ## 外部リソース（未読）
 
-TODO: さっと目を通しておこう。100 Go mistakes ~は面白そうなので読んでおきたい。
+TODO: さっと目を通しておこう。100 Go mistakes...は面白そうなので読んでおきたい。
 
 - https://tour.ardanlabs.com/tour/eng/list
 - 100 Go Mistakes and How to Avoid Them
   Book by Teiva Harsanyi
 
+# プロジェクトの始め方
+
+モジュールをセットアップするまでのあれこれをまとめておきます。
+
+基本的にこれらの手順は公式ドキュメントで網羅されていますので、基本的にはそちらを参照してください。
+特に基本的な文法はこのセクションのスコープから外します。`The Tour of Go`が十分にそれらをカバーしています。
+
+VCS(Version Control System)にrepositoryを一つ作り、そこに1つ`Go module`を作るところまでをここでカバーします。
+
+## インストール
+
+公式の手順に従い、各OS環境に合わせて[Go]をインストールしましょう。
+
+https://go.dev/doc/install
+
+`linux`/`amd64`の場合はいつもの手順です
+
+```
+mkdir -p /tmp/go-download
+cd /tmp/go-download
+curl -LO https://go.dev/dl/go1.22.3.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.3.linux-amd64.tar.gz
+```
+
+ダウンロードしたアーカイブは`/tmp`以下なのでいつか消えるでしょう・・・
+
+一応チェックサムを確認しておいたほうがいいかもしれません。(shellを使い倒すのに慣れていないのでコマンド自体は参考程度に)
+
+```
+# checksumの値はダウンロードページから確認できる。
+echo 8920ea521bad8f6b7bc377b4824982e011c19af27df88a815e3586ea895f1b36 > checksum
+sha256sum go1.22.3.linux-amd64.tar.gz | awk '{print $1}' | diff - checksum
+```
+
+環境変数を設定。使っているOS/terminalに合わせた方法で設定してください。
+
+```
+PATH=$(/usr/local/go/bin/go env GOPATH)/bin:/usr/local/go/bin:$PATH
+```
+
+`/usr/local/go/bin`以下に、先ほど`.tar.gz`から解凍した`go`コマンドと`gofmt`コマンドが置かれます。
+
+`$(go env GOPATH)/bin`以下には`go install`したバイナリがおかれます。
+パスを通しておけばコマンドとして利用できるようになります。
+
+## エディタ
+
+エディタは個人の好みともろもろを合わせて好きに選べばいいと思います。
+ただよく聞くのは以下の3通りです。
+
+- [Visual Studio Code] + [Go extension](https://marketplace.visualstudio.com/items?itemName=golang.go)（筆者はこれ）
+  - https://code.visualstudio.com/docs/languages/go
+- [vim](https://www.vim.org/) or [neovim](https://neovim.io/) + gopls
+  - https://github.com/golang/tools/blob/master/gopls/doc/vim.md
+- JetBrainsの[GoLand](https://www.jetbrains.com/ja-jp/go/)
+
+## VCSでのrepositoryの作成
+
+詳しくは記述しませんが、[github](https://github.com/), [gitlab](https://about.gitlab.com/)などでソースをホストするためのrepositoryを作っておきます。
+
+もちろん先にローカル環境でgit repositoryを作成してあとから`VCS`上で作成してそこがターゲットになるように設定してもいいのですが、
+それがわかる人はすでにこのテキストを読む必要がありません。
+
+## モジュールの作成
+
+VCSで作成したrepositoryをローカルにクローンします。
+
+```
+# gitの場合
+git clone <<uri>>
+cd <<repo-name>>
+```
+
+`go mod init <<module-name>>`で`Go module`に必要なファイルを作成します
+
+```
+go mod init <<module-name>>
+```
+
+TODO: もろもろの裏どり
+
+`<<module-name>>`は基本的に上記`<<uri>>`からプロトコルスキームを抜いたものにするとよいです。
+そうすると`go get <<module-name>>`でこのモジュールを別の`Go module`へ導入できるためです。
+
+例えば、`VCS`の`URI`が`https://github.com/ngicks/example`である場合、
+
+```
+go mod init github.com/ngicks/example
+```
+
+で作成し、VCSにソースをプッシュすると
+
+```
+go get github.com/ngicks/example
+```
+
+で別モジュールから導入、参照できます。
+
+ただし、`gitlab`でサブグループを作成し、サブグループの中でソースを管理する場合、
+`<<module-name>>`はvcsのsuffixを加えておかないと`go get`時に失敗するかもしれません。
+
+TODO: 裏をとって現時点(`2024/05/10`)では確実に失敗すると断言する口調に変える。出典を明記。
+
+つまり上記と同じ例で行くと
+
+```
+go mod init github.com/ngicks/example.git
+```
+
+とする必要があるということです。
+
+以前調べたときの`go tools`側の見解としては`gitlab`のバグという立場でした(TODO: issueへのリンク)。
+
+## Private VCSでソースをホストする場合
+
+TODO: 裏を取ろう
+
+`VCS`が公開されていない場合それ用の設定が必要です。
+
+以下で`go`コマンドがパブリック扱いしない`VCS`のホストを指定します。
+
+```
+go env -w GOPRIVATE <<host>>
+```
+
+PrivateなGOPROXYを設定しない場合、`go get`は`VCS`から直接ソースを取得します。
+
+その場合`VCS`のクライアント（`git`なら`git`コマンド）が使われます。
+クレデンシャルを適切に保存しておかないと、
+パスワードを求めるプロンプトが大量に表示されたり、
+場合によっては単にタイムアウトしてエラー終了します。
+
+まだ何もcredをいい感じに保存する方法を設定しない場合は[Git Credential Manager](https://github.com/git-ecosystem/git-credential-manager?tab=readme-ov-file)をインストールしてセットアップしておくと便利です。
+[Install instructions](https://github.com/git-ecosystem/git-credential-manager/blob/release/docs/install.md)に従いセットアップを行うと、
+`wsl`で起動している場合は`wincred`への保存、`native linux`の場合は`gpg`と`pass`プログラムとの連携になります。
+
+## Git lfsを導入している場合
+
+`go get`する側も`git lfs`を導入していないとチェックサムの照合エラーでインポートできないことがある。
+
+おそらく`GOPROXY`経由で取得する場合はこの矛盾は起きない。
+
+TODO: 裏どり
+
+## エントリーポイントを作成する
+
+```
+mkdir -p cmd/example
+touch cmd/example/main.go
+```
+
+```go: main.go
+package main
+
+import "fmt"
+
+func main() {
+  fmt.Println("Hello")
+}
+```
+
+## パッケージを分ける
+
+ディレクトリ=パッケージです
+
+他のパッケージをインポートするときは基本的にfully qualifiedなパスで
+（確か相対パスインポートもできるけどしないほうが良いと言われてたよな…TODO: 調べる）
+
+go.modのreplaeとかvendorとかの話は省こう
+internalパッケージの話はもっと後半の細かい話し始めるところで書く？
+
+## build / run
+
+```
+go run ./cmd/example
+go build ./cmd/example
+```
+
+ポイントは
+
+```
+go build cmd/example
+```
+
+ではダメだということ。
+
+TODO: `go`コマンドのパスの扱いがこうであることの根拠を明示する
+
+# プロジェクトの歩き方
+
+git cloneなりしてきたgo projectの歩き方
+
+## cmdディレクトリ
+
+慣習的にmainパッケージがこれ以下のサブフォルダとかに含まれる。
+
+ライブラリとして使われるつもりがあまりないプロジェクトはトップディレクトリがmainパッケージになってることが多い（見た限り）
+
+## func mainで検索
+
+main関数
+
+## go:generateで検索する
+
+Makefileとかを使わず全部go:genrateで作業スクリプトが実行されてることがある（かも）
+
+# 基本的プラクティス
+
+## マルチスレッド制御
+
+- sync: https://pkg.go.dev/sync
+- sub repositoryのsync: https://pkg.go.dev/golang.org/x/sync
+
+使い方とかを書く
+
+## テスト関連
+
+- Fuzzについて
+- ユーティリティー
+  - gotest.tools/v3/assert
+
+### Fuzz時にはメモリ使用量に気を付ける
+
+fuzzテスト時にはworker=cpu個数で同時多数にテストが走るので普段よりもメモリーを使う
+
+## gotchas系
+
+- typed nil
+- sliceは値
+- mapはポインター
+- iterator variableのキャプチャー（Let's Encryptのミス）（Go1.22.0以降では起きない）
+
+### defer, go statementで関数を呼び出すときの引数は記述順で評価される
+
+例えば（以下、例となるスニペット追記）
+
+関数の実行後の値を取りたい場合はポインターで渡すか、deferで呼び出すのを無名関数にして変数をキャプチャする
+
+## HTTP Server framework
+
+- stdで十分な機能があることに触れる
+  - go 1.22で追加されたルーティングに触れながら
+- echo, chi, ginあたりについて説明する
+  - 筆者はechoしか使ったことがないと断りをいれる
+- gRPCの一通りの使い方に触れる
+
+### OpenAPIとGo
+
+- OpenAPIに付いて説明し、基本的な書き方とコードジェネレータについて説明する
+  - 筆者はoapi-codegenしかつかったことがない
+- github.com/atombender/go-jsonschema による型の生成とバリデーション
+  - OpenAPI v3.0.xではjsonschemaのサブセットの拡張版であることに触れる
+
+## code generator
+
+Goは文法が単純でマクロが存在しないので、代わりにcode generatorが用いることが多い。
+
+- text/templateの紹介
+- github.com/dave/jennifer
+- go/astによるコードの解析
+
+## logging
+
+- slog
+- zap
+
+最近はslogだけでいいんじゃないかという気がする
+
+slog.Handlerの作り方とか
+
+## Filesytem abstraction
+
+`fs.FS`はreadonly
+
+`embed.FS`でpermission bitsが消えることを述べる
+
+- afero: https://github.com/spf13/afero
+- hackpadfs: https://github.com/hack-pad/hackpadfs
+- go-billy: https://github.com/go-git/go-billy
+
+## Cli application
+
+- stdのflagを使うシンプルなアプリ
+- https://github.com/spf13/cobra + https://github.com/spf13/viper を使ったアプリ
+  - docker, docker compose, kubernetesなどで使われている。
+
+## Enum
+
+は存在しないが、似たようなことはiotaとtypeでてきる
+
+```go
+type Foo string
+
+const (
+  FooVariantA = "a"
+  FooVariantB = "b"
+)
+```
+
+体感上、変数はtype名でprefixしておくのが吉
+
+## New関数
+
+パッケージ内でメインとなる関心事を表すstructがあり、それのフィールドがexportされない場合は初期化のためのNew関数を定義する
+
+## Must関数、Must prefix
+
+ある関数がエラーしうるとき、（あとは追記）
+
+どうまとめよう？
+
+## io.Readerを実装する
+
+io.Readerを実装してみたりする
+
+ReaderFromとかWriterToについて触れる
+
+## fmt.Formatterを実装する
+
+カスタムエラータイプ周りの話題で
+
+## よく使うライブラリ
+
+- samber/lo
+- clockwork
+- mapstructure / copystructure
+
+## レシピとか
+
+- sync.OnceFunc
+
+## Data marshaling / unmarshalng
+
+encoding/jsonとencoding/xml、encoding/binaryぐらいの軽いチュートリアル
+
+DisallowUnknownFieldは使わない！（オンラインでバージョンアップされるアプリでは）
+
+## http.Clientをいじろう
+
+- なにかのclientを実装するときは\*(http.Client)を引数で受け取ろう
+  - functional option patternで渡すほうが良いこともある
+    - functional option patternは真面目に実装しようとすると面倒な時があるので、code generatorを実装しようかなと思っている（したいから）。その場合この記事はそちらが完成するまでpendedのままになるかも…
+- http.Roundtripper interface / http.Transport
+- Example: cookie jarをセット
+- Example: 送受信内容をトラップ
+- Example: 名前解決部分を[github.com/miekg/dns](https://github.com/miekg/dns)に差し替え
+  exampleはやったことあるやつだけにとどめてある
+
+## パッケージ内だけで実装できるinterface
+
+unexported methodをinterfaceにいれる
+
+## モジュール内でのみ実装できるinterface
+
+exported methodの引数か、返り値をinternal packageで定義される型にする
+`type PrivateOnly [0]func()`などにすると名前でわかるかも
+
+## 渡したcontext.Contextは必ずcancelしよう
+
+```go
+go func () {
+  <-ctx.Done()
+}()
+```
+
+みたいなコード書かれることがある（筆者は書く）。ctxがキャンセルされることがない可能性についてはctxを使う側が考慮すべきだけど、考慮が甘いことがあるので、呼び出し側もctxに用がなくなったらcancelしておいたほうがいい
+
+## reflectionのはなし
+
+encoding/jsonおよびencoding/json/v2を最も典型的な利用例として紹介する
+
+[Go]: https://go.dev/
 [C++]: https://en.wikipedia.org/wiki/C%2B%2B
 [Node.js]: https://nodejs.org/en
 [TypeScript]: https://www.typescriptlang.org/
 [python]: https://www.python.org/
 [Rust]: https://www.rust-lang.org
 [The Rust Programming Language 日本語]: https://doc.rust-jp.rs/book-ja/
+[Visual Studio Code]: https://code.visualstudio.com/
+[vscode]: https://code.visualstudio.com/
