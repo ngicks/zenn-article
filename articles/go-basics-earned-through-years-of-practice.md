@@ -35,13 +35,16 @@ published: false
 - `Linux`上でファイルを読み書きしたりデータストレージとやり取りするときに起きる諸般の問題
   - [open(2)](https://man7.org/linux/man-pages/man2/open.2.html)を`O_TRUNC`付きで呼んでから[write(2)](https://man7.org/linux/man-pages/man2/write.2.html)がリターンするまでの間にファイルが0バイトの状態が観測できる、とか
 
-筆者は`Linux`が動作する小さ目のデバイスで動くプログラムしか書かないので、クラウドとかそういったものが視点に入っていません。
+筆者は`Linux`が動作する小さ目のデバイスで動くプログラムしか書かないので、
+クラウドとかそういったものが視点に入っていません。
 結構特殊な視点で書かれているかもしれないです。
 
 # 対象読者
 
 - いままで[Go]を使ってこなかった人
 - ある程度コンピュータとネットワークとプログラムを理解している人
+- [python]とか[Node.js]でなら開発したことある
+- [git]は使える。
 
 # 対象環境
 
@@ -121,10 +124,12 @@ TODO: さっと目を通しておこう。100 Go mistakes...は面白そうな�
 
 モジュールをセットアップするまでのあれこれをまとめておきます。
 
-基本的にこれらの手順は公式ドキュメントで網羅されていますので、基本的にはそちらを参照してください。
-特に基本的な文法はこのセクションのスコープから外します。`The Tour of Go`が十分にそれらをカバーしています。
+公式ドキュメントに網羅されている内容ですのでそちらに当たってもらってもよいでしょう。
+特に基本的文法は`The Tour of Go`で網羅的に述べられるので説明しません。
 
-VCS(Version Control System)にrepositoryを一つ作り、そこに1つ`Go module`を作るところまでをここでカバーします。
+`VCS`(Version Control System)にrepositoryを一つ作り、そこに1つ`Go module`を作るところまでをここでカバーします。
+
+`VCS`はここでは`git`しか想定されていません。
 
 ## インストール
 
@@ -140,8 +145,6 @@ cd /tmp/go-download
 curl -LO https://go.dev/dl/go1.22.3.linux-amd64.tar.gz
 sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.3.linux-amd64.tar.gz
 ```
-
-ダウンロードしたアーカイブは`/tmp`以下なのでいつか消えるでしょう・・・
 
 一応チェックサムを確認しておいたほうがいいかもしれません。(shellを使い倒すのに慣れていないのでコマンド自体は参考程度に)
 
@@ -175,12 +178,19 @@ PATH=$(/usr/local/go/bin/go env GOPATH)/bin:/usr/local/go/bin:$PATH
 
 ## VCSでのrepositoryの作成
 
-詳しくは記述しませんが、[github](https://github.com/), [gitlab](https://about.gitlab.com/)などでソースをホストするためのrepositoryを作っておきます。
+詳しい説明はしませんが、以下の手順は[github](https://github.com/)や[gitlab](https://about.gitlab.com/)でrepositoryが存在していることを想定しますので、
+先に作成しておきます。
 
-もちろん先にローカル環境でgit repositoryを作成してあとから`VCS`上で作成してそこがターゲットになるように設定してもいいのですが、
-それがわかる人はすでにこのテキストを読む必要がありません。
+[VCS(Version Control System)](https://en.wikipedia.org/wiki/Version_control)は, コンピュータファイルのバージョンを管理するシステムのことです。
+代表的なものは[git]や[svn](https://en.wikipedia.org/wiki/Apache_Subversion),[mercurial](https://en.wikipedia.org/wiki/Mercurial)あたりだと思います。
+この記事では`git`のみを取り扱います(筆者がほか二つのことをほとんど知らないからです)
 
-## モジュールの作成
+`git`は、`VCS`を構築するためのサーバーおよびクライアントプログラムです。サーバーとして直接使うことはほとんどないかもしれません。
+現在では[github](https://github.com/)というwebサービスを利用するか、 セルフホストすることも可能な[gitlab](https://about.gitlab.com/)、あるいは[gitbucket](https://github.com/gitbucket/gitbucket)などを使うのが一般的です。
+
+先にローカルでrepositoryを作成してあとからremote上に作成する方法もあるはずですが、この説明ではremoteを先に作る方法しか想定されません。
+
+## Go moduleの初期化
 
 VCSで作成したrepositoryをローカルにクローンします。
 
@@ -207,7 +217,7 @@ TODO: もろもろの裏どり
 go mod init github.com/ngicks/example
 ```
 
-で作成し、VCSにソースをプッシュすると
+で作成し、`VCS`にソースをプッシュすると
 
 ```
 go get github.com/ngicks/example
@@ -228,44 +238,63 @@ go mod init github.com/ngicks/example.git
 
 とする必要があるということです。
 
+筆者の利用する`gitlab`ではとりあえずこうすることで動作しますが、これがモノレポで複数の`Go module`が管理される場合どうなるかなどわからないので注意してください。
+
 以前調べたときの`go tools`側の見解としては`gitlab`のバグという立場でした(TODO: issueへのリンク)。
 
-## Private VCSでソースをホストする場合
+## Private repositoryでソースをホストする場合
 
-TODO: 裏を取ろう
+### GORPIVATEを設定する
 
-`VCS`が公開されていない場合それ用の設定が必要です。
+https://go.dev/ref/mod#private-modules
 
-以下で`go`コマンドがパブリック扱いしない`VCS`のホストを指定します。
+上記の説明より、一般公開されない、つまり特別な認証が必要な`VCS`でソースを管理し、`go get`などでモジュールをインポート/ダウンロードする場合、
+
+- `GOPRIVATE`の設定
+- その`VCS`のcredentialの適切な保存
+
+を行う必要があります。
+
+`GOPRIVATE`の設定は以下で行います。
 
 ```
+# git repositoryのURIが https://example.com
+# である場合、<<host>>は`example.com`になります。
 go env -w GOPRIVATE <<host>>
 ```
 
-PrivateなGOPROXYを設定しない場合、`go get`は`VCS`から直接ソースを取得します。
+(環境変数で指定すればよいと書かれていますが、筆者はうまくいかなかったので`go env -w`で書き込んでいます。)
 
-その場合`VCS`のクライアント（`git`なら`git`コマンド）が使われます。
-クレデンシャルを適切に保存しておかないと、
-パスワードを求めるプロンプトが大量に表示されたり、
-場合によっては単にタイムアウトしてエラー終了します。
+`git credential`の適切な保存には筆者は[Git Credential Manager](https://github.com/git-ecosystem/git-credential-manager?tab=readme-ov-file)を利用しています。
+[Install instructions](https://github.com/git-ecosystem/git-credential-manager/blob/release/docs/install.md)に従いセットアップを行うと、`wsl`の場合は`wincred`への保存、`native linux`の場合は`pass`プログラムなどとの連携となります。
 
-まだ何もcredをいい感じに保存する方法を設定しない場合は[Git Credential Manager](https://github.com/git-ecosystem/git-credential-manager?tab=readme-ov-file)をインストールしてセットアップしておくと便利です。
-[Install instructions](https://github.com/git-ecosystem/git-credential-manager/blob/release/docs/install.md)に従いセットアップを行うと、
-`wsl`で起動している場合は`wincred`への保存、`native linux`の場合は`gpg`と`pass`プログラムとの連携になります。
+`GONOPROXY`, `GONOSUMDB`(`NO`であることに注意)を設定しない場合、`GOPRIVATE`がデフォルトとして使われます。
+`GONOPROXY`に設定されたホストからのモジュール取得する(`direct` mode)際には相手`VCS`に合わせたコマンドが使用されます(`git`の場合`git`コマンド -> [modfetch](https://github.com/golang/go/blob/74a49188d300076d6fc6747ea7678d327c5645a1/src/cmd/go/internal/modfetch/codehost/git.go#L249))
 
-## Git lfsを導入している場合
+### git-lfsを導入している場合はすべての環境でgit-lfsを使うように気を付ける
 
-`go get`する側も`git lfs`を導入していないとチェックサムの照合エラーでインポートできないことがある。
+上記のような設定で`direct`モードで`Go module`が取得される場合、
+`git-lfs`の導入有無で`git`からのfetch後の内容が異なることがあります。
+これによってsum照合エラーで`go module download`が失敗する現象を何度か体験しています。
 
-おそらく`GOPROXY`経由で取得する場合はこの矛盾は起きない。
+基本的にはすべての環境(`Dockerfile`なども含む)で`git-lfs`を導入しておくほうがよいでしょう。
 
-TODO: 裏どり
+[Git Large File Station](https://git-lfs.com/)は`git`で大きなファイルを取り扱うための拡張機能です。
+`git-lfs`はhookとfilterを活用してコミット前後でトラック対象のファイルをテキストファイルのポインターに変換し、
+トラックされた大きなファイルはremote repositoryではなく大容量ファイル用のサーバーに上げるような挙動になります。(参考: https://github.com/git-lfs/git-lfs, [Git LFS をちょっと詳しく](https://qiita.com/ikmski/items/5cc8b8832336b8d85429))
+
+[`github`](https://docs.github.com/ja/repositories/working-with-files/managing-large-files/about-git-large-file-storage), [`gitlab`](https://docs.gitlab.com/ee/administration/lfs/index.html)双方とも`git lfs`に対応しています。
+
+開発の経緯的に、想定された用途ははゲームなどで大きなバイナリファイルを一緒に管理することのようです。
+それ以外でもテスト用の大きなファイルを管理するときなどにも使うことがあると思います。
 
 ## エントリーポイントを作成する
 
 ```
+
 mkdir -p cmd/example
 touch cmd/example/main.go
+
 ```
 
 ```go: main.go
@@ -497,3 +526,4 @@ encoding/jsonおよびencoding/json/v2を最も典型的な利用例として紹
 [The Rust Programming Language 日本語]: https://doc.rust-jp.rs/book-ja/
 [Visual Studio Code]: https://code.visualstudio.com/
 [vscode]: https://code.visualstudio.com/
+[git]: https://git-scm.com/
