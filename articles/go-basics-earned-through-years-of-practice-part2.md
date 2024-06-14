@@ -173,11 +173,11 @@ if pathErr.Err == syscall.ENOENT {
 }
 ```
 
-ただしエラーをほかのエラーでラップすることはよくされるので、この方法では正しく判別できないこともあります。
+ただし[io.EOF](https://pkg.go.dev/io@go1.22.3#EOF)のようなセンチネル値として使われる例外を除くと、エラーをほかのエラーでラップすることはよくされるので、この方法では正しく判別できないこともあります。
 
 #### errors.Is / errors.As
 
-[Go 1.13](https://go.dev/doc/go1.13#error_wrapping)から、stdの範疇でエラーのラッピング/アンラッピングの概念が追加されたようです。
+[Go 1.13](https://go.dev/doc/go1.13#error_wrapping)から、stdの範疇でエラーのラッピング/アンラッピングの概念が追加されました。
 
 - ラッピングされている可能性がある場合は
   - `err == target`(比較)の代わりに`errors.Is`を使います
@@ -285,9 +285,8 @@ https://github.com/golang/go/blob/go1.22.3/src/fmt/errors.go#L54-L78
     - 返されたエラーの`err.Error()`を呼ぶとプリントされた文字列が観測できる
     - コードによってはこれによって、if文を分岐させていることがある。
       - `docker`の内部コードを見るとwindowsが吐くエラーの`err.Error()`をみてエラー文言を変えていたりする
-    - `errors.New()`で作った値をラップしたエラーを返すほうがいいケースのほうが多いかな。
+    - `errors.New()`で作った値をラップしたエラーを返すほうがいいケースのほうが多い。
       - `Err...`な値がexportされていないと、コードを読んでエラーメッセージを探して`strings.HasPrefix(err.Error(), "not found")`みたいなコードを書くことになってつらい。
-      - ただ筆者の体験上、今のところ、ライブラリのアップデートでエラーメッセージが変更されて挙動が破壊されたことはない。
 
 ```go
 // 値としてエラーをexportしておくと、パッケージ外から使用するコードは、
@@ -396,7 +395,7 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/h2_error.go#L13-L37
 
 対象読者的には[reflect](https://pkg.go.dev/reflect@go1.22.3)ってなんだよって感じになると思いますが、ここでは詳しく説明しません。
 一部のメタデータへのアクセスと`Go`を書いてできることのおおよそすべてをruntimeで動的に行うことができる機能とパッケージだと理解しておけばとりあえずよいと思います。
-実際上記コードでは`target`の型が`http2StreamError`の構造と一致するかテストしたうえで代入がしていますね。
+実際上記コードでは`target`の型が`http2StreamError`の構造と一致するかテストしたうえで代入していますね。
 
 中途状態が書き込まれてしまわないようにまずすべてのフィールドに代入可能なことをチェックしてから実際に`Set`で代入しています。
 `ConvertibleTo`を使っていることのポイントは、ほぼ同一構造で変換可能な型で構成されるstructに代入できるようにすることでしょう。
@@ -498,7 +497,7 @@ func (e http2StreamError) As(target any) bool {
 
 つまり以下のようなこと起こります
 
-[playground](https://go.dev/play/p/RHPH0jCcTfB)
+[playground](https://go.dev/play/p/w-XoubhQjki)
 
 ```go
 type nonPErr struct{}
@@ -519,7 +518,7 @@ var _ error = (*nonPErr)(nil)
 /*
 ./prog.go:18:15: cannot use pErr{} (value of type pErr) as error value in variable declaration: pErr does not implement error (method Error has pointer receiver)
 */
-var _ error = pErr{}
+// var _ error = pErr{}
 var _ error = (*pErr)(nil)
 ```
 
@@ -575,12 +574,13 @@ func main() {
 だからなのです。
 `slice` / `map` / `function` / `uncomparable`な型のフィールドを含む`struct`はuncomparable, それ以外はcomparableです。
 uncomparableな型同士の比較(`a == b`)はコンパイルエラーなので、ランタイムでこの状況に陥ることはありません。
-しかし`interface`同士の場合はランタイムまで中身がわからない都合上起こりえます。
-`interface`をuncomparableとするとあまりに不都合が大きいのでこうなります。
+
+しかし`interface`は中身はなんであるかruntimeまでわかりませんし、`a == b`はエラーする可能性を表現できませんのでパニックするよりほかありません。
 
 一方で、`io.EOF`のような既知のcomparableな値との比較は安全です; `io.EOF`の中身はpointerなので比較可能な型です。
 
-エラーを保存されていて、比較をするような特殊なケースでこういった`runtime panic`を起こしえます。比較されるのがよくあることなのかはわかりませんが、とにかく避けられるときは避けておくに越したことはないでしょう。
+ただ、このように型が一致していてなおかつuncomparableであるというパターンは、例えばユーザーにとって中身のわからないエラー同士を比較するなどしない限りありえませんので、そう多く発生するケースではないと思われます。
+ただ何かの理由でエラー同士の比較が行われないとは限らないので、避けておくに越したことはないでしょう。
 
 以下のように変更すればパニックしません。
 
@@ -604,6 +604,8 @@ func main() {
 		fmt.Println("this works fine but...")
 	}
 ```
+
+pointerはcomparableだからです。アドレス値同士の比較になります。
 
 よくよく読み直してみると`A Tour of Go`の中で、[基本的にmethod receiverは`T`か`*T`の片方にすべきという言及](https://go.dev/tour/methods/8)がありますね。
 
@@ -673,7 +675,7 @@ func someTask() (string, error) {
 var err error = (*MyError)(nil)
 ```
 
-`*MyError`という型情報を持つ、具体的な値が`nil`が入った`var err error`ということになります。
+`*MyError`という型情報を持つ、具体的な値が`nil`の`var err error`ということになります。
 method receiverが`*MyError`なので、receiverに`nil`を渡して関数を呼び出しても普通に動作することがあり得ます(stdの中でもちょいちょいある)。
 このため`err`がnon-nilなのは妥当というか、non-nilでなければ困るということになります。
 
@@ -735,7 +737,7 @@ go func() { panic("die!") }()
 
 `try-catch-finally`で例えると、`defer`が`finally`、`recover`が`catch`だといえます。
 
-と、こう書くと`panic`は基本的に`recover`されない究極的なエラー終了手段かのように聞こえると思いますが、実際上は`*http.Server`が`recover`してしまうので逆に**基本的に`recover`されるものと思ったほうが良い**です。もちろん100%挙動をコントロールできるシチュエーションでは別ですが、例えば`*http.Server`を使わずにhttp serverを実装することは少ないと思います。
+と、こう書くと`panic`は基本的に`recover`されない究極的なエラー終了手段かのように聞こえると思いますが、実際上は`*http.Server`が`recover`してしまうので逆に**基本的に`recover`されるものと思ったほうが良い**です。もちろん100%挙動をコントロールできるシチュエーションでは別ですが、例えば`*http.Server`を使わずにhttp serverを実装することは少ないと思いますし、`Go`を書いていてhttp serverを実装しないことも結構珍しいと思います。
 
 > https://pkg.go.dev/net/http@go1.16#Handler
 >
@@ -745,7 +747,17 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L1888-L1900
 
 `panic`時にプロセスが強制終了されてほしいとき、`*http.Server`を使うプログラムの場合、ユーザーが自ら特別な措置を実装する必要があります。
 
-`defer`以外でリソース解放処理を書いてしまっていると、panicリソース解放処理が漏れると例えば`sync.Mutex`の`Lock`部分で静かにdeadlockを起こしたりします。
+つまり心持としては
+
+- `panic`を意図的にする場合は
+  - 意図的にrecoverし、意図しないpanicはre-panicする
+  - もしくは、プロセスは異常終了すべき
+- 一方で`panic`はコントロールしていないエリアで勝手に拾われるのは当然起こる
+
+と思っているといいという感じです。
+
+前述通り、その`goroutine`で`panic`した時は`defer`に登録されている関数は実行されます。
+つまりリソース解放処理は必ず`defer`でしなければ、コントロールしていないコードによって`recover`され、静かに不正状態に陥る可能性があります。
 
 - リソース解放処理は必ず`defer`で行おう
   - `sync.Mutex`の`Unlock`
@@ -777,7 +789,8 @@ https://go.dev/doc/effective_go#recover
 - 意図した型以外でのpanicははre-panicする
 
 実際の`*http.Server`は`http.ErrAbortHandler`をセンチネル値として、handlerをabortするための`panic`ができるようになっています。
-もう一度強調しておきますが、基本は`panic`はされるものだと思ってリソース解放は`defer`で行いましょう。
+
+ちなみに筆者はtry-catch的panicを使ったことはありません。errorを表現しづらいinterfaceでやり取りされる関数群で効果を発揮するパターンだと思います。
 
 #### std library内で使われるtry-catch的panic-recover
 
@@ -919,6 +932,7 @@ n, err := f.Write(bin)
 > Even if Read returns n < len(p), it may use all of p as scratch space during the call.
 
 上記より`Read`後にしている`bin = bin[:n]`は必須です。
+(たまに忘れてバグを生む)
 
 さらに、
 
@@ -1002,10 +1016,10 @@ https://github.com/golang/go/blob/master/src/runtime/signal_unix.go#L73
 
 https://github.com/golang/go/blob/go1.22.3/src/runtime/signal_unix.go#L368-L385
 
-`signalM`自体は単なる[tgkill(2)](https://man7.org/linux/man-pages/man2/tkill.2.html)のラッパーで、特定のM(machine thread)にsignalを送っています。
-その後、signal handlerに登録されている`sigtramp` -> `sigtrampgo` -> `sighandler` -> `doSigPreempt`という順番で実行、あとはWindowsの場合と同じ処理に合流してます。
+`signalM`自体は単なる[tgkill(2)](https://man7.org/linux/man-pages/man2/tkill.2.html)のラッパーで、特定のM(Machine = OS thread)にsignalを送っています。
+その後、signal handlerに登録されている`sigtramp`から順繰りに`sigtrampgo` -> `sighandler` -> `doSigPreempt`という順番で実行、あとはWindowsの場合と同じ処理に合流してます。
 
-この`SIGURG`は普通に`signal.Notify`で観測可能です。上記`sighandler`が`os`パッケージが見える位置にsignalがあったことを書き込みます。
+この`SIGURG`は普通に`signal.Notify`で観測可能です。上記`sighandler`が特にフィルターすることなく`os`パッケージが見える位置にsignalの通知をします。
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1569,15 +1583,13 @@ func main() {
 `json.NewEncoder` / `json.NewDecoder`を利用するのは以下のような場合です
 
 - 入力元 / 出力先が`io.Reader` / `io.Writer`である
-- トークンごとに処理したい
+- (デコード時のみ)トークンごとに処理したい
 - `ndjson`(newline delimited json)などを読み書きしたい
 - [DisallowUnknownFields](https://pkg.go.dev/encoding/json@go1.22.3#Decoder.DisallowUnknownFields)や[SetEscapeHTML](https://pkg.go.dev/encoding/json@go1.22.3#Encoder.SetEscapeHTML)のようなオプションを利用したい
 - 入力の末尾にジャンクデータがあるのを許容したい
 - JSON valueの開始オフセットはわかるけど終了オフセットはよくわかっていない
 
 `json.Marshal` / `json.Unmarshal`を利用するのはそれ以外の時、という感じになると思います。
-
-現在`encoding/json/v2`のプロポーザルを出そうという試みが存在し、[Discussion](https://github.com/golang/go/discussions/63397)で`encoding/json`のびっくりポイントが包括的に述べられています。大体の場合基本的な使い方の範疇で困らないと思いますけどたまにこのびっくりポイントに引っ掛かると思うので読んでおくと参考になるかも。
 
 #### 特定の値の時フィールドをスキップする(omitempty)
 
@@ -1838,6 +1850,14 @@ func main() {
 	*/
 }
 ```
+
+#### encoding/jsonのびっくりポイント
+
+いくつかびっくりポイントが存在します。
+
+- json.Unmarshal時、実はフィールドはcase-insensitiveに判定されます。
+
+現在`encoding/json/v2`のプロポーザルを出そうという試みが存在し、[Discussion](https://github.com/golang/go/discussions/63397)で`encoding/json`のびっくりポイントが包括的に述べられています。大体の場合基本的な使い方の範疇で困らないと思いますけどたまにこのびっくりポイントに引っ掛かると思うので読んでおくと参考になるかも。
 
 ### xml
 
@@ -2449,8 +2469,8 @@ Use "cobra-subcommand [command] --help" for more information about a command.
 ドキュメントを見て詳細なつくり込みを行ってください。サブコマンドの実現までなら見てのとおり、ほとんどのボイラープレートはこなしてくれます。
 
 内部的に[github.com/spf13/pflag](https://github.com/spf13/pflag)というライブラリに依存し、POSIX風な`-f` or `--flag`というショートフラグに対応しています。
-非常に便利ですが、これはstdの`flag`のフォーク版みたいので、`flag`の進歩をそのまま取り込めるということでもない、というのがネックとなります。
-例えば`Go1.19`以降のflagに追加された`BoolFunc`や`TextVar`がありません。ただそれらは`(*flag.FlagSet).Var`のラッパーとして実装されているので、`pflag`の`Var`を使えば大体同じことができるといえばできます。
+非常に便利ですが、これはstdの`flag`をフォークしてつくられているので、API/内部の作りはそっくりですが、`flag`の進歩をそのまま取り込めるということでもない、というのがネックとなります。
+例えば`Go1.19`以降のflagに追加された`BoolFunc`や`TextVar`がありません。ただそれらは`(*flag.FlagSet).Var`のラッパーとして実装されているので、`pflag`の`Var`を使えば大体同じことがでおそらくできます。
 
 ## environment variable
 
@@ -2465,7 +2485,7 @@ W. Richard Stevens. (2013). Advanced Programming in the Unix Environment section
 `Go`も読む限り別に[例外でない](https://github.com/golang/go/blob/go1.22.3/src/runtime/asm_amd64.s#L11-L24)らしく、[argvのすぐ後にenvironment variableを示すポインタが並んでいる](https://github.com/golang/go/blob/go1.22.3/src/runtime/runtime1.go#L82-L95)のは変わらないようです。[memmove](https://github.com/golang/go/blob/go1.22.3/src/runtime/memmove_amd64.s#L35)でコピーしているのでこのポインターにアクセスするのは１度きりのようですが。(`memmove`の実装のしかたも面白いので、興味がある方はこちらの素晴らしい記事を参照ください: [Go の copy はいかにして実装されるか](https://zenn.dev/koya_iwamura/articles/ed0b1a50f6a0ff))
 ちなみにwindowsでは[syscallで取得](https://github.com/golang/go/blob/go1.22.3/src/syscall/env_windows.go#L13-L29)しているので、ちょっと話が違いますね
 
-`Go`は`goroutine`のスタックをruntime自らallocateするのでこの`stack`の利用を(=argvのバウンドチェックがおかしくて環境変数やスタックがぶっ壊れるみたいな)ユーザーコードが意識することはないはずですが、ここで重要なのはプロセスから見えるメモリ領域にこれらの変数を引き渡す方法が広く存在しており、プログラム自身が自発的に設定したり外部環境から読み込まなくても勝手に置かれるということです。これは設定ファイルを、例えば`docker`などの`container`に引き渡すのに比べてはるかに簡単です([fork(2)](https://man7.org/linux/man-pages/man2/fork.2.html)して[execve(2)](https://man7.org/linux/man-pages/man2/execve.2.html)する前にfdを閉じなければプログラムに自発的に動作させることなくファイルも引き渡すことができるんですがここではそれは置いときます)。
+`Go`は`goroutine`のスタックをruntime自らallocateするのでこの`stack`の利用(=argvのバウンドチェックがおかしくて環境変数やスタックがぶっ壊れるみたいな)をユーザーコードが意識することはないはずですが、ここで重要なのはプロセスから見えるメモリ領域にこれらの変数を引き渡す方法が広く存在しており、プログラム自身が自発的に設定したり外部環境から読み込まなくても勝手に置かれるということです。これは設定ファイルを、例えば`docker`などの`container`に引き渡すのに比べてはるかに簡単です([fork(2)](https://man7.org/linux/man-pages/man2/fork.2.html)して[execve(2)](https://man7.org/linux/man-pages/man2/execve.2.html)する前にfdを閉じなければプログラムに自発的に動作させることなくファイルも引き渡すことができるんですがここではそれは置いときます)。
 
 環境変数はファイルを受け渡すよりもより自然にプロセス間で受け渡すことができるため、これによって設定値を引き渡す決断を下すことも多いでしょう。
 
@@ -2491,14 +2511,14 @@ $NONEXISTENT = "", found = false
 
 ### os.Setenv / os.Unsetenv
 
-環境変数をset/unsetするには[os.Setenv](https://pkg.go.dev/os@go1.22.3#Setenv) / [os.Unsetenv](https://pkg.go.dev/os@go1.22.3#Unsetenv)
+環境変数をset/unsetするには[os.Setenv](https://pkg.go.dev/os@go1.22.3#Setenv) / [os.Unsetenv](https://pkg.go.dev/os@go1.22.3#Unsetenv)を呼びます。
 
 ```go
 	os.Setenv("SERVER_URL", "https://exmaple.com")
 ```
 
 ただし`unix`においては`Set`も`Unset`も前述のコピーされた`environ`を書き換えるので、プログラム起動時のenvironはそのままメモリ領域に残っています。
-書き換えが起きていないのは、(筆者の理解が正しければ)`Set`や`Unset`を読んだ後も`/proc/$pid/environ`に変更がないことからわかるです。
+書き換えが起きていないのは、(筆者の理解が正しければ)`Set`や`Unset`を読んだ後も`/proc/$pid/environ`に変更がないことからわかります。
 `linux`の[prctl(2)](https://man7.org/linux/man-pages/man2/prctl.2.html)の説明を見る限り、environそのものは書き込み可能な領域(stack area)にマップされるので、書き込まないようになっているのはわざとなはずです。
 
 ### github.com/caarlos0/env
@@ -2554,16 +2574,19 @@ func main() {
 }
 ```
 
-環境変数は通常であればchild processにすべて引き渡されるのでセキュリティー的に敏感な情報は設定しないほうがいいかもしれません。
-前述通り、`unix`系の環境ではunsetしても環境変数はメモリの先頭に残り続けるので、短命であるべき情報は特に環境変数として引き渡してきてはいけないことになります。
-現実的にメモリを読まれる状況まで行けば何でもされてしまうと思うので問題になりにくいかもしれないですが。
-
 ### そのほかの方法
 
 詳細な説明は省きますが、ほかのライブラリを利用してももちろん良いです。
 
 - [github.com/spf13/viper](https://github.com/spf13/viper)の`BindEnv`/`AutomaticEnv`機能を用いる
   - すでに読み込まれたconfigと同名の環境変数をcase-insensitiveで読み込む機能があります。超便利です。
+
+### 環境変数に設定すべきでないものは何か
+
+環境変数は通常であればchild processにすべて引き渡されるのでセキュリティー的に敏感な情報は設定しないほうがいいかもしれません。
+前述通り、`unix`系の環境ではunsetしても環境変数はメモリの先頭に残り続けるので、短命であるべき情報は特に環境変数として引き渡してきてはいけないことになります。
+セキュリティー関連の記事を見ると、パスワードなどのcred情報はファイルから読み取り、使い終わったらメモリから即座に消すべき、というのをたびたび目にします。
+現実的にメモリを読まれる状況まで行けば何でもされてしまうと思うので問題になりにくいかもしれないですが。
 
 ## おわりに
 

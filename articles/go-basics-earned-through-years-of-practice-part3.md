@@ -108,6 +108,8 @@ Specificationによれば`"go"`キーワードの後に関数かメソッド呼�
 `go`はstatementです。つまり返り値は何もありません。`goroutine`を特定する方法は基本的にありませんし、`goroutine`を指定して終了させるような方法もありません。
 これは[pthread_create(3)](https://man7.org/linux/man-pages/man3/pthread_create.3.html)が`pthread_t`でthead idを返したり、[Rustのasync](https://doc.rust-lang.org/std/keyword.async.html#)が[Future](https://doc.rust-lang.org/std/future/trait.Future.html)というステートマシンを返したりするのとは対照的です。
 
+`pthread`が[pthread_join(3)](https://man7.org/linux/man-pages/man3/pthread_join.3.html)で終了を待てるのに対して、`goroutine`を指定して終了を待つ方法がありません。`goroutine`とそれを呼び出すコード間で`chan`や`sync.WaitGroup`(後述)などの変数を共有し、`goroutine`で動作する関数が明示的に通知することで終了を待ちます。
+
 `goroutine`で動作する関数が終了すれば`goroutine`もexitします。きちんと終了できるようにするのはユーザーの責任です。
 
 `goroutine`は[GOMAXPROCS](https://pkg.go.dev/runtime@go1.22.3#GOMAXPROCS)と同数(デフォルトでは(論理)CPUコアの個数)まで _concurrent_ に実行されます。
@@ -349,11 +351,11 @@ readして計算してwriteを行いますので、複数のスレッドが同�
 例として試してもらえるように、もう少し不正状態の起きやすいサンプルを示しておきます。
 以下のコードを筆者環境で**何度か**実行するとdata raceによる不正な状態を観測することができました。
 
-コードスニペット: https://github.com/ngicks/go-basics-example/blob/main/snipet/data-race-example/main.go
-
 `a []int`に、0から99の値をappendするという処理を、`GOMAXPROCS`と同数の`goroutine`の中で実行します。
 data raceが起きていないとき、`a`は0-99の値のセットを順序不定で`GOMAXPROCS`と同数だけ持つことになるはずですが、
 実際にはdata raceによって全く違う状態を**持つこともある**のです。(前述したとおり、数度に1回しか不正な状態は起きません)
+
+[snippet](https://github.com/ngicks/go-basics-example/blob/main/snipet/data-race-example/main.go)
 
 ```go
 package main
@@ -431,7 +433,7 @@ $ go install -race mypkg // to install the package
 - [CPUとメモリ負荷が大幅に増え,defer recoverで8byteの追加のメモリーがallocateされるうえにgoroutineがexitするまで回収されない](https://go.dev/doc/articles/race_detector#Runtime_Overheads)ので、長いこと動作させるとそれで落ちるケースがあります。
 - ライブラリが`race`フラグを見て動作を変える部分もあります。(例: [sync.Poolはrace enabledだとランダムな要素をPutしない](https://github.com/golang/go/blob/go1.22.3/src/sync/pool.go#L100-L107))
 - race detectorはメモリが同時に読み書きされないかチェックするツールなのでたまたま衝突が起きないケースがあると検出できません。
-  - 何度も実行してみると見つかるもかもしれませんので、疑わしい場合は何度も実行したほうが良いかもしれません。
+  - 衝突が起きやすくなるように異なる関数やメソッドを同時に読んでみるテストを書くといいかもしれません。
 
 上記のコードスニペットをrace detector付きで実行すると、以下のように警告がstderrにプリントされます。
 (ソースのコードパスは一応`--redacted--`に置き換える編集をしています。実際にはソースのローカルストレージ上の絶対パスが出力されます)
@@ -643,7 +645,8 @@ func main() {
 - N: pipeline風にデータを引き渡しており、consumerとproducerの間に処理速度差があり、producerがburstyならば、バックプレッシャーをかけ始めたい任意のサイズN
   - 現実的に起こるイベントはほとんどそう(だから在庫管理が一つの学問になるん)だろうという突っ込みはあります。
   - ただし、channelがキューイングしているデータの中身を観測する方法は筆者が知る限り普通にはないため、queueを管理したいならchannelではなく別のqueueを定義したほうが良い。
-    - [github.com/ngicks/eventqueue](https://github.com/ngicks/eventqueue): 昔queueingする何かを作っていたのでこれの例のためだけにpriority queue実装を追加しました。参考にどうぞ
+    - 単なるFIFO queueならchannelを利用するだけで便利だと思いますが、queueがpriority queueであってほしいとかだと特に別の実装が必要になります。
+    - ここで参考にどうぞというためだけにpriority queueを追加しました: [github.com/ngicks/eventqueue](https://github.com/ngicks/eventqueue)
 
 だいたいこんなものでしょうか？何かしらを引用して経験的にこうと述べたかったんですが、goproxyに登録されているすべてのモジュールの`make(chan T)`を検索するぐらいしか思いつかなくて、
 結局引用なしで筆者がどこかで見たことのまとめになってしまいました。
@@ -660,7 +663,7 @@ buffer-size n > 1が便利な場面もあるけど、大抵の場合は0か1だ�
 - 関数が`<-chan T`を返す時はcloseによって終了を通知することがある。
 - structのフィールドにchannelを引き渡すようなケースの場合大分ややこしいのでcloseによる終了の通知よりも、明確にdone channelを作るとか、`context.Context`を引き回すとかしたほうが良い。
 - なんならcloseしなくてもよい
-  - closeしなくてもGCに回収される(Exercise: queueに要素が入ったchannelのfinalizerが呼ばれるのを確かめる)
+  - closeしなくてもGCに回収される
   - `time.Timer`などは`<-chan time.Time`を返してくるが、これらをcloseする方法はないことから、このことがわかる。
 
 #### 特定のchannelを優先するには1段selectで包む
@@ -916,7 +919,7 @@ https://github.com/ngicks/go-basics-example/tree/main/snipet/chan-one-of
 
 現実的にfan-in / fan-outを実装するときにこういうのは使いますかね？`SendEach`の使い道は筆者はぱっと思いつかなかったです。なので対象読者にとっても向こう数年は不要かもしれません。
 
-多分`reflect`を使うとオーバーヘッドがかかるので`len(chans)<=16`みたいな適当な小さい数までは固定数版に分岐する処理が妥当だと思って実装してみましたが、これが本当にいいことなのかはよくわかっていない(ベンチをとっていない)ので参考までに、という感じです。感覚的に線形探査v.s二分探査と同じで64～128あたりにパフォーマンス的な閾値があるんじゃないかという気がしています。ベンチとって実装的なスイッチをする部分は対象読者のExerciseとして取っておきましょう。
+多分`reflect`を使うとオーバーヘッドがかかるので`len(chans)<=16`みたいな適当な小さい数までは固定数版に分岐する処理が妥当だと思って実装してみましたが、これが本当にいいことなのかはよくわかっていない(ベンチをとっていない)ので参考までに、という感じです。
 
 ### context.Context
 
@@ -993,6 +996,20 @@ single threadな両者でも時にconcurrentなリソースへアクセスする
 基本は[type](https://pkg.go.dev/sync/atomic@go1.22.3#pkg-types)を使っておくほうが良いと思います。
 なお見て分かると思いますが、`Add*`はあっても`Sub*`はないので引き算が必要ならば`Uint*`ではなく`Int*`を使います。
 
+大体は`mutex`なしでconcurrent-safeに変数を書き換えるのに使います。
+
+```go
+var working atomic.Bool
+if !working.CompareAndSwap(false, true) { // oldがfalseだった場合のみtrueに置き換える。
+	// swapできなかった=oldがtrueだった
+	return ErrAlreadyWorking
+}
+defer working.Store(false)
+// ... work ...
+```
+
+TODO: add progress reader example
+
 余談ですが、C++やRustはatomic accessのorderingを複数選択可能です([The Rustonomicon::atomics](https://doc.rust-lang.org/nomicon/atomics.html))が、[Goはsequentially consistentしかありません](https://pkg.go.dev/sync/atomic@go1.22.3#pkg-overview)
 
 #### syncの概要
@@ -1027,7 +1044,8 @@ single threadな両者でも時にconcurrentなリソースへアクセスする
 - [WaitGroup](https://pkg.go.dev/sync@go1.22.3#WaitGroup)
   - アトミックにincrement/decrementできるカウンターで、`Wait`でカウンターが0になるまで待つことができます。
   - `Add`でn個increment、`Done`で1つdecrementします
-  - 複数の`goroutine`が終了するのを待つのによく使います。
+  - `goroutine`が終了するのを待つのによく使います。
+    - もちろんそれ以外のことに使ってもよいです。あくまでカウンターです。
   - 基本的に`Done`は`defer wg.Done()`で呼び出したほうがよいでしょう
     - `goroutine`で呼び出す関数がpanicしたり、`runtime.Goexit`を読んだとしても`Done`が呼び出せるからです。
     - panic時に`recover`する気がないなら`defer`じゃなくてもいいです。
@@ -1057,7 +1075,7 @@ single threadな両者でも時にconcurrentなリソースへアクセスする
 前述通り`goroutine`の初期スタックサイズは`2-6KiB`なので大きなbyte array`[N]byte`を宣言してしまうとおそらくスタック成長が起きてパフォーマンスが落ちるはずなので、`[]byte`のallocation自体は避けられません。
 
 よく[io.CopyBuffer](https://pkg.go.dev/io@go1.22.3#CopyBuffer)と一緒に使います。
-[io.Copy](https://pkg.go.dev/io@go1.22.3#Copy)は引数が[io.WriterTo](https://pkg.go.dev/io@go1.22.3#WriterTo)/[io.ReaderFrom](https://pkg.go.dev/io@go1.22.3#ReaderFrom)を実装しない場合は実行のたびに32KiB(`src`が`io.LimitedReader`である場合は`src.N`)の`[]byte`をallocateしてしまうので、普通は`io.CopyBuffer`を使うほうがよいでしょう。
+[io.Copy](https://pkg.go.dev/io@go1.22.3#Copy)は引数の`src`が[io.WriterTo](https://pkg.go.dev/io@go1.22.3#WriterTo)、`dst`が[io.ReaderFrom](https://pkg.go.dev/io@go1.22.3#ReaderFrom)をそれぞれどちらも実装しない場合、実行のたびに32KiB(`src`が`io.LimitedReader`である場合は`src.N`)の`[]byte`をallocateしてしまうので、普通は`io.CopyBuffer`を使うほうがよいでしょう。
 
 [playground(full)](https://go.dev/play/p/GGFQ135j9HA)
 
@@ -1168,6 +1186,28 @@ func loadImage(name string) (image.Image, error) {
 #### Example: Cond Wait
 
 [sync.Cond](https://pkg.go.dev/sync@go1.22.3#Cond)の利用例を以下のように実装します。
+
+```go
+c.L.Lock()
+defer c.L.Unlock()
+for !condition(someVar) {
+	c.Wait()
+}
+// do some task using someVar...
+```
+
+これが基本的な使い方
+
+```go
+c.L.Lock()
+defer c.L.Unlock()
+for !condition(someVar) {
+	t := runtime_notifyListAdd(&c.notify)
+	c.L.Unlock()
+	runtime_notifyListWait(&c.notify, t)
+	c.L.Lock()
+}
+```
 
 [pthread_cond_init(3p)](https://man7.org/linux/man-pages/man3/pthread_cond_init.3p.html)のExmpalesセクションで紹介されているものと似ています。
 しかしこれを典型と言い切っていいのかはよくわかりません。もっといろいろな使い方ができますからね。

@@ -1125,7 +1125,79 @@ func main() {
 大抵のソフトウェアが手元で動かないため、
 このような手掛かりがなければ不審な動きや不具合が起きたときに原因を調べるのが非常に難しくなります。
 
-[Go 1.21](https://tip.golang.org/doc/go1.21#slog)よりstdで`log/slog`という構造化ロギングのためのライブラリを提供されるようになりました。
+[Go 1.21](https://tip.golang.org/doc/go1.21#slog)よりstdで`log/slog`というstructured logging(構造化ロギング)のためのライブラリを提供されるようになりました。
+
+### structured loggingとは
+
+structured loggingと言えば対象読者的には[structlog](https://www.structlog.org/en/0.4/)とか[winston](https://www.npmjs.com/package/winston)が想像されるでしょうか？(`structlog`は新しいのであまり使ったことがないかもしれません。)
+これらを使いこなしていた対象読者には下の説明は不要なので飛ばしてください。
+
+structured loggingというのは言葉の通り構造化された情報をログとして出力することを指しています。
+
+これは、ものすごい乱暴に言うと`JSON`(or `yaml`, `xml`, etc etcのような任意のデータ構造を表現できるフォーマット)でログを出力できるということです。
+`JSON`なので、処理に合わせて情報を付け足したり任意の構造に構築できます。
+
+例えば、http serverで動くプログラムを作るとき、http requestをきっかけとして起きる一連のイベントを追跡したいことはよくあると思います。この時、追跡のための情報として`X-Request-Id`ヘッダーから取り出したrequest-idや、リクエストを受けとった時間、clientが指定したパラメータなどをログに出力しようと考えることになるでしょう。この時、それらの情報をログのコンテキスト(以後`zap`の言い回しに倣って*structured context*もしくは*logging context*と呼ばれる)としてロガーに関連付けて引きまわせば一連のログにそれらの情報が出力することができます。出力されたログに対して`grep`や`jq`を駆使すれば簡単に任意のコンテキストを追跡することができます。
+
+前述のとおり、structured loggingの重要な要素として以下があります。
+
+- 任意情報をlogger instanceに結び付けられること
+  - 情報は任意に追加して累積できる
+- ログ出力時にはそれらの情報の構造を任意のフォーマットに変換して出力できること
+
+一般に、ログ出力時間、ログレベル、ロガーメソッドを呼び出したソースコード上の短い名前などを出力したいという要求があるため、特に設定を行わなくてもロガーメソッドを呼ぶだけでこれらの情報がstructured contextに追加されて出力されることが多いです。
+
+上記の話を踏まえるとものすごくnaiveな実装は以下のようになります。
+
+[playground](https://go.dev/play/p/-uieTLG2OS6)
+
+```go: 仮想的なstructured_logger.go
+type Logger struct {
+	arbitraryLoggingContext map[string]any
+}
+
+func (l *Logger) Log(msg string) {
+	lc := maps.Clone(l.arbitraryLoggingContext)
+
+	// 出力時間は自動的に追加されることが多い
+	lc["time"] = time.Now().String()
+
+	// 呼び出し関数、ソースの名前と行番号は自動で追加さることが多い
+	var pcs [1]uintptr
+	runtime.Callers(2, pcs[:])
+	fs := runtime.CallersFrames([]uintptr{pcs[0]})
+	f, _ := fs.Next()
+	lc["caller"] = fmt.Sprintf("%s:%d:%s", f.File, f.Line, f.Function)
+
+	lc["msg"] = msg
+
+	// log levelはこの例では出てこない
+
+	bin, _ := json.Marshal(lc)
+	bin = append(bin, []byte("\n")...)
+	os.Stdout.Write(bin)
+}
+
+func main() {
+	logger := Logger{arbitraryLoggingContext: make(map[string]any)}
+
+	// loggerには情報が紐づく
+	logger.arbitraryLoggingContext["request-id"] = r.Header.Get("X-Request-Id")
+	logger.arbitraryLoggingContext["param"] = r.Header.Get("Parameter-A")
+	logger.arbitraryLoggingContext["request-received-at"] = time.Now().String()
+
+	logger.Log("foobar")
+	// {"caller":"/tmp/sandbox4050927908/prog.go:53:main.main","msg":"foobar","param":"param-a","request-id":"1111111111","request-received-at":"2009-11-10 23:00:00 +0000 UTC m=+0.000000001","time":"2009-11-10 23:00:00 +0000 UTC m=+0.000000001"}
+
+	// 情報は追加できる
+	logger.arbitraryLoggingContext["added"] = "added massage"
+
+	logger.Log("bazbazbaz")
+	// {"added":"added massage","caller":"/tmp/sandbox4050927908/prog.go:58:main.main","msg":"bazbazbaz","param":"param-a","request-id":"1111111111","request-received-at":"2009-11-10 23:00:00 +0000 UTC m=+0.000000001","time":"2009-11-10 23:00:00 +0000 UTC m=+0.000000001"}
+}
+```
+
+### third party structured logging library
 
 サードパーティにもstructured loggerのライブラリがたくさんあります。
 
@@ -1162,15 +1234,14 @@ logger.Error("baz", "a", "b", "c", 123)
 // {"time":"2009-11-10T23:00:00Z","level":"ERROR","msg":"baz","foo":"bar","a":"b","c":123}
 ```
 
-- [slog.Debug](https://pkg.go.dev/log/slog@go1.22.3#Debug)のようなトップレベル関数
-  - [slog.SetDefault](https://pkg.go.dev/log/slog@go1.22.3#SetDefault)でセットされたloggerの同名メソッドが呼び出されます
+- [slog.Debug](https://pkg.go.dev/log/slog@go1.22.3#Debug)のようなトップレベル関数は`DefaultLogger`の同名メソッドへのショートハンドです
+  - [slog.SetDefault](https://pkg.go.dev/log/slog@go1.22.3#SetDefault)でセットできます
   - [slog.Default](https://pkg.go.dev/log/slog@go1.22.3#Default)で、セットされたloggerを取り出せます。
 - [slog.New](https://pkg.go.dev/log/slog@go1.22.3#New)で新しいインスタンスを作ることもできます。
 - `Debug`, `Info`の第二引数はvariadicで、緩い型付けのkey-value pairないしは`slog.Attr`を任意の数渡すことができます。
 - `With`でstructured logging contextに情報を追加したloggerをえられます。
 
-対象読者的には[structlog](https://www.structlog.org/en/0.4/)とか[winston](https://www.npmjs.com/package/winston)が想像されるでしょうか？(`structlog`は新しいのであまり使ったことがないかもしれません。)
-[python]は[keyword argument](https://docs.python.org/3/glossary.html#term-argument)があったり、`winston`ではObjectをそのまま渡すことが多かったりします。
+[python]は[keyword argument](https://docs.python.org/3/glossary.html#term-argument)があったり、[winston](https://www.npmjs.com/package/winston)ではObjectをそのまま渡すことが多かったりします。
 `Go`にはそういったものはないですし、Objectみたいに`map[string]any`を書くのは煩雑だったりするので、variadic argと`With`のようなメソッドで解決する形になります。
 
 ### log/slogの関係図
@@ -1198,9 +1269,10 @@ logger.Error("baz", "a", "b", "c", 123)
 
 [\*slog.Logger]は[slog.Handler]を使いやすいinterfaceに整えるものです。
 
-- [InfoContext](https://pkg.go.dev/log/slog@go1.22.3#Logger.InfoContext)や[DebugContext](https://pkg.go.dev/log/slog@go1.22.3#Logger.DebugContext)などのleveled method -> `slog.Handler.Handle`
-- `(args ...any)`のloosely typed pair -> [][slog.Attr](https://pkg.go.dev/log/slog@go1.22.3#Attr)
-  - `string, any`のペアと`slog.Attr`の混在が許されます。
+- interface間で変換を行います。
+  - [InfoContext](https://pkg.go.dev/log/slog@go1.22.3#Logger.InfoContext)や[DebugContext](https://pkg.go.dev/log/slog@go1.22.3#Logger.DebugContext)などのleveled method -> `slog.Handler.Handle`
+  - `(args ...any)`のloosely typed pair -> [][slog.Attr](https://pkg.go.dev/log/slog@go1.22.3#Attr)
+    - `string, any`のペアと`slog.Attr`の混在が許されます。
 - [With](https://pkg.go.dev/log/slog@go1.22.3#With)が、例えば[Node.jsのwistonで言うところのchild](https://github.com/winstonjs/winston?tab=readme-ov-file#creating-child-loggers)で、structured logging contextに情報を追加したロガーを返すものです。
 - [WithGroup](https://pkg.go.dev/log/slog@go1.22.3#Logger.WithGroup)が少し特殊で筆者的にピンときにくい機能です(後述)
 
@@ -1210,7 +1282,7 @@ logger.Error("baz", "a", "b", "c", 123)
   - [TextHandler](https://pkg.go.dev/log/slog@go1.22.3#TextHandler)
   - [JSONHandler](https://pkg.go.dev/log/slog@go1.22.3#JSONHandler)
   - の二つしかありません。現実的にはこの二つ以外を使うことはまれでしょう。
-- 出力するlevelの制限や
+- [\*slog.HandlerOptions](https://pkg.go.dev/log/slog@go1.22.3#HandlerOptions)でログ出力するレベルの制限や`Attr`の書き換えなどを行います。
 - `WithAttrs`,`WithGroup`でstructured logging contextを構築できます。
   - これらのメソッドは呼ばれた時点でログを部分的に書きだしてバッファーしておくなどの最適化のためにinterface上のメソッドになっているようです。
   - 実際これらを全く使わずに、渡す`slog.Attr`を工夫でも全く同じ構造のログを書きだせます。

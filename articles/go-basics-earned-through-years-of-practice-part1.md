@@ -77,6 +77,8 @@ part1以降は[A Tour of Go](https://go.dev/tour/welcome/)を完了している�
 
 というベテラン的な人々です。
 
+記事中に他にいい方法があったら教えてくださいとか書いてますが、大概はこのベテランな人たちに向けて書いているのであって、対象読者は当面気にしないでください(もちろんあったら教えてください)。
+
 ## 対象環境
 
 - メインは`linux/amd64`です
@@ -112,7 +114,7 @@ https://github.com/ngicks/go-basics-example
   - 筆者は機械系の学徒であって、装置/回路の設計、実験方法の考案など広く浅くなのでこの時点で大してソフトウェアには詳しくありませんでした。
   - まるきりsingle-threadedでした
   - すごい余談ですが四元数で回転を計算するのに[Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page)を使っていました。
-    - C++はほかの人が作ったパッケージを持ってくるのが大変でした。
+    - 優れたライブラリです。でもC++はほかの人が作ったパッケージを持ってくるのが大変でした。
 - 入社してからメイン[Node.js]、ほんのちょっぴり[python]で開発を行う
 - 独学で[The Rust Programming Language 日本語]を(確か2018年エディションを)読了、PDFiumやOpenSSLのbindingをrustで書いたりして使ってました
 - 趣味レベルで`React`、仕事のヘルプでちょびっと`Vue2`
@@ -154,7 +156,7 @@ https://github.com/ngicks/go-basics-example
 - 逆にgoroutine以外ないのでライブラリ間で分断が起こることがなく
 - コンパイルが非常に早く
 - (C-bindingを使わない限り)クロスコンパイルが簡単で
-- staticなシングルバイナリを出力することができ
+- (C-bindingを使わない限り)staticなシングルバイナリを簡単に出力することができ
 - モジュール/パッケージによるネームスペースの分割機能があり
 - モジュールの取得に中央集権的なレジストリがない
   - いい点として`github`などからモジュールを取得するのがすごく簡単です
@@ -167,8 +169,11 @@ https://go.dev/tour/welcome/1
 
 `Go`の基本的なトピックはここに書いてあります。
 インタラクティブなコードスニペットと簡単なエクササイズがあり、これさえこなせばとりあえず開発は始められます。
+
 慣れてない頃に、syntax highlightのかからないwebページでコードを書くのはきついと思うのでローカルのエディターにコピーして実行したほうが良いとは思います。
 大体３~５時間ぐらいで全部終わると思います。
+
+TODO: 手元のエディターでA tour of goをやれるかの検証
 
 ### Go by Example
 
@@ -226,14 +231,6 @@ TODO: 全体をざっと眺める。
 https://github.com/golang/example
 
 公式でメンテされているexample集。新しめな話題は取り扱っていないこともある。
-
-### 外部リソース（未読）
-
-TODO: さっと目を通しておこう。100 Go mistakes...は面白そうなので読んでおきたい。
-
-- https://tour.ardanlabs.com/tour/eng/list
-- 100 Go Mistakes and How to Avoid Them
-  Book by Teiva Harsanyi
 
 ## プロジェクトの始め方
 
@@ -300,7 +297,7 @@ goのsurveyはself-selection, `vscode`の`Go extension`からの誘導, `GoLand`
 
 [VCS(Version Control System)](https://en.wikipedia.org/wiki/Version_control)は, コンピュータファイルのバージョンを管理するシステムのことです。
 代表的なものは[git]や[svn](https://en.wikipedia.org/wiki/Apache_Subversion),[mercurial](https://en.wikipedia.org/wiki/Mercurial)あたりだと思います。
-この記事では`git`のみを取り扱います(筆者がほか二つのことをほとんど知らないからです)
+この記事では`git`のみを取り扱います(筆者がほか二つのことをほぼまったく知らないからです)
 
 `git`は、`VCS`を構築するためのサーバーおよびクライアントプログラムです。サーバーとして直接使うことはほとんどないかもしれません。
 現在では`git`サーバーは[github](https://github.com/)というwebサービスを利用するか、 セルフホストすることも可能な[gitlab](https://about.gitlab.com/)、あるいは[gitbucket](https://github.com/gitbucket/gitbucket)などを使うのが一般的だと思います。(この3つがリストされてるのは単に筆者が使ったことあるやつ3種っていうだけです)
@@ -823,7 +820,7 @@ credentialは以下の2パターンで利用されます
 [docker]は[Container](<https://en.wikipedia.org/wiki/Containerization_(computing)>) -- アプリケーションとその依存関係をパッケージ化したもの -- のビルダー及びランタイムおよびエコシステムです。
 
 `docker`を使うと、アプリケーションを送り込むのが楽になります。
-言ってしまば`.tar.gz`の１ファイルを`docker`のdaemon(`dockerd`)に投げつけると、アプリと起動コマンドを送り込むことができて、その後、少しずつ設定を変えながらそのアプリケーションを何個か立ち上げる、みたいなことができます。実際はコンテナを効率的に送りあうための仕組みや公開のためのレジストリなど、多岐にわたる概念の集合体が`docker`、もしくは`OCI container`です。
+言ってしまえば`.tar.gz`の１ファイルを`docker`のdaemon(`dockerd`)に投げつけると、アプリと起動コマンドを送り込むことができて、その後、少しずつ設定を変えながらそのアプリケーションを何個か立ち上げる、みたいなことができます。(`tar`でも送り付けられるが)実際はコンテナを効率的に送りあうための仕組みや公開のためのレジストリなど、多岐にわたる概念の集合体が`docker`、もしくは`OCI container`です。
 詳しい説明はほかの記事や[docker]自体のドキュメントに譲ります。
 
 `Dockerfile`は、そういう`Container`のひな型となる`Image`をビルドするためのレシピを記述できるものです。
@@ -852,7 +849,7 @@ credentialは以下の2パターンで利用されます
 
 # 上記で新しいsyntaxであることをビルダーに伝える。
 # 新しい構文を使うとき、
-# なぜかなくても動いたり動かったりする環境があってややこしいので
+# なぜかなくても動いたり動かなかったりする環境があってややこしいので
 # とりあえず書く。
 
 FROM golang:1.22.3-bookworm AS builder
@@ -917,7 +914,7 @@ Dockerfile中の`ARG`はビルド時に`--build-arg ${NAME}=${VALUE}`で変数�
 | CGO_ENABLED   | 0にするとスタティックバイナリ |
 | MAIN_PKG_PATH | ビルド対象のパッケージパス    |
 
-- `Go`のhttp clientはデフォルトで環境変数をよみこんでProxyにアクセスするので、`${HTTP_PROXY}`と`${HTTPS_PROXY}`を設定しておけばよいです。
+- `Go`のhttp clientはデフォルトで環境変数をよみこんでProxyにアクセスするので、`${HTTP_PROXY}`か`${HTTPS_PROXY}`を設定しておけばよいです。
   - https://github.com/golang/go/blob/go1.22.3/src/net/http/transport.go#L44
 
 buildxのマウント機能を使って各種ファイルやキャッシュをマウントできます。
