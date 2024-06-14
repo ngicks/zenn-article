@@ -173,7 +173,7 @@ if pathErr.Err == syscall.ENOENT {
 }
 ```
 
-ただし[io.EOF](https://pkg.go.dev/io@go1.22.3#EOF)のようなセンチネル値として使われる例外を除くと、エラーをほかのエラーでラップすることはよくされるので、この方法では正しく判別できないこともあります。
+ただし[io.EOF](https://pkg.go.dev/io@go1.22.3#EOF)のようなsentinel valueとして使われる例外を除くと、エラーをほかのエラーでラップすることはよくされるので、この方法では正しく判別できないこともあります。
 
 #### errors.Is / errors.As
 
@@ -788,7 +788,7 @@ https://go.dev/doc/effective_go#recover
 - パッケージをまたいでpanicが伝搬しないように公開関数/メソッドでは必ずrecoverする
 - 意図した型以外でのpanicははre-panicする
 
-実際の`*http.Server`は`http.ErrAbortHandler`をセンチネル値として、handlerをabortするための`panic`ができるようになっています。
+実際の`*http.Server`は`http.ErrAbortHandler`をsentinel valueとして、handlerをabortするための`panic`ができるようになっています。
 
 ちなみに筆者はtry-catch的panicを使ったことはありません。errorを表現しづらいinterfaceでやり取りされる関数群で効果を発揮するパターンだと思います。
 
@@ -833,7 +833,7 @@ stdのエラーが全般的にstacktrace情報を含んでくれればと思う�
 
 ので、暗黙的に既存コードから帰ってくるエラーにstacktraceを持たせる変更は破壊的変更となります。
 
-`io.EOF`のようにセンチネル値としてふるまうエラーが普通にあり得てしまうため、そういったものに勝手にstacktraceをつけてしまうとパフォーマンスに影響することも考えられます。
+`io.EOF`のようにsentinel valueとしてふるまうエラーが普通にあり得てしまうため、そういったものに勝手にstacktraceをつけてしまうとパフォーマンスに影響することも考えられます。
 
 そのため、既存の挙動を全く破壊せずにstacktraceを取り出す方法が実装されない限り、入れる意味がないのでstdのコードがstacktraceを含むエラーを返してくることはないでしょう。
 
