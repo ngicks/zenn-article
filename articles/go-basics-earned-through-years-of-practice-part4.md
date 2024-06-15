@@ -202,9 +202,12 @@ func WithHTTPRequestDoer(doer HTTPRequestDoer) option {
 		d.doer = doer
 	})
 }
+
+c := &http.Client{/*...*/}
+New(WithHTTPRequestDoer(c))
 ```
 
-一般にdata raceを避けるために引数に受け取った`*http.Client`に対してwriteを行うのはお勧めできない行為なので型の詳細はいりませんし、`Doer`のほうがtest doubleを用意しやすいのでこちらのほうが良いケースもたくさんあるでしょう。
+一般にdata raceを避けるために引数に受け取った`*http.Client`のフィールドに対してwriteを行うのはお勧めできない行為なので型の詳細はいりませんし、`Doer`のほうがtest doubleを用意しやすいのでこちらのほうが良いケースもたくさんあるでしょう。
 
 #### Requestを送る(multipart/form-data)
 
@@ -332,6 +335,40 @@ func sendMultipartStream(ctx context.Context, url string, client *http.Client) e
 	randomMsg1 := strings.NewReader("foobarbaz")
 	randomMgs2 := strings.NewReader("quxquuxcorge")
 
+	writeMultipart := func(mw *multipart.Writer, buf []byte, content1, content2 io.Reader) error {
+		var (
+			w   io.Writer
+			err error
+		)
+
+		w, err = mw.CreateFormField("foo")
+		if err != nil {
+			return err
+		}
+
+		_, err = io.CopyBuffer(w, content1, buf)
+		if err != nil {
+			return err
+		}
+
+		w, err = mw.CreateFormFile("bar", "bar.tar.gz")
+		if err != nil {
+			return err
+		}
+
+		_, err = io.CopyBuffer(w, content2, buf)
+		if err != nil {
+			return err
+		}
+
+		err = mw.Close()
+		if err != nil {
+			return err
+		}
+
+		return err
+	}
+
 	/*
 		1.
 		一旦でセクション内容以外を書き出してデータサイズをえる。
@@ -339,23 +376,10 @@ func sendMultipartStream(ctx context.Context, url string, client *http.Client) e
 		サイズは既知であるのでこれでContent-Lengthを適切に設定できる。
 	*/
 	metaData := bytes.Buffer{}
-	mw := multipart.NewWriter(&metaData)
-
-	_, err := mw.CreateFormField("foo")
+	err := writeMultipart(multipart.NewWriter(&metaData), nil, bytes.NewBuffer(nil), bytes.NewBuffer(nil))
 	if err != nil {
 		return err
 	}
-
-	_, err = mw.CreateFormFile("bar", "bar.tar.gz")
-	if err != nil {
-		return err
-	}
-
-	err = mw.Close()
-	if err != nil {
-		return err
-	}
-
 	fmt.Printf("meta data size = %d\n\n", metaData.Len())
 
 	/*
@@ -366,42 +390,19 @@ func sendMultipartStream(ctx context.Context, url string, client *http.Client) e
 		これをhttp.NewRequestWithContextに渡す。
 	*/
 	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
 	defer pr.Close()
-	mw = multipart.NewWriter(pw)
 	go func() {
 		/*
 			3.
 			goroutineの中で書き込む処理そのものは
 			non-stream版とさほど変わらない
 		*/
-		var (
-			err error
-			w   io.Writer
-		)
+		var err error
 		defer func() {
-			mwCloseErr := mw.Close()
-			if err == nil {
-				err = mwCloseErr
-			}
 			_ = pw.CloseWithError(err)
 		}()
-		w, err = mw.CreateFormField("foo")
-		if err != nil {
-			return
-		}
-		_, err = io.Copy(w, randomMsg1)
-		if err != nil {
-			return
-		}
-
-		w, err = mw.CreateFormFile("bar", "bar.tar.gz")
-		if err != nil {
-			return
-		}
-		_, err = io.Copy(w, randomMgs2)
-		if err != nil {
-			return
-		}
+		err = writeMultipart(mw, nil, randomMsg1, randomMgs2)
 	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1129,20 +1130,33 @@ func main() {
 
 ### structured loggingとは
 
-structured loggingと言えば対象読者的には[structlog](https://www.structlog.org/en/0.4/)とか[winston](https://www.npmjs.com/package/winston)が想像されるでしょうか？(`structlog`は新しいのであまり使ったことがないかもしれません。)
+structured loggingと言えば対象読者的には[structlog](https://www.structlog.org/en/24.2.0/)とか[winston](https://www.npmjs.com/package/winston)が想像されるでしょうか？
 これらを使いこなしていた対象読者には下の説明は不要なので飛ばしてください。
 
 structured loggingというのは言葉の通り構造化された情報をログとして出力することを指しています。
 
-これは、ものすごい乱暴に言うと`JSON`(or `yaml`, `xml`, etc etcのような任意のデータ構造を表現できるフォーマット)でログを出力できるということです。
+これは、ものすごい乱暴に言うと`JSON`(or `yaml`, `xml`,`csv`,`MessagePack` etc etcのような任意のデータ構造を表現できるフォーマット)でログを出力できるということです。
 `JSON`なので、処理に合わせて情報を付け足したり任意の構造に構築できます。
 
-例えば、http serverで動くプログラムを作るとき、http requestをきっかけとして起きる一連のイベントを追跡したいことはよくあると思います。この時、追跡のための情報として`X-Request-Id`ヘッダーから取り出したrequest-idや、リクエストを受けとった時間、clientが指定したパラメータなどをログに出力しようと考えることになるでしょう。この時、それらの情報をログのコンテキスト(以後`zap`の言い回しに倣って*structured context*もしくは*logging context*と呼ばれる)としてロガーに関連付けて引きまわせば一連のログにそれらの情報が出力することができます。出力されたログに対して`grep`や`jq`を駆使すれば簡単に任意のコンテキストを追跡することができます。
+```json
+// 普通ログは出力時間、ログレベル、メッセージを含みますよね
+{"time":"2024-06-13T15:20:39.178198009Z","level":"DEBUG","msg":"yay"}
+// JSONなので任意に情報を追加しても容易にパーズできます。
+{"time":"2024-06-13T15:20:39.178198009Z","level":"DEBUG","msg":"happening of some event", "additional_info":"message for a","nested":{"path":"/foo","method":"POST"}}
+```
+
+例えば、http serverで動くプログラムを作るとき、http requestをきっかけとして起きる一連のイベントを追跡したいことはよくあると思います。
+この時、追跡のための情報として`X-Request-Id`ヘッダーから取り出したrequest-idや、リクエストを受けとった時間、clientが指定したパラメータなどをログに出力しようと考えることになるでしょう。
+この時、それらの情報をログのコンテキスト(以後`zap`の言い回しに倣って*structured context*もしくは*logging context*と呼ばれる)として引きまわせば一連のログにそれらの情報が出力することができます。出力されたログに対して`grep`や`jq`を駆使すれば簡単に任意のコンテキストを追跡することができます。
 
 前述のとおり、structured loggingの重要な要素として以下があります。
 
-- 任意情報をlogger instanceに結び付けられること
+- logging contextをlogger objectに結び付けられること
   - 情報は任意に追加して累積できる
+- logging contextは任意の構造であること
+  - `winston`の例で行くと`Object`
+  - `structlog`で言うと`dict[str, Any]`
+  - `Go`の場合は`[]slog.Attr`
 - ログ出力時にはそれらの情報の構造を任意のフォーマットに変換して出力できること
 
 一般に、ログ出力時間、ログレベル、ロガーメソッドを呼び出したソースコード上の短い名前などを出力したいという要求があるため、特に設定を行わなくてもロガーメソッドを呼ぶだけでこれらの情報がstructured contextに追加されて出力されることが多いです。
@@ -1314,6 +1328,31 @@ logger.Info("foo", "b", 2, "c", 3)
 
 前述のとおり、stdの`Handler`は`WithAttrs`や`WithGroup`を読んだ時点で部分的にlogging contextを書き出してバッファするのでこういう風になってるみたいです。
 
+### structured contextのストレージ
+
+structured contextを引きまわすことですべてのログにトレースIDを乗せることができますが、引き回す方法がそのままコードの複雑さに跳ね返ります。
+
+コンテキスト起因で振る舞いを変えるAPIは
+
+- [Node.js]ならば[AsyncStorage](https://nodejs.org/docs/latest/api/async_context.html#class-asynclocalstorage)
+- `Rust`の`Tokio`の場合[task_local](https://docs.rs/tokio/0.2.22/tokio/task/struct.LocalKey.html)
+
+などがほかの言語やフレームワークならばあります。これらをstructured logging contextのストレージとして使うことができました。
+
+いわゆる`TLS(Thread Local Storage)`のような物はgoroutineにはないため[pthread_getspecific(3p)](https://man7.org/linux/man-pages/man3/pthread_getspecific.3p.html)のようなAPIも当然存在しません。
+
+`Go`はもっと明示的な方法でlogging contextを引き回します。
+
+- `*slog.Logger`
+  - というか`slog.Handler`
+  - `With`, `WithAttrs`, `WithGroup`で任意の情報をstructured contextに追加したlogger objectが作られる
+- `context.Context`
+  - 大抵の長く動作する関数は第一引数でこれを受け取るので、これにログを格納できれば
+  - `WithValue`によって任意の情報を任意のキーに関連付けた形で格納した`context.Context`を得られることができる
+  - `Value`メソッドによって、キーに関連づいた情報を引き出せる
+  - ただし、`slog.TextHandler`、`slog.JSONHandler`は`context.Context`から情報を引き出してログに乗せる機能を提供しない(`Go1.22.4`時点)。
+    - なのでサンプルとして`context.Context`をとって格納された値をログに乗せる`slog.Handler`のexampleを実装します(後述)
+
 ### loggerの引き回し方
 
 ```go
@@ -1322,6 +1361,10 @@ logger := slog.Default()
 
 // 引数で受け取る
 func New(logger *slog.Logger) *Something {
+	// ...
+}
+// 引数で受け取る2
+func (*Something) someWork(ctx context.Context, logger *slog.Logger) error {
 	// ...
 }
 
