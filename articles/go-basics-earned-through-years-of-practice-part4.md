@@ -1120,6 +1120,9 @@ func main() {
 
 ## log/slog: structured logging
 
+[*slog.Logger]: https://pkg.go.dev/log/slog@go1.22.3#Logger
+[slog.Handler]: https://pkg.go.dev/log/slog@go1.22.3#Handler
+
 ログはプログラムを作って運用する場合に重要なトピックとなります。
 
 ログを書くことでプログラムの内部状態を部分的に時系列的に保存することができます。
@@ -1134,32 +1137,36 @@ structured loggingと言えば対象読者的には[structlog](https://www.struc
 これらを使いこなしていた対象読者には下の説明は不要なので飛ばしてください。
 
 structured loggingというのは言葉の通り構造化された情報をログとして出力することを指しています。
+構造化とは言っていますが、スキーマが存在していることを指しているわけではないようです。
 
-これは、ものすごい乱暴に言うと`JSON`(or `yaml`, `xml`,`csv`,`MessagePack` etc etcのような任意のデータ構造を表現できるフォーマット)でログを出力できるということです。
+これは、ものすごい乱暴に言うと`JSON`(or `yaml`, `xml`,`csv`,`MessagePack`, etc etcのような任意のデータ構造を表現できるフォーマット)でログを出力できるということです。
 `JSON`なので、処理に合わせて情報を付け足したり任意の構造に構築できます。
 
 ```json
 // 普通ログは出力時間、ログレベル、メッセージを含みますよね
-{"time":"2024-06-13T15:20:39.178198009Z","level":"DEBUG","msg":"yay"}
+{"time":"2024-06-13T15:20:39.178198009Z","level":"DEBUG","msg":"happening of some event"}
 // JSONなので任意に情報を追加しても容易にパーズできます。
-{"time":"2024-06-13T15:20:39.178198009Z","level":"DEBUG","msg":"happening of some event", "additional_info":"message for a","nested":{"path":"/foo","method":"POST"}}
+{"time":"2024-06-13T15:20:39.178198009Z","level":"DEBUG","msg":"happening of some event", "additional_info":"message for a","request":{"path":"/foo","method":"POST"}}
 ```
+
+任意の情報を追加したいときは、一連のイベントをログエントリ上で追跡したかったり、特定の状態に落ちたことを検知したいときなどだと思います。
 
 例えば、http serverで動くプログラムを作るとき、http requestをきっかけとして起きる一連のイベントを追跡したいことはよくあると思います。
 この時、追跡のための情報として`X-Request-Id`ヘッダーから取り出したrequest-idや、リクエストを受けとった時間、clientが指定したパラメータなどをログに出力しようと考えることになるでしょう。
-この時、それらの情報をログのコンテキスト(以後`zap`の言い回しに倣って*structured context*もしくは*logging context*と呼ばれる)として引きまわせば一連のログにそれらの情報が出力することができます。出力されたログに対して`grep`や`jq`を駆使すれば簡単に任意のコンテキストを追跡することができます。
+この時、それらの情報をログのコンテキスト(以後*log context*と呼ばれる)として引きまわせば一連のログにそれらの情報が出力することができます。
+出力されたログに対して`grep`や`jq`を駆使すれば簡単に任意のコンテキストを追跡することができます。
 
-前述のとおり、structured loggingの重要な要素として以下があります。
+上記より、structured loggingの重要な要素として以下があります。
 
-- logging contextをlogger objectに結び付けられること
+- log contextをlogger objectに結び付けられること
   - 情報は任意に追加して累積できる
-- logging contextは任意の構造であること
+- log contextは任意の構造であること
   - `winston`の例で行くと`Object`
   - `structlog`で言うと`dict[str, Any]`
   - `Go`の場合は`[]slog.Attr`
 - ログ出力時にはそれらの情報の構造を任意のフォーマットに変換して出力できること
 
-一般に、ログ出力時間、ログレベル、ロガーメソッドを呼び出したソースコード上の短い名前などを出力したいという要求があるため、特に設定を行わなくてもロガーメソッドを呼ぶだけでこれらの情報がstructured contextに追加されて出力されることが多いです。
+一般に、ログ出力時間、ログレベル、ロガーメソッドを呼び出したソースコード上の短い名前などを出力したいという要求があるため、特に設定を行わなくてもロガーメソッドを呼ぶだけでこれらの情報がlog contextに追加されて出力されることが多いです。
 
 上記の話を踏まえるとものすごくnaiveな実装は以下のようになります。
 
@@ -1211,7 +1218,7 @@ func main() {
 }
 ```
 
-### third party structured logging library
+### third partyのstructured loggerライブラリ
 
 サードパーティにもstructured loggerのライブラリがたくさんあります。
 
@@ -1222,7 +1229,7 @@ func main() {
 `log/slog`のstd入りが最近([2023-08-08](https://go.dev/doc/devel/release#go1.21.0))なので、上記のどれかや似たようなサードパーティロギングライブラリを使っていることも多いのではないでしょうか。
 パフォーマンスその他でこれらのライブラリを使うこともあると思いますが、stdに入っていて安定しているという点で`log/slog`に強みがあり、おそらく大概のケースで`log/slog`を使うほうが良いと思われます。
 
-### log/slogのAPI
+### Basic API
 
 [playground](https://go.dev/play/p/CuyfOcRx814)
 
@@ -1253,12 +1260,83 @@ logger.Error("baz", "a", "b", "c", 123)
   - [slog.Default](https://pkg.go.dev/log/slog@go1.22.3#Default)で、セットされたloggerを取り出せます。
 - [slog.New](https://pkg.go.dev/log/slog@go1.22.3#New)で新しいインスタンスを作ることもできます。
 - `Debug`, `Info`の第二引数はvariadicで、緩い型付けのkey-value pairないしは`slog.Attr`を任意の数渡すことができます。
-- `With`でstructured logging contextに情報を追加したloggerをえられます。
+- `With`でlog contextに情報を追加したloggerをえられます。
 
 [python]は[keyword argument](https://docs.python.org/3/glossary.html#term-argument)があったり、[winston](https://www.npmjs.com/package/winston)ではObjectをそのまま渡すことが多かったりします。
 `Go`にはそういったものはないですし、Objectみたいに`map[string]any`を書くのは煩雑だったりするので、variadic argと`With`のようなメソッドで解決する形になります。
 
+### Log contextのストレージ
+
+log contextを引きまわすことですべてのログにトレースIDを乗せることができますが、引き回す方法がそのままコードの複雑さに跳ね返ります。
+すでに前述のとおり、[*slog.Logger]\(というか[slog.Handler]\)にlog contextを関連付けることができることは述べましたが、実は`context.Context`によって引きまわすこともできます。
+
+普通、マルチスレッドなプログラムは`TLS(Thread Local Storage)`にスレッド固有なデータを入れるのが普通らしいです。
+`POSIX API`で言えば[pthread_getspecific(3p)](https://man7.org/linux/man-pages/man3/pthread_getspecific.3p.html)で取り出します。
+`Go`は`goroutine`を特定する方法が通常ないことからわかる通り、`goroutine`ローカル的な考え自体がありません。
+
+と言いつつ、`TLS`自体対象読者にとってはあまりなじみない何かだと思います。
+なぜなら通常[python]も[Node.js]も`async`なコンテキストを追跡するAPIを提供し、通常そちらを使うことが多いからなはずだからです。
+
+- [Node.js]\: [AsyncStorage](https://nodejs.org/docs/latest/api/async_context.html#class-asynclocalstorage)
+- [python]\: [contextvars](https://docs.python.org/3/library/contextvars.html#module-contextvars)
+  - [structlogはcontextvarsをサポートする](https://www.structlog.org/en/stable/contextvars.html)
+- [Rust]`(Tokio)`\: [tokio::task::LocalKey](https://docs.rs/tokio/0.2.22/tokio/task/struct.LocalKey.html)
+
+これらはすべて`async`なコンテキストごとにデータを保存できるのでこれらをlog contextのストレージとして使うことができました。
+言及しておいてなんですが、`tokio::task::LocalKey`は触ったことがないのでどういう制約があるのかはさっぱりです。
+
+これらに対して`Go`はもっと明示的に引き回します。
+
+- [*slog.Logger]
+  - というか[slog.Handler]
+  - `With`, `WithAttrs`, `WithGroup`で任意の情報をlog contextに追加したlogger objectが作られる
+- `context.Context`
+  - [*slog.Logger]には`InfoContext(ctx context.Context, msg string, args ...any)`のようなメソッドがあり、これから情報を引き出してログに乗せることが想定されています。
+  - 大抵の長く動作する関数は第一引数でこれを受け取ります。
+    - [WithValue](https://pkg.go.dev/context@go1.22.3#WithValue)によって任意の情報を任意のキーに関連付けた形で格納した`context.Context`を得られることができる
+    - `Value`メソッドによって、キーに関連づいた情報を引き出せる
+  - ただし、`log/slog`で提供される`slog.Handler`(`slog.TextHandler`、`slog.JSONHandler`)は`context.Context`から情報を引き出してログに乗せる機能を提供しない(`Go1.22.4`時点)。
+    - なのでサンプルとして`context.Context`をとって格納された値をログに乗せる`slog.Handler`のexampleを実装します(後述)
+
+### log contextを構築する
+
+- [(\*log/slog.Logger).With](https://pkg.go.dev/log/slog@go1.22.3#With)で情報をlog contextに追加した`*slog.Logger`を得られます。
+  - [Node.jsのwistonで言うところのchild](https://github.com/winstonjs/winston?tab=readme-ov-file#creating-child-loggers)
+- [(\*log/slog.Logger).WithGroup](https://pkg.go.dev/log/slog@go1.22.3#Logger.WithGroup)でlog contextを1段ネストします
+  - 以後`With`などに渡された情報はこのgroup以下に追加していきます。
+- `context.Context`から情報を抜き出す方法に
+
+`WithGroup`の動作は癖が強いですね。doc commentにも書かれていますが、以下二つは同じログを出力します。
+
+```go
+logger.WithGroup("s").LogAttrs(ctx, level, msg, slog.Int("a", 1), slog.Int("b", 2))
+logger.LogAttrs(ctx, level, msg, slog.Group("s", slog.Int("a", 1), slog.Int("b", 2)))
+```
+
+`WithGroup`は与えられた名前のgroupを作成し、以後`With`などで情報を渡された場合そのgroupに追加されます。
+ものすごい乱暴に言うと、group名のフィールドを`JSON`に追加し、以後情報をそのフィールド以下にobjectとして追加していきます。
+
+つまり以下のように動作します。
+
+[playground](https://go.dev/play/p/WM977J4EWGa)
+
+```go
+// {/*ここにいる*/}
+logger = logger.WithGroup("s")
+// {"s":{/*ここにいる*/}}
+logger = logger.With("a", 1)
+// {"s":{"a":1/*ここにいる*/}}
+logger = logger.With("b", 2)
+// {"s":{"a":1,"b":2/*ここにいる*/}}
+logger = logger.WithGroup("t")
+// {"s":{"a":1,"t":{/*ここにいる*/}}}
+logger.Info("foo", "b", 2, "c", 3)
+// {"time":"2009-11-10T23:00:00Z","level":"INFO","msg":"foo","s":{"a":1,"b":2,"t":{"b":2,"c":3}}}
+```
+
 ### log/slogの関係図
+
+もう少し踏み込んで関係性を説明します。
 
 ```
 +--------------------+
@@ -1278,17 +1356,12 @@ logger.Error("baz", "a", "b", "c", 123)
       +--------+
 ```
 
-[\*slog.Logger]: https://pkg.go.dev/log/slog@go1.22.3#Logger
-[slog.Handler]: https://pkg.go.dev/log/slog@go1.22.3#Handler
-
 [\*slog.Logger]は[slog.Handler]を使いやすいinterfaceに整えるものです。
 
 - interface間で変換を行います。
   - [InfoContext](https://pkg.go.dev/log/slog@go1.22.3#Logger.InfoContext)や[DebugContext](https://pkg.go.dev/log/slog@go1.22.3#Logger.DebugContext)などのleveled method -> `slog.Handler.Handle`
   - `(args ...any)`のloosely typed pair -> [][slog.Attr](https://pkg.go.dev/log/slog@go1.22.3#Attr)
     - `string, any`のペアと`slog.Attr`の混在が許されます。
-- [With](https://pkg.go.dev/log/slog@go1.22.3#With)が、例えば[Node.jsのwistonで言うところのchild](https://github.com/winstonjs/winston?tab=readme-ov-file#creating-child-loggers)で、structured logging contextに情報を追加したロガーを返すものです。
-- [WithGroup](https://pkg.go.dev/log/slog@go1.22.3#Logger.WithGroup)が少し特殊で筆者的にピンときにくい機能です(後述)
 
 [slog.Handler]はstructured logging contextを実際の出力フォーマットに変換して出力するものです。
 
@@ -1298,60 +1371,8 @@ logger.Error("baz", "a", "b", "c", 123)
   - の二つしかありません。現実的にはこの二つ以外を使うことはまれでしょう。
 - [\*slog.HandlerOptions](https://pkg.go.dev/log/slog@go1.22.3#HandlerOptions)でログ出力するレベルの制限や`Attr`の書き換えなどを行います。
 - `WithAttrs`,`WithGroup`でstructured logging contextを構築できます。
-  - これらのメソッドは呼ばれた時点でログを部分的に書きだしてバッファーしておくなどの最適化のためにinterface上のメソッドになっているようです。
+  - `WithAttrs`メソッドは呼ばれた時点でログを部分的に書きだしてバッファーしておくなどの最適化のためにinterface上のメソッドになっているようです。
   - 実際これらを全く使わずに、渡す`slog.Attr`を工夫でも全く同じ構造のログを書きだせます。
-
-`WithGroup`というのが少し特殊というかピンときにくい機能で、`log/slog`上のdoc commentでも述べられていますが、以下二つは同じログを出力します
-
-```go
-logger.WithGroup("s").LogAttrs(ctx, level, msg, slog.Int("a", 1), slog.Int("b", 2))
-logger.LogAttrs(ctx, level, msg, slog.Group("s", slog.Int("a", 1), slog.Int("b", 2)))
-```
-
-`WithGroup`はlogging contextの中を進んでいってしまい、戻ってくることはできないんですね。つまり、
-
-[playground](https://go.dev/play/p/Hlb6RVgFNcC)
-
-```go
-// {/*ここにいる*/}
-logger = logger.WithGroup("s")
-// {"s":{/*ここにいる*/}}
-logger = logger.WithAttr("a", 1)
-// {"s":{"a":1/*ここにいる*/}}
-logger = logger.WithGroup("t")
-// {"s":{"a":1,"t"{/*ここにいる*/}}}
-logger.Info("foo", "b", 2, "c", 3)
-// {"time":"2009-11-10T23:00:00Z","level":"INFO","msg":"foo","s":{"a":1,"t":{"b":2,"c":3}}
-```
-
-筆者的には結構ピンときませんでした。読者の皆さんはどうだったでしょうか？
-
-前述のとおり、stdの`Handler`は`WithAttrs`や`WithGroup`を読んだ時点で部分的にlogging contextを書き出してバッファするのでこういう風になってるみたいです。
-
-### structured contextのストレージ
-
-structured contextを引きまわすことですべてのログにトレースIDを乗せることができますが、引き回す方法がそのままコードの複雑さに跳ね返ります。
-
-コンテキスト起因で振る舞いを変えるAPIは
-
-- [Node.js]ならば[AsyncStorage](https://nodejs.org/docs/latest/api/async_context.html#class-asynclocalstorage)
-- `Rust`の`Tokio`の場合[task_local](https://docs.rs/tokio/0.2.22/tokio/task/struct.LocalKey.html)
-
-などがほかの言語やフレームワークならばあります。これらをstructured logging contextのストレージとして使うことができました。
-
-いわゆる`TLS(Thread Local Storage)`のような物はgoroutineにはないため[pthread_getspecific(3p)](https://man7.org/linux/man-pages/man3/pthread_getspecific.3p.html)のようなAPIも当然存在しません。
-
-`Go`はもっと明示的な方法でlogging contextを引き回します。
-
-- `*slog.Logger`
-  - というか`slog.Handler`
-  - `With`, `WithAttrs`, `WithGroup`で任意の情報をstructured contextに追加したlogger objectが作られる
-- `context.Context`
-  - 大抵の長く動作する関数は第一引数でこれを受け取るので、これにログを格納できれば
-  - `WithValue`によって任意の情報を任意のキーに関連付けた形で格納した`context.Context`を得られることができる
-  - `Value`メソッドによって、キーに関連づいた情報を引き出せる
-  - ただし、`slog.TextHandler`、`slog.JSONHandler`は`context.Context`から情報を引き出してログに乗せる機能を提供しない(`Go1.22.4`時点)。
-    - なのでサンプルとして`context.Context`をとって格納された値をログに乗せる`slog.Handler`のexampleを実装します(後述)
 
 ### loggerの引き回し方
 
@@ -1388,12 +1409,14 @@ if !ok || logger == nil {
 - 2. 引数で受け取る方法はこの中で最も明示的です
   - functional options patternを併用すると、interface上気付きやすく、なおかつデフォルトも持たせられるのでバランスがいいかもしれません
   - 代わりにライブラリの使用者は個別にloggerの渡し方を考える必要があって手間ではあります。
+  - unexport functionは引数でloggerを受けとることは多いかもしれません。
 - 3. ctxにつけてひきます
   - おそらく最も非明示的です
   - どのcontext keyに`*slog.Logger`をつけるかの同意をとるのが最も難しいです
     - std内での使い方などを見ると、ctxにValueを持たせるのは公開interface上に情報を出さず、なおかつ特定の条件のみ与えられるoptionalな値など(=context-scopeの値)を引き渡すのに有用な手段という雰囲気を感じます。
     - [http.ServerContextKey](https://pkg.go.dev/net/http@go1.22.3#ServerContextKey)みたいに公開された値としてctxに値を載せてくるstdライブラリももちろんあります。
-  - その代わりに、httpのrequest-scopeのような狭い情報を付帯したloggerを引き回せるのでログの取りやすさは圧倒的に楽だと思います。
+  - その代わりに、httpのrequest-scopeのような狭い情報を付与したloggerを引き回せるのでログの取りやすさは圧倒的に楽だと思います。
+  - test doubleをctxに値としてつけて引きまわすやり方をしている方も多いと思いますので、驚き自体は少ないと思います。
 
 ライブラリを作るなら`1.`か`2.`。アプリ内なら`3.`もありという感じではないでしょうか。
 
@@ -1406,21 +1429,27 @@ if !ok || logger == nil {
 [(\*log/slog.Logger).Log](https://pkg.go.dev/log/slog@go1.22.3#Logger.Log)および`foobarContext`のような名前のメソッドは第一引数に`context.Context`を受けとることができ、これから情報を引き出してログに乗せることができます。
 
 他の関数が`context.Context`を第一引数で受けるときと違い、これはcancellationをとるためではなく、値を取り出すためだけに渡されます。
+ただし`log/slog`で現状(`Go1.22.4`時点)で実装される[slog.Handler]は`context.Context`から情報を引き出す機能がありません。
 
 ということで、`context.Context`から事前に定義したkeyの情報取り出してログに乗せる`slog.Handler`を作成してみます。
 
 設計は適当に以下とします
 
-- `(context.Context).Value`に渡すkeyと、logging context上のkeyをマップするための`map[any]string`を定義できる
-- `(context.Context).Value`から取り出されたvalueをlogging contextに追加する値に変換できる関数を定義できる
-  - data raceを避けつつ値を格納するのに`*sync.Map`を入れるケースを想定するためです
-    - 大抵のケースではいらない気づかいです。
-  - `fmt.Stringer`などを実装しない型を変換するのに便利だと思います。
-- `context.Context`から取り出された情報は
-  - group nameが設定された場合は: トップレベルに1つgroupをつけてlogging contextに追加します
-  - group nameが設定れない場合は: トップレベルにフラットに追加します。
-  - 必ずログの先頭に追加されます
-    - timeなどのbuilt-in fieldのほうが勿論優先されます。
+- `context.Context`から情報を引き出し、log contextに追加できる
+- `context.Context`から情報を引き出す際、
+  - 特定のキー(`SlogAttrsKey`)に`[]slog.Attr`が関連づけられていることを想定する
+  - 任意のキーを任意のlog context上のキーに関連付けられるようにする
+
+なので、
+
+- 任意キーとlog context上のキー名をマッピングできる
+  - `map[any]string`:
+- 任意キーから取り出した任意の値を変換できる
+  - `[]func(any) any`
+- 任意キーのlog context上での出現順序を定義できる
+  - `[]string`
+- 任意キーのlog context上のgroup名を指定できる
+  - ない場合はトップレベルに追加する
 
 このぐらいやれば驚きのない挙動が作れますかね？
 
@@ -1428,7 +1457,7 @@ if !ok || logger == nil {
 
 - `WithGroup`が`slog.Handler`のもつ内部状態を変更してしまうので、単に内部`slog.Handler`の同名メソッドを呼ぶだけでは足りない
 - [slogtest.Run](https://pkg.go.dev/testing/slogtest@go1.22.4#Run), [slogtest.TestHandler](https://pkg.go.dev/testing/slogtest@go1.22.4#TestHandler)で大まかな挙動のテストができる
-  - ただしこのテストは`slog.Handler`が末尾のgroupに情報を付け足すパターンを想定しないので、そういう実装にすると通過しなくなる。
+  - ただしこのテストは`slog.Handler`が`WithGroup`で作られた現在のgroupに情報を付け足すパターンを想定しないので、そういう実装にすると通過しなくなる。
 - 各種メソッドはconcurrentに呼び出されることになるのでdata raceを避ける気づかいが必要になる
 
 ぐらいですかね
@@ -1480,6 +1509,9 @@ func newCtxHandler(inner slog.Handler, ctxGroupName string, keyMapping map[any]s
 		return nil, errors.New("ctxHandler: mismatching len(keyMapping) and len(keyOrder)")
 	}
 	for _, k := range keyOrder {
+		if k.key == SlogAttrsKey {
+			return nil, fmt.Errorf("ctxHandler: keyOrder must not include %s", SlogAttrsKey)
+		}
 		_, ok := keyMapping[k.key]
 		if !ok {
 			return nil, errors.New("ctxHandler: keyOrder contains unknown key")
@@ -1499,6 +1531,8 @@ func (h *ctxHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h *ctxHandler) Handle(ctx context.Context, record slog.Record) error {
+	ctxSlogAttrs, _ := ctx.Value(SlogAttrsKey).([]slog.Attr)
+
 	var ctxAttrs []slog.Attr
 	for _, k := range h.keyOrder {
 		v := ctx.Value(k.key)
@@ -1509,6 +1543,9 @@ func (h *ctxHandler) Handle(ctx context.Context, record slog.Record) error {
 	}
 
 	topGrAttrs := h.groups[0].attr
+	if len(ctxSlogAttrs) > 0 {
+		topGrAttrs = append(topGrAttrs, ctxSlogAttrs...)
+	}
 	if h.ctxGroupName == "" {
 		topGrAttrs = append(ctxAttrs, slices.Clone(topGrAttrs)...)
 	}
@@ -1587,6 +1624,7 @@ type keyTy string
 const (
 	RequestIdKey keyTy = "request-id"
 	SyncMapKey   keyTy = "sync-map"
+	SlogAttrsKey keyTy = "[]slog.Attr"
 )
 
 func must[V any](v V, err error) V {
@@ -1602,9 +1640,8 @@ func main() {
 			h,
 			ctxName,
 			map[any]string{
-				RequestIdKey:       "request-key",
-				SyncMapKey:         "values",
-				"request-received": "request-received",
+				RequestIdKey: "request-key",
+				SyncMapKey:   "values",
 			},
 			[]keyConverter{
 				{key: RequestIdKey},
@@ -1619,9 +1656,6 @@ func main() {
 						return true
 					})
 					return values
-				}},
-				{key: "request-received", convert: func(_ any) any {
-					return time.Now()
 				}},
 			},
 		)
@@ -1639,6 +1673,14 @@ func main() {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, RequestIdKey, randomId)
 	ctx = context.WithValue(ctx, SyncMapKey, store)
+	ctx = context.WithValue(
+		ctx,
+		SlogAttrsKey,
+		[]slog.Attr{
+			slog.Group("g1", slog.Any("a", time.Monday)),
+			slog.Group("g2", slog.String("foo", "bar")),
+		},
+	)
 
 	for _, ctxGroupName := range []string{"", "ctx"} {
 		logger := slog.New(
@@ -1652,10 +1694,10 @@ func main() {
 		logger.With("foo", "bar").WithGroup("nah").With("why", "why not").DebugContext(ctx, "nay")
 	}
 	/*
-	   {"time":"2024-06-13T15:20:39.178198009Z","level":"DEBUG","msg":"yay","request-key":"d2a4f0e9bc80f229a2e91abc46f4752e","values":{"bar":123,"baz":{"Key":"baz","Value":"bazbaz"},"foo":"foo"},"request-received":"2024-06-13T15:20:39.17820893Z","yay":"yayay"}
-	   {"time":"2024-06-13T15:20:39.17829812Z","level":"DEBUG","msg":"nay","request-key":"d2a4f0e9bc80f229a2e91abc46f4752e","values":{"bar":123,"baz":{"Key":"baz","Value":"bazbaz"},"foo":"foo"},"request-received":"2024-06-13T15:20:39.178298952Z","foo":"bar","nah":{"why":"why not"}}
-	   {"time":"2024-06-13T15:20:39.178314551Z","level":"DEBUG","msg":"yay","ctx":{"request-key":"d2a4f0e9bc80f229a2e91abc46f4752e","values":{"bar":123,"baz":{"Key":"baz","Value":"bazbaz"},"foo":"foo"},"request-received":"2024-06-13T15:20:39.178315423Z"},"yay":"yayay"}
-	   {"time":"2024-06-13T15:20:39.178328608Z","level":"DEBUG","msg":"nay","ctx":{"request-key":"d2a4f0e9bc80f229a2e91abc46f4752e","values":{"bar":123,"baz":{"Key":"baz","Value":"bazbaz"},"foo":"foo"},"request-received":"2024-06-13T15:20:39.17832927Z"},"foo":"bar","nah":{"why":"why not"}}
+		{"time":"2024-06-16T15:24:07.981165471Z","level":"DEBUG","msg":"yay","request-key":"753572e4a2215c4226ea745baa4a8ab3","values":{"bar":123,"baz":{"Key":"baz","Value":"bazbaz"},"foo":"foo"},"g1":{"a":1},"g2":{"foo":"bar"},"yay":"yayay"}
+		{"time":"2024-06-16T15:24:07.981226197Z","level":"DEBUG","msg":"nay","request-key":"753572e4a2215c4226ea745baa4a8ab3","values":{"bar":123,"baz":{"Key":"baz","Value":"bazbaz"},"foo":"foo"},"foo":"bar","g1":{"a":1},"g2":{"foo":"bar"},"nah":{"why":"why not"}}
+		{"time":"2024-06-16T15:24:07.98123834Z","level":"DEBUG","msg":"yay","ctx":{"request-key":"753572e4a2215c4226ea745baa4a8ab3","values":{"bar":123,"baz":{"Key":"baz","Value":"bazbaz"},"foo":"foo"}},"g1":{"a":1},"g2":{"foo":"bar"},"yay":"yayay"}
+		{"time":"2024-06-16T15:24:07.981248289Z","level":"DEBUG","msg":"nay","ctx":{"request-key":"753572e4a2215c4226ea745baa4a8ab3","values":{"bar":123,"baz":{"Key":"baz","Value":"bazbaz"},"foo":"foo"}},"foo":"bar","g1":{"a":1},"g2":{"foo":"bar"},"nah":{"why":"why not"}}
 	*/
 	var buf bytes.Buffer
 	handler := must(wrapHandler(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}), ""))
@@ -1690,9 +1732,9 @@ logger.WithGroup("s").LogAttrs(ctx, level, msg, slog.Int("a", 1), slog.Int("b", 
 logger.LogAttrs(ctx, level, msg, slog.Group("s", slog.Int("a", 1), slog.Int("b", 2)))
 ```
 
-なおかつ、`WithGroup`や`WithAttrs`はhandler内でlogging contextをすべてクローンしたうえで部分的なlogを書き出してバッファしておく挙動があります。
+なおかつ、`WithGroup`や`WithAttrs`はhandler内でlog contextをすべてクローンしたうえで部分的なlogを書き出してバッファしておく挙動があります。
 
-このケースのように、なるだけトップレベルに情報を後付けしたいよっていうケースではそれらの挙動がどうしても邪魔になってしまうため、`Handle`までなるだけ下層の`slog.Handler`を触らないようにしています。
+このケースのように、なるだけトップレベルに情報を後付けしたいよっていうケースではそれらの挙動がどうしても邪魔になってしまうため、`Handle`まで下層の`slog.Handler`を触らないようにしています。
 
 思いのほか面倒ですね。パフォーマンスと使いやすさと間違いにくさの折り合いがつくのがこの辺だったのでしょう。
 実際[zapのパフォーマンステスト](https://github.com/uber-go/zap?tab=readme-ov-file#performance)を見ても、そこまでめちゃくちゃ遅い感じはしないです。特に`WithAttrs`された場合、その時点でログが部分的に書きだされるのが機能しているのか、`already has 10 fields of context`のテストでは結構パフォーマンスがいいですから、そういうことなんでしょうね。
