@@ -1116,7 +1116,387 @@ func main() {
 }
 ```
 
-### OpenAPIとコードジェネレーターやgRPCについて
+### github.com/oapi-codegen/oapi-codegen: OpenAPI code generator
+
+#### OpenAPIとは
+
+https://github.com/OAI/OpenAPI-Specification
+
+OpenAPIはHTTP APIの定義フォーマットです。プログラミング言語によらないフォーマットでAPIを定義することでプログラミング言語間で共有したり、これをもとにcode generationによってserver stubやclientを生成したりします。
+
+`gRPC`が専用の中間言語とバイナリフォーマットを定義するのに対して、こちらはyaml形式などで記述し、やり取りされるデータは`application/json`や`application/xml`などです。
+
+`Go`向けのcode generatorは
+
+- https://github.com/OpenAPITools/openapi-generator
+- https://github.com/oapi-codegen/oapi-codegen
+- https://github.com/ogen-go/ogen
+
+あたりが有名です。
+筆者は`https://github.com/OpenAPITools/openapi-generator`と`https://github.com/oapi-codegen/oapi-codegen`を試したことがあります。
+`https://github.com/OpenAPITools/openapi-generator`は、複数のプログラミング言語向けのコードを出力できることを強みとしていますが、１年ほど前の時点では実装しやすいserver stubやclientなどをうまいことえられず、
+断念して各プログラミング言語でそれぞれに実装されたものを用いるようにしています。現在はどうなっているのかわかりませんので対象読者はそれぞれよく検討していただくのがいいかと思います。
+
+現在(2024/06時点)の最新バージョンは`3.1.0`ですが、`https://github.com/oapi-codegen/oapi-codegen`が追従していないので`3.0.3`を使うことをお勧めします。
+
+#### github.com/oapi-codegen/oapi-codegen
+
+https://github.com/oapi-codegen/oapi-codegen/tree/v2.3.0
+
+OpenAPI specを読み込んで、client, model, 各種ライブラリ(`std`, `echo`, `chi`など)を用いたserver stubなどを作成してくれるcode generatorやライブラリです。
+この実装は`Go`のコードのみを生成します。他の言語向けの実装は個別に探してください。
+
+`v.2.3.0`現在、[stdおよび数々のライブラリを用いるサーバーを生成でき](https://pkg.go.dev/github.com/oapi-codegen/oapi-codegen/v2/pkg/codegen#GenerateOptions)、[strict-serverオプション](https://github.com/oapi-codegen/oapi-codegen/tree/v2.3.0?tab=readme-ov-file#strict-server)をつければrequest bodyからモデルをパーズして、ハンドラでresponseのモデルを返せる状態のserver interfaceが生成されるほか、`oneOf`および`allOf`(バグはある(後述))、さらに[nullable-typeオプション](https://github.com/oapi-codegen/oapi-codegen/tree/v2.3.0?tab=readme-ov-file#generating-nullable-types)で`T | null | undefined`なJSONのフィールドもうまく扱えます。すごい！
+
+以下でちょろっとサンプルを通じて使い方を説明します。
+詳しいことは[snippet](https://github.com/ngicks/go-basics-example/tree/main/snipet/http-server-oapi-codegen)を見てください。
+
+まずOpenAPIをyamlで記述したり、`oapi-codegen`向けのconfigを置いたりするディレクトリを作成します。
+構成的には`./api`ディレクトリを作るのがお勧めですかね。`gRPC`でもよくやる慣習ですし、中見て`proto`ファイルがあるか`.openapi.yml`があるかでどっちのサーバーかよくわかります。(どっちも提供したい場合はちょっと悩ましいですが。)
+
+```
+.
+|-- api
+|   |-- api.openapi.yml
+|   |-- gen.go
+|   `-- option.yml
+|-- go.mod
+`-- go.sum
+```
+
+`option.yml`を設定します。これはcode generatorに読ませるオプションファイルです。
+筆者は`echo`しか使ったことないので`echo`のサーバーにします。`client`もついでに作っときます。`go get`でこのモジュールを取り込んだら`client`実装が使えるようになって便利です。(snippetは`go get`できないローカルオンリーモジュールですので単に例示です。)
+
+```yaml: option.yml
+package: api
+generate:
+  echo-server: true
+  strict-server: true
+  client: true
+  models: true
+  embedded-spec: true
+output: api.gen.go
+output-options:
+  nullable-type: true
+```
+
+`gen.go`は`go:generate`で`github.com/oapi-codegen/oapi-codegen`を実行するだけのファイルです。ここに書くとばらけなくていいと思ってますが、別に好きな方法でgeneratorを呼び出せばいいと思います。
+
+```go :gen.go
+package api
+
+//go:generate go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.3.0 -config option.yml ./api.openapi.yml
+```
+
+`api.openapi.yml`はなんか適当なサンプルとして書いてるだけなので深い意味はないですが、OpenAPIフォーマットそのものの例示にはいいかもしれないです。
+これそのものを深く解説するつもりはないので、これに詳しくない対象読者は前記のOpenAPI specificationのgithubページなどを読んでフォーマット詳細を調べてください。
+
+ちなみに[gitlabは拡張子`openapi.yml`|`openapi.yaml`|`openapi.json`などのファイルをSwaggerEditorで描画してくれます](https://docs.gitlab.com/ee/user/project/repository/files/#render-openapi-files)。それが嫌なら別の名前にしましょう。
+
+```yaml :api.openapi.yml
+openapi: "3.0.3"
+info:
+  version: 1.0.0
+  title: Generate models
+paths:
+  /foo:
+    get:
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FooMap"
+        500:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FooError"
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Foo"
+      responses:
+        200:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Foo"
+        400:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FooError2"
+components:
+  schemas:
+    Foo:
+      type: object
+	  required:
+        - name
+        - rant
+      properties:
+        name:
+          type: string
+        rant:
+          type: string
+    FooMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/Foo"
+    FooError:
+      oneOf:
+        - $ref: "#/components/schemas/Error1"
+        - $ref: "#/components/schemas/Error2"
+        - $ref: "#/components/schemas/Error3"
+    FooError2:
+      allOf:
+        - $ref: "#/components/schemas/Error1"
+        - $ref: "#/components/schemas/Error2"
+        - $ref: "#/components/schemas/Error3"
+    Error1:
+      type: object
+      properties:
+        foo:
+          type: string
+          nullable: true
+    Error2:
+      type: object
+      properties:
+        bar:
+          type: string
+          nullable: true
+    Error3:
+      type: object
+      properties:
+        baz:
+          type: string
+          nullable: true
+```
+
+`go generate`で`gen.go`の`go:generate`コメントを呼び出します。
+
+```
+go generate ./...
+```
+
+詳しくは[snippet](https://github.com/ngicks/go-basics-example/tree/main/snipet/http-server-oapi-codegen)で確認してほしいのですが、`strict-server`オプションが有効なので以下のようなinterfaceが出力されます。
+
+```go
+// StrictServerInterface represents all server handlers.
+type StrictServerInterface interface {
+
+	// (GET /foo)
+	GetFoo(ctx context.Context, request GetFooRequestObject) (GetFooResponseObject, error)
+
+	// (POST /foo)
+	PostFoo(ctx context.Context, request PostFooRequestObject) (PostFooResponseObject, error)
+}
+```
+
+ではこのinterfaceを実装しましょう。この例では`./server`に実装するものとして
+
+```diff
+.
+|-- api
+|   |-- api.openapi.yml
+|   |-- gen.go
+|   `-- option.yml
+|-- go.mod
+-`-- go.sum
++|-- go.sum
++`-- server
++    `-- server.go
+```
+
+```go: server.go
+package server
+
+import (
+	"context"
+	"fmt"
+	"http-server-oapi-codegen/api"
+	"math/rand/v2"
+	"sync"
+
+	"github.com/oapi-codegen/nullable"
+)
+
+var _ api.StrictServerInterface = (*serverInterface)(nil)
+
+type serverInterface struct {
+	m *sync.Map
+}
+
+func New() api.StrictServerInterface {
+	return &serverInterface{
+		m: new(sync.Map),
+	}
+}
+
+// (GET /foo)
+func (s *serverInterface) GetFoo(ctx context.Context, request api.GetFooRequestObject) (api.GetFooResponseObject, error) {
+	foos := make(map[string]api.Foo)
+	s.m.Range(func(key, value any) bool {
+		foos[key.(string)] = value.(api.Foo)
+		return true
+	})
+	if len(foos) == 0 {
+		var fooErr api.FooError
+		err := fooErr.FromError1(api.Error1{Foo: nullable.NewNullableWithValue("yay")})
+		if err != nil {
+			fmt.Printf("err = %v\n", err)
+			return nil, err
+		}
+		return api.GetFoo404JSONResponse(fooErr), nil
+	}
+	return api.GetFoo200JSONResponse(foos), nil
+}
+
+// (POST /foo)
+func (s *serverInterface) PostFoo(ctx context.Context, request api.PostFooRequestObject) (api.PostFooResponseObject, error) {
+	rand := rand.N(10)
+
+	switch rand { //機嫌が悪いとエラー
+	case 0:
+		return api.PostFoo400JSONResponse(api.FooError2{
+			Foo: nullable.NewNullableWithValue("yay"),
+		}), nil
+	case 1:
+		return api.PostFoo400JSONResponse(api.FooError2{
+			Bar: nullable.NewNullableWithValue("yay"),
+		}), nil
+	case 2:
+		return api.PostFoo400JSONResponse(api.FooError2{
+			Baz: nullable.NewNullableWithValue("yay"),
+		}), nil
+	default:
+		s.m.Store(request.Body.Name, *request.Body)
+		return api.PostFoo200JSONResponse(*request.Body), nil
+	}
+}
+```
+
+エントリポイントを作ります。
+
+```diff
+.
+|-- api
+|   |-- api.gen.go
+|   |-- api.openapi.yml
+|   |-- gen.go
+|   `-- option.yml
++|-- cmd
++|   `-- server
++|       `-- main.go
+|-- go.mod
+|-- go.sum
+`-- server
+    `-- server.go
+```
+
+`github.com/oapi-codegen/echo-middleware`など、それぞれのサーバー向けmiddlewareを利用するとOpenAPI specに基づいたvalidationがかかるとドキュメントされています。
+
+```go: main.go
+package main
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+
+	"http-server-oapi-codegen/api"
+	"http-server-oapi-codegen/server"
+
+	"github.com/labstack/echo/v4"
+	echomiddleware "github.com/oapi-codegen/echo-middleware"
+)
+
+func main() {
+	e := echo.New()
+
+	spec, err := api.GetSwagger()
+	if err != nil {
+		panic(err)
+	}
+
+	e.Use(echomiddleware.OapiRequestValidator(spec))
+
+	api.RegisterHandlersWithBaseURL(e, api.NewStrictHandler(server.New(), nil), "")
+
+	server := &http.Server{
+		Handler: e,
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("listening = %s\n", listener.Addr())
+	fmt.Printf("server closed = %v\n", server.Serve(listener))
+}
+```
+
+これでサーバーを立ててリクエストをすると
+
+```
+# curl http://127.0.0.1:8080/foo -X POST -H 'Content-Type:application/json' -d '{"name":"foo"}'
+{"message":"request body has an error: doesn't match schema #/components/schemas/Foo: Error at \"/rant\": property \"rant\" is missing"}
+# curl http://127.0.0.1:8080/foo -X POST -H 'Content-Type:application/json' -d '{"name":"foo","rant":"🤬"}'
+{"name":"foo","rant":"🤬"}
+# curl http://127.0.0.1:8080/foo
+{"foo":{"name":"foo","rant":"🤬"}}
+```
+
+おお機能していますね。
+
+サーバーを起動しなおしてoneOfやallOfのエラーがうまく機能するか確認しましょう。
+
+```
+# curl http://127.0.0.1:8080/foo
+{}
+```
+
+あれっ。うまく機能しないですね。
+
+よくよく生成されたコードを見てみると
+
+```go
+type GetFoo404JSONResponse FooError
+
+func (response GetFoo404JSONResponse) VisitGetFooResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+```
+
+ここのせいですね。`FooError`は`MarshalJSON`を実装しますが、`type A B`とするとAはBの[method setを継承しません](https://go.dev/ref/spec#Type_definitions)。
+unexport fieldは`json.Marshal`に無視されるので、何もフィールドのない`JSON Object`が出力されるわけです。
+
+ですので
+
+```go: diff
+type GetFoo404JSONResponse FooError
+
+func (response GetFoo404JSONResponse) VisitGetFooResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(FooError(response))
+}
+```
+
+とするとうまく機能しますね。おしいです。
+
+[#970](https://github.com/oapi-codegen/oapi-codegen/issues/970)ですでにissueになっています。MRもすでにいくつかありますので貢献も不要そうです。
+
+筆者は`v1.14.0`(このexampleは`v2.3.0`)あたりで使っていましたが、そのころは`oneOf`のサポートがそもそもミリもなかったのでかなり進歩しています。かなり便利になって感動してます。
+
+こういった問題はテキスト置換をするスクリプトをcode generatorの後に適用すればよいので、対象読者がこの問題に引っかかった場合はそのようにするなどして解決してください。
+前述通り、versionが進めば直るでしょうから生成されるコードを注視しておいたほうが良いです。
 
 ## log/slog: structured logging
 
