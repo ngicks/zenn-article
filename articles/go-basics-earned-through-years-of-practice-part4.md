@@ -1304,7 +1304,7 @@ log contextを引きまわすことですべてのログにトレースIDを乗�
   - [Node.jsのwistonで言うところのchild](https://github.com/winstonjs/winston?tab=readme-ov-file#creating-child-loggers)
 - [(\*log/slog.Logger).WithGroup](https://pkg.go.dev/log/slog@go1.22.3#Logger.WithGroup)でlog contextを1段ネストします
   - 以後`With`などに渡された情報はこのgroup以下に追加していきます。
-- `context.Context`から情報を抜き出す方法に
+- `context.Context`から情報を抜き出す方法に特にこれといった標準はありません。前述のとおり、`log/slog`に実装される`Handler`でこれから情報を取り出すものはありません。
 
 `WithGroup`の動作は癖が強いですね。doc commentにも書かれていますが、以下二つは同じログを出力します。
 
@@ -1443,7 +1443,7 @@ if !ok || logger == nil {
 なので、
 
 - 任意キーとlog context上のキー名をマッピングできる
-  - `map[any]string`:
+  - `map[any]string`
 - 任意キーから取り出した任意の値を変換できる
   - `[]func(any) any`
 - 任意キーのlog context上での出現順序を定義できる
