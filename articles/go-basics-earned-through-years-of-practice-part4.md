@@ -23,15 +23,24 @@ yet another入門記事です。
 
 ## Overview
 
+`Go`はhttp serverを実装できる強力なライブラリである`net/http`を備えています。
+httpで通信を行うソフトウェアを作る機会は多いというか、ほとんどのアプリが何かしらの通信を行うと思います。
+
 - `net/http`のClient / Serverの書き方を紹介します
   - client
     - サンプルとして`multipart/form-data`を送信します
+      - non-stream版とstream版を紹介し、副次的に`io.Pipe`の使い方を述べます
     - Clientをカスタマイズする方法に触れます
+      - `X-Request-Id`を自動的にセットする`http.RoundTripper`
+      - `http.Transport`の`DialContext`を差し替えて名前解決部分を変更する
   - server
     - stdのみでhttp serverを実装してみます
-    - [github.com/labstack/echo](https://github.com/labstack/echo)を使ってstdノミバージョンを書きなおします
+    - [github.com/labstack/echo](https://github.com/labstack/echo)を使ってstdのみバージョンを書きなおします
+  - `oapi-codegen`を使ってOpenAPI specから`echo` server interfaceを生成して、validatorを提供したサーバーを実装します。
 - ロギングライブラリについて紹介します。
   - structured loggingのみに絞ります
+
+この記事ではHTTPのサーバー実装はすでに経験があるという前提で組まれています。プロトコルそのものや、例えば`multipart/form-data`とはなんなのか、みたいなことは説明されません。
 
 ## 2種の想定読者
 
@@ -1124,7 +1133,7 @@ https://github.com/OAI/OpenAPI-Specification
 
 OpenAPIはHTTP APIの定義フォーマットです。プログラミング言語によらないフォーマットでAPIを定義することでプログラミング言語間で共有したり、これをもとにcode generationによってserver stubやclientを生成したりします。
 
-`gRPC`が専用の中間言語とバイナリフォーマットを定義するのに対して、こちらはyaml形式などで記述し、やり取りされるデータは`application/json`や`application/xml`などです。
+`gRPC`が専用の中間言語とバイナリフォーマットを定義するのに対して、こちらはyaml形式などで記述し、実際にサーバー間でやり取りされるデータは`application/json`や`application/xml`などです。
 
 `Go`向けのcode generatorは
 
@@ -1152,7 +1161,8 @@ OpenAPI specを読み込んで、client, model, 各種ライブラリ(`std`, `ec
 詳しいことは[snippet](https://github.com/ngicks/go-basics-example/tree/main/snipet/http-server-oapi-codegen)を見てください。
 
 まずOpenAPIをyamlで記述したり、`oapi-codegen`向けのconfigを置いたりするディレクトリを作成します。
-構成的には`./api`ディレクトリを作るのがお勧めですかね。`gRPC`でもよくやる慣習ですし、中見て`proto`ファイルがあるか`.openapi.yml`があるかでどっちのサーバーかよくわかります。(どっちも提供したい場合はちょっと悩ましいですが。)
+構成的には`./api`ディレクトリを作るのがお勧めですかね。`./api`以下にspecなどを置くのは`gRPC`でもよくやる慣習ですし、中見て`proto`ファイルがあるか`.openapi.yml`があるかでどっちのサーバーかよくわかります。(どっちも提供したい場合はちょっと悩ましいですが。)
+この例では1つしかOpenAPI specを書かないので`./api`直下にファイルを並べていますが、複数ある場合などはさらにサブディレクトリを作ったほうが良いかもしれません。
 
 ```
 .
@@ -1275,7 +1285,7 @@ components:
           nullable: true
 ```
 
-`go generate`で`gen.go`の`go:generate`コメントを呼び出します。
+`go generate`で`gen.go`の`//go:generate`コメントを呼び出します。
 
 ```
 go generate ./...
@@ -1378,6 +1388,11 @@ func (s *serverInterface) PostFoo(ctx context.Context, request api.PostFooReques
 }
 ```
 
+この例ではinterface以上のことをするつもりがないので`New`は`api.StrictServerInterface` interfaceを返しています。
+一般にinterfaceへのメソッドの追加は破壊的変更なので、それを避けるために関数は具体的な型を返したほうが良いことが多いです。
+フィールドの追加や型へのメソッドの追加は破壊的変更ではないとみなされるからです。
+今回の例ではこのサーバーはinterfaceで定義されるmethod set以外のメソッドを実装することは決してないので、interfaceで直接返しています。
+
 エントリポイントを作ります。
 
 ```diff
@@ -1438,6 +1453,9 @@ func main() {
 }
 ```
 
+`embedded-spec: true`なので、生成されたコードの中に圧縮されたOpenAPI specが埋め込まれています。
+これを`api.GetSwagger`で取得すると、`echomiddleware.OapiRequestValidator`に直接渡せます。
+
 これでサーバーを立ててリクエストをすると
 
 ```
@@ -1474,7 +1492,16 @@ func (response GetFoo404JSONResponse) VisitGetFooResponse(w http.ResponseWriter)
 ```
 
 ここのせいですね。`FooError`は`MarshalJSON`を実装しますが、`type A B`とするとAはBの[method setを継承しません](https://go.dev/ref/spec#Type_definitions)。
-unexport fieldは`json.Marshal`に無視されるので、何もフィールドのない`JSON Object`が出力されるわけです。
+`MarshalJSON`がないので、型の情報に基づいてmarshalされるわけですが、`FooError`は
+
+```go
+// FooError defines model for FooError.
+type FooError struct {
+	union json.RawMessage
+}
+```
+
+なんですが、exportされないfieldは`json.Marshal`に無視されるので、何もフィールドのない`JSON Object`が出力されるわけです。
 
 ですので
 
@@ -1498,6 +1525,8 @@ func (response GetFoo404JSONResponse) VisitGetFooResponse(w http.ResponseWriter)
 こういった問題はテキスト置換をするスクリプトをcode generatorの後に適用すればよいので、対象読者がこの問題に引っかかった場合はそのようにするなどして解決してください。
 前述通り、versionが進めば直るでしょうから生成されるコードを注視しておいたほうが良いです。
 
+(もしかしたら後日、astを置換して修正するタイプのcode generatorの記事のサンプルとしてこういったケースに対応するかも。)
+
 ## log/slog: structured logging
 
 [*slog.Logger]: https://pkg.go.dev/log/slog@go1.22.3#Logger
@@ -1505,7 +1534,7 @@ func (response GetFoo404JSONResponse) VisitGetFooResponse(w http.ResponseWriter)
 
 ログはプログラムを作って運用する場合に重要なトピックとなります。
 
-ログを書くことでプログラムの内部状態を部分的に時系列的に保存することができます。
+ログを書くことでプログラムの一連のイベントの発生を保存することができます。
 大抵のソフトウェアが手元で動かないため、
 このような手掛かりがなければ不審な動きや不具合が起きたときに原因を調べるのが非常に難しくなります。
 
@@ -1657,7 +1686,7 @@ log contextを引きまわすことですべてのログにトレースIDを乗�
 と言いつつ、`TLS`自体対象読者にとってはあまりなじみない何かだと思います。
 なぜなら通常[python]も[Node.js]も`async`なコンテキストを追跡するAPIを提供し、通常そちらを使うことが多いからなはずだからです。
 
-- [Node.js]\: [AsyncStorage](https://nodejs.org/docs/latest/api/async_context.html#class-asynclocalstorage)
+- [Node.js]\: [AsyncLocalStorage](https://nodejs.org/docs/latest/api/async_context.html#class-asynclocalstorage)
 - [python]\: [contextvars](https://docs.python.org/3/library/contextvars.html#module-contextvars)
   - [structlogはcontextvarsをサポートする](https://www.structlog.org/en/stable/contextvars.html)
 - [Rust]`(Tokio)`\: [tokio::task::LocalKey](https://docs.rs/tokio/0.2.22/tokio/task/struct.LocalKey.html)
@@ -1736,7 +1765,7 @@ logger.Info("foo", "b", 2, "c", 3)
       +--------+
 ```
 
-[\*slog.Logger]は[slog.Handler]を使いやすいinterfaceに整えるものです。
+[*slog.Logger]は[slog.Handler]を使いやすいinterfaceに整えるものです。
 
 - interface間で変換を行います。
   - [InfoContext](https://pkg.go.dev/log/slog@go1.22.3#Logger.InfoContext)や[DebugContext](https://pkg.go.dev/log/slog@go1.22.3#Logger.DebugContext)などのleveled method -> `slog.Handler.Handle`
@@ -2136,7 +2165,8 @@ logger.LogAttrs(ctx, level, msg, slog.Group("s", slog.Int("a", 1), slog.Int("b",
 https://github.com/golang/go/blob/go1.22.3/src/runtime/slice.go#L15-L26
 
 [spec](https://go.dev/ref/spec#Slice_types)上では不明確ですが、`slice`は引数などで渡すと、値としてコピーして渡されます。
-この時、`array`のポインタがコピーされるのでallocationが起こるまで同じ`array`を操作してしまうことがあります。
+この時、`array`のポインタがコピーされるのでコピーされた`slice`への操作は同じ`array`を変更してしまいます。
+`append`などで`cap`を超えるサイズになったときにおきる`growslice`によって`array`がallocationしなおされると同じ`array`を操作しなくなります。
 
 ([spec上の不明確さを修正しようというissue](https://github.com/golang/go/issues/5083)は存在するが、長らくマージされない)
 

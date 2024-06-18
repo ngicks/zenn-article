@@ -1183,9 +1183,7 @@ func loadImage(name string) (image.Image, error) {
 }
 ```
 
-#### Example: Cond Wait
-
-[sync.Cond](https://pkg.go.dev/sync@go1.22.3#Cond)の利用例を以下のように実装します。
+#### sync.Condの基本的な使い方
 
 ```go
 c.L.Lock()
@@ -1196,7 +1194,15 @@ for !condition(someVar) {
 // do some task using someVar...
 ```
 
-これが基本的な使い方
+これが基本的な使い方になります。
+
+`c.L.Lock`で保護された何かしらのリソースが`condition`を満たすまで待ち、その後そのリソースを使う、という感じです。
+
+`Wait`は別のgoroutineから[Broadcast](https://pkg.go.dev/sync@go1.22.3#Cond.Broadcast)もしくは、[Signal](https://pkg.go.dev/sync@go1.22.3#Cond.Signal)が呼ばれるまでブロックします。`Broadcast`/`Signal`の言い回しからわかる通り、`Wait`でブロックしているすべての`goroutine`あるいは単一の`goroutine`をそれぞれアンブロックします。
+
+これがなかなか筆者にはピンときませんでした。
+
+`Wait`をインライン展開すると、
 
 ```go
 c.L.Lock()
@@ -1208,6 +1214,14 @@ for !condition(someVar) {
 	c.L.Lock()
 }
 ```
+
+となります。
+
+`runtime_notifyListWait`がランタイムによりブロックされる`Wait`の本体のようなロジックです。見てのとおり、`c.L.Unlock`が呼ばれるので、`Wait`中はロックは解除されています。
+
+#### Example: Cond Wait
+
+[sync.Cond](https://pkg.go.dev/sync@go1.22.3#Cond)の利用例を以下のように実装します。
 
 [pthread_cond_init(3p)](https://man7.org/linux/man-pages/man3/pthread_cond_init.3p.html)のExmpalesセクションで紹介されているものと似ています。
 しかしこれを典型と言い切っていいのかはよくわかりません。もっといろいろな使い方ができますからね。
