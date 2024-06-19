@@ -1675,6 +1675,8 @@ type Sample struct {
 
 :::details []T版でT | null | undefinedを実装してみる
 
+以下では特に断りなく[github.com/go-json-experiment/json](https://github.com/go-json-experiment/json)向けのinterfaceを実装していまし、このライブラリの知識が暗黙的に前提となるため、detailsに隠してあります。
+
 筆者はごく最近まで上記の https://github.com/oapi-codegen/nullable を知らなかったので、こういう方法があると思いついていませんでした。
 [以前の記事]を書いた時点ではポインターを使わずにデータのあるなしを表現したい/`T`がcomparableなら`undefined[T]`もcomparableであってほしいというのが念頭にあったので、できるとわかっていてもこの方法をとらなかったもしれないですが。
 
@@ -1793,7 +1795,7 @@ func (u *undSlice[T]) UnmarshalJSONV2(dec *jsontext.Decoder, opts jsonv2.Options
 }
 ```
 
-[benchも実装してみました](https://github.com/ngicks/und/blob/7023c73fcedcae8014dd8007bcbd230af3cc6824/internal/bench/beanch_test.go)
+`map[bool]T`版とのパフォーマンス差を測るために[benchも実装してみました](https://github.com/ngicks/und/blob/7023c73fcedcae8014dd8007bcbd230af3cc6824/internal/bench/beanch_test.go)
 
 ```
 goos: linux
@@ -1809,6 +1811,9 @@ ok      github.com/ngicks/und/v2/internal/bench 4.606s
 ```
 
 う～んslice版のほうが若干速いですね・・・！
+
+`BenchmarkSerdeSliceV2-24`でallocが増えるのは`,omitzero`オプションを利用しているからです。`,omitzero`を外して`,omitempty`にするとallocが減ります。
+ただそれでも`map[bool]T`版よりも若干速くなってるので見たかったところは見れています。もう気にしません。
 
 :::
 
