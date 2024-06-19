@@ -1680,130 +1680,135 @@ type Sample struct {
 
 リンク先の実装が`map[bool]T`を利用するので試しに`[]T`バージョンだとどんな感じになるのか試してみます。
 
-`map[bool]T`のほうがとれる状態の数が少ないので賢い気がしますが、処理的には重い気がする。
-気が向いたら両バージョン実装してみてベンチとって比べてみましょうかね。
+[snippet](https://github.com/ngicks/und/blob/7023c73fcedcae8014dd8007bcbd230af3cc6824/internal/bench/slice.go)
 
 ```go
-package main
+package bench
 
 import (
 	"encoding/json"
-	"fmt"
+
+	jsonv2 "github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
+	"github.com/ngicks/und/v2"
 )
 
-type opt[V any] struct {
-	ok bool
-	v  V
+type undSlice[T any] []und.Option[T]
+
+func (u undSlice[T]) IsZero() bool {
+	return u.IsUndefined()
 }
 
-func (o opt[V]) MarshalJSON() ([]byte, error) {
-	if !o.ok {
-		return []byte("null"), nil
+func (u undSlice[T]) IsDefined() bool {
+	return len(u) > 0 && u[0].IsSome()
+}
+
+func (u undSlice[T]) IsNull() bool {
+	return len(u) > 0 && u[0].IsNone()
+}
+
+func (u undSlice[T]) IsUndefined() bool {
+	return len(u) == 0
+}
+
+func (u undSlice[T]) Value() T {
+	if u.IsDefined() {
+		return u[0].Value()
 	}
-	return json.Marshal(o.v)
+	var zero T
+	return zero
 }
 
-func (o *opt[V]) UnmarshalJSON(data []byte) error {
-	if len(data) > 0 && string(data) == "null" {
-		var zero V
-		o.ok = false
-		o.v = zero
-		return nil
+var _ json.Marshaler = undSlice[any]{}
+
+func (u undSlice[T]) MarshalJSON() ([]byte, error) {
+	if !u.IsDefined() {
+		return []byte(`null`), nil
 	}
-	err := json.Unmarshal(data, &o.v)
-	o.ok = err == nil
-	return err
+	return json.Marshal(u[0].Value())
 }
 
-type und[T any] []opt[T]
+var _ json.Unmarshaler = (*undSlice[any])(nil)
 
-func Undefined[T any]() und[T] {
-	return nil
-}
-
-func Null[T any]() und[T] {
-	return und[T]{opt[T]{ok: false}}
-}
-
-func Defined[T any](t T) und[T] {
-	return und[T]{opt[T]{ok: true, v: t}}
-}
-
-func (u und[T]) MarshalJSON() ([]byte, error) {
-	if len(u) == 0 {
-		return []byte("null"), nil
-	}
-	return json.Marshal(u[0])
-}
-
-func (u *und[T]) clean() {
-	uu := (*u)[:cap(*u)]
-	for i := 0; i < len(uu); i++ {
-		// shouldn't be happening,
-		// at least erase them
-		// so that held items are
-		// up to GC.
-		uu[i] = opt[T]{}
-	}
-}
-
-func (u *und[T]) UnmarshalJSON(data []byte) error {
+func (u *undSlice[T]) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		if len(*u) == 0 {
-			*u = []opt[T]{{}}
-			return nil
+			*u = []und.Option[T]{und.None[T]()}
+		} else {
+			(*u)[0] = und.None[T]()
 		}
-		u.clean()
-		*u = (*u)[:1]
-		(*u)[0] = opt[T]{}
 		return nil
 	}
-	var o opt[T]
-	if err := json.Unmarshal(data, &o); err != nil {
+
+	var t T
+	err := json.Unmarshal(data, &t)
+	if err != nil {
 		return err
 	}
+
 	if len(*u) == 0 {
-		*u = append(*u, o)
+		*u = []und.Option[T]{und.Some(t)}
 	} else {
-		u.clean()
-		(*u)[0] = o
+		(*u)[0] = und.Some(t)
 	}
 	return nil
 }
 
-type Und struct {
-	Foo string      `json:",omitempty"`
-	Bar und[string] `json:",omitempty"`
+var _ jsonv2.MarshalerV2 = undSlice[any]{}
+
+func (u undSlice[T]) MarshalJSONV2(enc *jsontext.Encoder, opts jsonv2.Options) error {
+	if !u.IsDefined() {
+		return enc.WriteToken(jsontext.Null)
+	}
+	return jsonv2.MarshalEncode(enc, u.Value(), opts)
 }
 
-func main() {
-	for _, v := range []Und{
-		{"foo", Undefined[string]()},
-		{"foo", Null[string]()},
-		{"foo", Defined("bar")},
-	} {
-		bin, err := json.Marshal(v)
+var _ jsonv2.UnmarshalerV2 = (*undSlice[any])(nil)
+
+func (u *undSlice[T]) UnmarshalJSONV2(dec *jsontext.Decoder, opts jsonv2.Options) error {
+	if dec.PeekKind() == 'n' {
+		err := dec.SkipValue()
 		if err != nil {
-			panic(err)
+			return err
 		}
-		fmt.Printf("marshaled = %s\n", bin)
-		var u Und
-		err = json.Unmarshal(bin, &u)
-		if err != nil {
-			panic(err)
+		if len(*u) == 0 {
+			*u = []und.Option[T]{und.None[T]()}
+		} else {
+			(*u)[0] = und.None[T]()
 		}
-		fmt.Printf("unmarshaled = %#v\n", u)
+		return nil
 	}
+	var t T
+	err := jsonv2.UnmarshalDecode(dec, &t, opts)
+	if err != nil {
+		return err
+	}
+
+	if len(*u) == 0 {
+		*u = []und.Option[T]{und.Some(t)}
+	} else {
+		(*u)[0] = und.Some(t)
+	}
+	return nil
 }
-/*
-	marshaled = {"Foo":"foo"}
-	unmarshaled = main.Und{Foo:"foo", Bar:main.und[string](nil)}
-	marshaled = {"Foo":"foo","Bar":null}
-	unmarshaled = main.Und{Foo:"foo", Bar:main.und[string]{main.opt[string]{ok:false, v:""}}}
-	marshaled = {"Foo":"foo","Bar":"bar"}
-	unmarshaled = main.Und{Foo:"foo", Bar:main.und[string]{main.opt[string]{ok:true, v:"bar"}}}
-*/
 ```
+
+[benchも実装してみました](https://github.com/ngicks/und/blob/7023c73fcedcae8014dd8007bcbd230af3cc6824/internal/bench/beanch_test.go)
+
+```
+goos: linux
+goarch: amd64
+pkg: github.com/ngicks/und/v2/internal/bench
+cpu: AMD Ryzen 9 7900X 12-Core Processor
+BenchmarkSerdeMapV1-24            607209              1857 ns/op            1362 B/op         32 allocs/op
+BenchmarkSerdeSliceV1-24          670332              1746 ns/op            1250 B/op         30 allocs/op
+BenchmarkSerdeMapV2-24            716805              1563 ns/op             633 B/op         21 allocs/op
+BenchmarkSerdeSliceV2-24          724090              1532 ns/op             665 B/op         22 allocs/op
+PASS
+ok      github.com/ngicks/und/v2/internal/bench 4.606s
+```
+
+う～んslice版のほうが若干速いですね・・・！
 
 :::
 
