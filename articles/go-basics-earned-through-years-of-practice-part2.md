@@ -24,7 +24,22 @@ yet another入門記事です。
 
 ほかのライブラリをインポートしてcliの呼び出し口を整えてツールを作れるところまでを目指します。
 
+筆者が`Go`を書き始めて、`A Tour of Go`が終わった直後(つまり`Go`を初めて触りだしてから5時間あとあたりでしょうか)に社内というかチーム内でのみ使う小さなサーバープログラムをいきなり作り出したことがあるんですが、その時いろんなことがわからなくて困りました。
+特に、
+
+- エラーハンドリング周り
+- `io.Reader` / `io.Writer`を要求してくる関数群に対して何を渡したらいいのか
+- `json`の読み書きのAPIのノリ
+- `cli`フラグの取り方
+- 環境変数とのインタラクション
+
+エラーハンドリングを除くと、http serverを書くとき、というかcliツールを作るときに使う諸般のもろもろのツールの様式がわからなくて困りました。
+
+ググって出てくるのもは古い内容のものも多句て困りました。エラー周りは`Go1.13`、`Go.1.20`で結構変わったのでその辺も拾っておきます。
+この辺のブロッカーを取り除けば心理的に楽に`Go`を書きだせるのではないかということで以下の順番で書いていきます。
+
 - エラーハンドリング
+  - 慣習、`errors.Is`/`errors.As`, `panic-recover`について
 - ファイル読み書き
 - data marshaling(jsonとxml)
   - html以外でxmlの読み書きは最近だと比較的少なくなってると思うからxmlは比較的力を入れずに
@@ -133,12 +148,12 @@ func foo() error {
 ### errorを判別する
 
 `err != nil`でエラーなことはわかるけどどういうエラーなのかを判定したときは多くあります。
-ファイルを開くのがエラーしたとき、`ENOENT`なのか`EPERM`なのか`EACCES`なのかは最低でも知らないとハンドルできないですよね。
+ファイルを開くのがエラーしたとき、`ENOENT`なのか`EPERM`なのかぐらいは最低でも知らないとハンドルできないですよね。
 
-- エラーは基本的に、特定の値(pointerなど)特定できるものと、型で特定できるものがある
+- エラーは基本的に、特定の値(pointerなど)で特定できるものと、型で特定できるものがある
   - e.g. 値 => [io.EOF](https://pkg.go.dev/io#EOF), [net.ErrClosed](https://pkg.go.dev/net@go1.22.3#ErrClosed), [(os/exec).ErrNotFound](https://pkg.go.dev/os/exec@go1.22.3#ErrNotFound)など
   - 型 => [\*(encoding/json).SyntaxError](https://pkg.go.dev/encoding/json@go1.22.3#SyntaxError), [\*(io/fs).PathError](https://pkg.go.dev/io/fs@go1.22.3#PathError)
-- 取り合えず[errors.Is](https://pkg.go.dev/errors#Is), [errors.As](https://pkg.go.dev/errors#As)を使っておけばよい
+- 取り合えず[errors.Is](https://pkg.go.dev/errors@go1.22.3#Is), [errors.As](https://pkg.go.dev/errors@go1.22.3#As)を使っておけばよい
 
 #### err == target / err.(T)
 
@@ -164,7 +179,7 @@ switch x := err.(type) {
 		fmt.Println("x is nil")
 	case *json.SyntaxError:
 		// このブランチではxは*json.SyntaxError型
-		// handle
+		_, err := r.Seek(x.Offset, io.SeekStart)
 }
 
 // 前述の例で行くと、Openのエラーの判定はこうなる。
@@ -175,13 +190,13 @@ if pathErr.Err == syscall.ENOENT {
 }
 ```
 
-ただし[io.EOF](https://pkg.go.dev/io@go1.22.3#EOF)のようなsentinel valueとして使われる例外を除くと、エラーをほかのエラーでラップすることはよくされるので、この方法では正しく判別できないこともあります。
+ただしエラーはほかのエラーにラップされることがよくあるため、この方法では判別できないことも多々あります。例外は[io.EOF](https://pkg.go.dev/io@go1.22.3#EOF)のようなsentinel valueとして使われるエラーのみです。
 
 #### errors.Is / errors.As
 
-[Go 1.13](https://go.dev/doc/go1.13#error_wrapping)から、stdの範疇でエラーのラッピング/アンラッピングの概念が追加されました。
+[Go 1.13](https://go.dev/doc/go1.13#error_wrapping)([2019-09-03](https://go.dev/doc/devel/release#go1.13)以降)から、stdの範疇でエラーのラッピング/アンラッピングの概念が追加されました。
 
-- ラッピングされている可能性がある場合は
+- エラーがラップされている可能性がある場合は
   - `err == target`(比較)の代わりに`errors.Is`を使います
   - `err.(T)`(type assertion)の代わりに`errors.As`を使います
 
@@ -280,7 +295,7 @@ https://github.com/golang/go/blob/go1.22.3/src/fmt/errors.go#L54-L78
   - ほかのシステムからくる値だが、`error`としてそのままマップできる
     - e.g. [Errno](https://github.com/golang/go/blob/master/src/syscall/syscall_unix.go#L108)
   - その他そうするのが最も便利な方法なとき
-- 関数の返り値のエラーを`fmt.Errorf`でラップして、メッセージを追加して、人が読みやすくして返す。
+- 他の関数の返り値のエラーを`fmt.Errorf`でラップして、メッセージを追加して、人が読みやすくして返す。
   - ラップしないで返すこともある。ラップしたほうが丁寧。
     - stacktraceがないので、ラップしないとどこで起きたエラーなのかよくわからなくなることはたびたびある(n敗)
   - 渡す文字列の変更は破壊的変更とみなされることがある。
@@ -331,6 +346,11 @@ func (e *MyError) Unwrap() error {
 _, err := funcProvidedByOtherPkg()
 if err != nil {
 	return fmt.Errorf("doing some: %w", err) // ラップしておく
+}
+if someCond {
+	// errors.New()で作為性してexportした値を
+	// ラップして返すとerrors.Isで判定ができる
+	return fmt.Errorf("%w: describe sub cause", ErrSomething, values...)
 }
 ```
 
@@ -395,8 +415,10 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/h2_error.go#L13-L37
 
 [reflect](https://pkg.go.dev/reflect@go1.22.3)を使って、`target`に自身が代入可能か判別し、代入可能であるときは`target`の各フィールドに代入を行っています。
 
-対象読者的には[reflect](https://pkg.go.dev/reflect@go1.22.3)ってなんだよって感じになると思いますが、ここでは詳しく説明しません。
-一部のメタデータへのアクセスと`Go`を書いてできることのおおよそすべてをruntimeで動的に行うことができる機能とパッケージだと理解しておけばとりあえずよいと思います。
+対象読者的には[reflect](https://pkg.go.dev/reflect@go1.22.3)が何かわからないと思います。[Node.js]もとい`javacsript`にも[Reflect](https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/Reflect)がありますが、多分使うことは非常にまれなので使ったこと自体がないか存在すら知らなかったのではないかと思います。
+`reflect`は`Go`コードを書いてできることのおおよそすべてをランタイムに動的に行うことができる機能群のことです。動的に`struct`の定義を行ったり、`slice`の`append`や複数の`channel`を`select`したりできます。
+`struct tag`など通常の`Go`コードからはアクセスできない一部のメタデータへのアクセスも`reflect`経由で行います。
+
 実際上記コードでは`target`の型が`http2StreamError`の構造と一致するかテストしたうえで代入していますね。
 
 中途状態が書き込まれてしまわないようにまずすべてのフィールドに代入可能なことをチェックしてから実際に`Set`で代入しています。
@@ -405,12 +427,12 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/h2_error.go#L13-L37
 つまり、`As`は以下のような別のstructに対しても`true`を返します。
 (実際に代入可能であることはplaygroundで確認してください。)
 
-[playground](https://go.dev/play/p/wDH9QDGXqYE)
+[playground](https://go.dev/play/p/g1D9qeHGal9)
 
 ```go
 type fakeHttp2Err struct {
-	StreamID uint // `uint32`や`http2ErrCode`の代わりに`uint`を使っていることがポイントです。
-	Code     uint
+	StreamID int // `uint32`や`http2ErrCode`の代わりに`int`を使っていることがポイントです。
+	Code     int
 	Cause    error // optional additional detail
 }
 
@@ -423,7 +445,7 @@ func (e fakeHttp2Err) Error() string {
 
 `*T`, `**T`両方に対応するためには以下のように変更します。
 
-[playground](https://go.dev/play/p/lrSKkGUAaLj)
+[playground](https://go.dev/play/p/5SRrxx5t8DN)
 
 ```diff
 func (e http2StreamError) As(target any) bool {
@@ -574,10 +596,10 @@ func main() {
 > A comparison of two interface values with identical dynamic types causes a [run-time panic](https://go.dev/ref/spec#Run_time_panics) if that type is not comparable.
 
 だからなのです。
-`slice` / `map` / `function` / `uncomparable`な型のフィールドを含む`struct`はuncomparable, それ以外はcomparableです。
-uncomparableな型同士の比較(`a == b`)はコンパイルエラーなので、ランタイムでこの状況に陥ることはありません。
+`slice` / `map` / `function` / `uncomparable`な型のフィールドを含む`struct`は`uncomparable`, それ以外は`comparable`です。
+`uncomparable`な型同士の比較(`a == b`)はコンパイルエラーなので、ランタイムでこの状況に陥ることはありません。
 
-しかし`interface`は中身はなんであるかruntimeまでわかりませんし、`a == b`はエラーする可能性を表現できませんのでパニックするよりほかありません。
+しかし`interface`は中身はなんであるかruntimeまでわかりませんし、`a == b`はエラーする可能性を表現できませんので、比較できない場合パニックするよりほかありません。
 
 一方で、`io.EOF`のような既知のcomparableな値との比較は安全です; `io.EOF`の中身はpointerなので比較可能な型です。
 
@@ -693,6 +715,8 @@ func (e *MyError) Error() string {
 }
 ```
 
+むしろ`nil`のようなリテラルが _untyped_ だということは強調しておくべきでしょう。
+
 typed nilは`error`に限らずinterfaceで型を指定した値に、具体的な型を代入するときは常に気を付ける必要があります。
 
 このtyped-nilが起きるかもしれない危険性を不用意にパッケージ/モジュールの使用者に露出させる必要がない場面が多いため、基本的に`error`を返すのだと思われます。
@@ -739,9 +763,9 @@ go func() { panic("die!") }()
 
 `try-catch-finally`で例えると、`defer`が`finally`、`recover`が`catch`だといえます。
 
-と、こう書くと`panic`は基本的に`recover`されない究極的なエラー終了手段かのように聞こえると思いますが、実際上は`*http.Server`が`recover`してしまうので逆に**基本的に`recover`されるものと思ったほうが良い**です。もちろん100%挙動をコントロールできるシチュエーションでは別ですが、例えば`*http.Server`を使わずにhttp serverを実装することは少ないと思いますし、`Go`を書いていてhttp serverを実装しないことも結構珍しいと思います。
+と、こう書くと`panic`は基本的に`recover`されない究極的なエラー終了手段かのように聞こえるかもしれません、実際上は`*http.Server`が`recover`してしまうので逆に**基本的に`recover`されるものと思ったほうが良い**です。もちろん100%挙動をコントロールできるシチュエーションでは別ですが、例えば`*http.Server`を使わずにhttp serverを実装することは少ないと思いますし、`Go`を書いていてhttp serverを実装しないことも結構珍しいと思います。
 
-> https://pkg.go.dev/net/http@go1.16#Handler
+> https://pkg.go.dev/net/http@go1.22.3#Handler
 >
 > If ServeHTTP panics, the server (the caller of ServeHTTP) assumes that the effect of the panic was isolated to the active request. It recovers the panic, logs a stack trace to the server error log...
 
@@ -749,7 +773,7 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L1888-L1900
 
 `panic`時にプロセスが強制終了されてほしいとき、`*http.Server`を使うプログラムの場合、ユーザーが自ら特別な措置を実装する必要があります。
 
-つまり心持としては
+つまりこころもちとしては
 
 - `panic`を意図的にする場合は
   - 意図的にrecoverし、意図しないpanicはre-panicする
@@ -758,7 +782,7 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L1888-L1900
 
 と思っているといいという感じです。
 
-前述通り、その`goroutine`で`panic`した時は`defer`に登録されている関数は実行されます。
+前述通り、その`goroutine`で`panic`した時は通常の関数実行順序をやめ、`defer`に登録されている関数を登録の逆順で実行してきます。
 つまりリソース解放処理は必ず`defer`でしなければ、コントロールしていないコードによって`recover`され、静かに不正状態に陥る可能性があります。
 
 - リソース解放処理は必ず`defer`で行おう
@@ -772,7 +796,7 @@ poisonされる可能性のあるロックを取得して解放するだけのhe
 
 もしくは拾われたくないなら`go panic("panic cause")`とわざとするとよいかもしれません。
 ただし、`panic`が`goroutine`を終了させたときの強制終了処理は他の`goroutine`の`defer`を呼び出しませんので、リソース解放処理をあてにしたプログラムが不正な中途状態を、たとえばファイルなどに書きだす場合はどうやってもその時に不正な状態になってしまいます。
-できれば`panic`は`recover`で拾って`main goroutine`まで伝搬させたうえで`main goroutine`で`panic`するのがよいのだと思います。これはどのように制御するのかが完全にユーザー次第なので、`Go`が勝手にそういったことをするようになることを期待すべきではないと思います。
+できれば`panic`は`recover`で拾って`main goroutine`まで伝搬させたうえで`main goroutine`で`panic`するのがよいのだと思います。これは`Go`が勝手にできるタイプの仕事ではないので完全に意図的に行う必要があります。
 とはいえ、電源断(power outage / power failure, 停電など)の恐れがあるようなシステムではリソース解放が漏れなくても電断でおかしな状態になりうるので、
 どちらにせよ回帰する方法がプロセス起動時に呼ばれなければなりません。
 
@@ -792,7 +816,7 @@ https://go.dev/doc/effective_go#recover
 
 実際の`*http.Server`は`http.ErrAbortHandler`をsentinel valueとして、handlerをabortするための`panic`ができるようになっています。
 
-ちなみに筆者はtry-catch的panicを使ったことはありません。errorを表現しづらいinterfaceでやり取りされる関数群で効果を発揮するパターンだと思います。
+ちなみに筆者はtry-catch的panicを使ったことはありません。
 
 #### std library内で使われるtry-catch的panic-recover
 
@@ -997,7 +1021,7 @@ if err := closeOnce(); err != nil {
 
 書き込みしたファイルの場合は、とりわけ`unix`においては[(\*os.File).Sync](https://pkg.go.dev/os@go1.22.3#File.Sync)のエラーをハンドルして、`Close`のエラーはおおむね無視すべきだと思います。
 
-理由は↓のdetailsで説明しておきました。有名な話なので`Go`をよく書く人はよく知ってると思いますが、対象読者に対しては急に詳細をドバっと出してしまう感じがしたので隠してあります(それに`os/arch`固有の話は少ないと断ってありますしね)。興味があったら読んでください。
+理由は↓のdetailsで説明しておきました。有名な話なので`Go`をよく書く人はよく知ってると思いますが、対象読者に対しては急に詳細をドバっと出してしまう感じがしたので隠してあります。興味があったら読んでください。
 
 :::details Closeのエラーについて
 
@@ -1080,7 +1104,7 @@ https://github.com/golang/go/blob/go1.22.3/src/internal/poll/fd_posix.go#L65-L79
 
 この辺の話、あくまで`linux`なら、という話であって別のunix系osだとまた違ったふるまいをするかもしれません。
 `Sync`して`Close`のエラーを無視はおおむねどのosでも使えるはずですので、慣習的に行っても間違ってないはず・・・。
-筆者はこの辺の挙動をwindowsであんまり試せてないので、windowsだとどうなんだかわからないのですが。
+筆者はこの辺の挙動をwindowsであんまり試せてないので、windowsだとどうなんだかわからないのです。
 
 :::
 
@@ -1813,9 +1837,6 @@ ok      github.com/ngicks/und/v2/internal/bench 4.606s
 ```
 
 う～んslice版のほうが若干速いですね・・・！
-
-`BenchmarkSerdeSliceV2-24`でallocが増えるのは`,omitzero`オプションを利用しているからです。`,omitzero`を外して`,omitempty`にするとallocが減ります。
-ただそれでも`map[bool]T`版よりも若干速くなってるので見たかったところは見れています。もう気にしません。
 
 :::
 
