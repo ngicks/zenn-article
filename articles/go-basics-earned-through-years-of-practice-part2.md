@@ -1257,6 +1257,8 @@ stdにおける、データ構造とバイト列`[]byte`との変換は全般的
 
 例えば、`encoding/csv`ならば`csv`とデータ構造との相互変換ができるなど、そういった感じです。
 
+`encoding/*`パッケージ群はserialize/deserializeの代わりに`Marshal`/`Unmarshal`という語を使います。
+
 この節では、std libraryを使った`json`と`xml`の読み書きの基本を紹介します。
 
 ### json
@@ -1271,15 +1273,13 @@ go.devのブログポスト: [JSON and Go](https://go.dev/blog/json)
 
 `json.Marshal`によってエンコード、`json.Unmarshal`によってデコードを行います。
 
-`Marshal`/`Unmarshal`という言葉は厳密には違いそうですがシリアライズ/デシリアライズの意味と思ってよいです。
-
 基本的には`json`のデータ構造に一致する`struct`を定義し、これに対して`json.Marshal` / `json.Unmarshal`を呼び出します。
 
 事前に構造を把握しない`json`の解析は`struct`を定義する代わりに`map[string]any`(=JSON Objectを期待するとき) / `[]any`(=JSON Arrayを期待するとき)もしくは`any`(=JSON Valueならなんでもいい時)を使います。
-ただし、この場合型安全性を損なう上に、事前にデータサイズがわからないのでものすごい大きなバイト列にはものすごい大きなデータがallocateされてしまいます。
+ただし、この場合型安全性を損なってしまいます。
 場合によっては`json`のバイト列を`Go`のデータに変換せずに直接操作するようなライブラリを使うといいかもしれません。
 
-[playground](https://go.dev/play/p/5fVV6ip_kGl)
+[playground](https://go.dev/play/p/qTiDjhcwP6r)
 
 ```go
 package main
@@ -1294,6 +1294,10 @@ type Sample struct {
 	// ,omitemptyを付け足すと、zero valueの時Marshalがフィールドをスキップする
 	Foo string `json:"foo,omitempty"`
 	Bar Deeper // `json:"field_name"`がない場合、Go structのフィールド名がそのまま使われる("Bar":{}になる)。
+	// 実はjson.Unmarshal時のJSONフィールドとGoフィールドのマッチングはcase-insensitive
+	// json:"name"でフィールド名を付けるのは、
+	// json.Marshal時に
+	// 先頭小文字にしたいとかsnake_caseにしたいとかそういうとき
 }
 
 type Deeper struct {
@@ -1327,18 +1331,34 @@ func main() {
 		panic(err)
 	}
 	fmt.Printf("%+v\n", s) // {Foo:foo Bar:{Baz:123 Qux:{Quux:true}}}
+
+	// case-insensitive
+	err = json.Unmarshal([]byte(`{"FOO":"boo","bAr":{"BaZ":455,"QUx":{"quux":false}}}`), &s)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("case-insensitive: %#v\n", s) // case-insensitive: main.Sample{Foo:"boo", Bar:main.Deeper{Baz:455, Qux:main.MoreDeeper{Quux:false}}}
 }
 ```
 
 - `json.Marshal`には任意の型`T`の変数を渡します。
+  - struct tag `json:"name"`でエンコード後のフィールド名を指定できます
+    - [struct tagによって名前の被りが出るとそのフィールドが出力されなくなる](https://github.com/golang/go/blob/go1.22.3/src/encoding/json/encode.go#L1248-L1262)とか独特な挙動をしますので、`snake_case`への変換などのようなシンプルな名づけ以外はしない用がよいでしょう。
+  - struct tag `json:",omitempty"`でzero valueのフィールドをエンコード時にスキップできます。
+    - [structはskipされることがない](https://github.com/golang/go/blob/go1.22.3/src/encoding/json/encode.go#L306-L318)ので、`time.Time`などはこれの恩恵を受けられません。
 - `json.Unmarshal`には、第二引数でデコード先データ構造のポインタを渡します。
+  - struct tag `json:"name"`でJSONフィールドと`Go`のstruct fieldの対応付けを決められます
+    - case-insensitiveです。
   - `C/C++`ではポインタ/参照渡しした変数に書き込みをしてもらうことがよくあると思います。
   - `C/C++`のポインタ渡しは任意の型を渡すようなことはできない(`void *`をどう解釈するかは関数側ではわからない)はずですが、`Go`は`reflect`で型情報を取り出せるので、これによって`any`が渡せるようになっています。
   - non nilなポインタを渡せればokです。`(*T)(nil)`を渡すとエラーになります。
   - ちなみに`**T`を渡してもよいです。(`var t *T; _ = json.Unmarshal(data, &t)`)
+    - `**T`を渡した場合は`null`リテラルを入力されたときの挙動が`*T`の場合と違うので少し有益な要素もあります(後述)
 
-`Node.js`で、というか`javascript`で`json`を解析する場合は[JSON.parse](https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse)を使って解析結果の`Object`を受け取りますよね。
-対照的に、`Go`では事前に構造体などの変数を宣言してからそれのポインターを解析器に渡します。これは、現状ではデータをallocationをする/しないを制御できるというメリットがあります。
+`Node.js`で、というか`javascript`で`json`を解析する場合は[JSON.parse](https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse)を使って解析結果の`Object`を受け取りますよね。`javascript`は取り扱う変数は大部分が`Object`であるのでこの決断には違和感がないかもしれません。
+それに対して`Go`はデータ構造のサイズを既知とすることでスタックに置けるようにしたいわけですから、データ構造を先立たせるような考え方になるはずですね。
+なので、`map[string]any`への変換よりは、任意の型を受けつられる関数の様式になります。
+任意の型に対する演算を行うためには、`Go`では[reflect](https://pkg.go.dev/reflect@go1.22.3)を使います。`reflect`は`any`から型情報を得ることもできるので、データをallocateするかどうかをユーザーに選択させながら任意の変数を受けるには`any`で任意の型`T`の値のポインター`*T`を受け付けるのが都合がいいということになります。
 
 #### json.(M|Unm)arshaler
 
@@ -1363,7 +1383,8 @@ type Unmarshaler interface {
 - `type T struct`に(M|Unm)arshalerを実装する際、
   - `type plain T`とすると`T`のメソッドを引き継がないが内部のデータ構造が同じ構造体が定義できます
     - Unmarshalはデフォルトの動作そのままでいいけどその後validationを付け足したいとかそういうケースで非常に便利
-  - 下記サンプルみたいにフィールドの一部を未解釈のバイナリ列のまま保持したい場合は`json.RawMessage`を使います。
+  - 例えばJSON Objectからversionだけ抜き出してそれをもとに後続のデコード処理を行いたいというときは、`type version struct {Version int}`のような型を定義して、一旦`json.Unmarshal`します。
+  - 下記サンプルみたいにフィールドの一部を未解釈のバイト列のまま保持したい場合は`json.RawMessage`を使います。
 
 試しにtagged union的なものを実装してみます。
 
@@ -1478,11 +1499,11 @@ func main() {
 
 こんな感じでjson.Marshal/json.Unmarshalで呼び出されるときの挙動を差し替えることができます。荒はたくさんある気がしますが、読者がなんとなくインサイトを得られていればよいと思います。
 
-#### map[string]any / anyへの(M|Unm)arshal
+#### map[string]any / []any　/ anyへの(M|Unm)arshal
 
-もしくは、`map[string]any`, `any`をエンコード元/デコード先に使うこともできます
+事前にデータ構造を定義しない場合は`map[string]any`, `[]any` `any`をエンコード元/デコード先に使うこともできます
 
-[playground](https://go.dev/play/p/NKAp6gJoVg_D)
+[playground](https://go.dev/play/p/7Hd2JdIv24s)
 
 ```go
 package main
@@ -1514,6 +1535,30 @@ func main() {
 			{"baz":[1,2,3],"foo":"bar"}
 			map[string]interface {}{"baz":[]interface {}{1, 2, 3}, "foo":"bar", "qux":map[string]interface {}{"nested":"nested", "null":interface {}(nil)}}
 			{"baz":[1,2,3],"foo":"bar","qux":{"nested":"nested","null":null}}
+		*/
+	}
+
+	fmt.Printf("using []any:\n")
+	for _, bin := range [][]byte{
+		[]byte(`[1,2,3]`),
+		[]byte(`[{"foo":"bar"}, [1,2,3]]`),
+	} {
+		var m []any
+		err := json.Unmarshal(bin, &m)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("  %#v\n", m)
+		bin, err := json.Marshal(m)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("  %s\n", bin)
+		/*
+		  []interface {}{1, 2, 3}
+		  [1,2,3]
+		  []interface {}{map[string]interface {}{"foo":"bar"}, []interface {}{1, 2, 3}}
+		  [{"foo":"bar"},[1,2,3]]
 		*/
 	}
 
@@ -1572,9 +1617,18 @@ func main() {
 `Decoder`は1つのJSON valueを読んで動作します。その先にどういったデータがあるかは気にしませんので、例えば`ndjson`(newline delimited JSON)などをうまいこと処理できます。
 逆に言うと末尾にジャンクデータがあっても許容してしまうので、それが駄目な場合は`dec.More()`をチェックするなど追加の処理が必要です。
 
-[playground](https://go.dev/play/p/Gv15R4ZLkKW)
+[playground](https://go.dev/play/p/ZWDesidc8-G)
 
 ```go
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+)
+
 type Sample struct {
 	Foo string
 	Bar int
@@ -1582,25 +1636,27 @@ type Sample struct {
 
 func main() {
 	buf := new(bytes.Buffer)
-
 	encoder := json.NewEncoder(buf)
 
 	err := encoder.Encode(Sample{Foo: "foo", Bar: 123})
 	if err != nil {
 		panic(err)
 	}
-
 	fmt.Printf("%s", buf.String()) // {Foo:foo Bar:123}
 
-	decoder := json.NewDecoder(buf)
+	decoder := json.NewDecoder(io.MultiReader(buf, bytes.NewReader([]byte(`foobarbaz`)))) // junk data at tail
 
 	var s Sample
 	err = decoder.Decode(&s)
 	if err != nil {
 		panic(err)
 	}
-
 	fmt.Printf("%+v\n", s) // {"Foo":"foo","Bar":123}
+
+	if decoder.More() {
+		bin, _ := io.ReadAll(decoder.Buffered())
+		fmt.Printf("junk data = %s\n", bin) // junk data = foobarbaz
+	}
 }
 ```
 
@@ -1617,12 +1673,13 @@ func main() {
 
 `json.Marshal` / `json.Unmarshal`を利用するのはそれ以外の時、という感じになると思います。
 
-#### 特定の値の時フィールドをスキップする(omitempty)
+#### 空の値のフィールドをスキップする(omitempty)
 
-struct tagで`,omitempty`を指定すると、フィールドが`empty value`であるときにエンコード時にフィールドがスキップされます。
-条件は[ここ](https://github.com/golang/go/blob/go1.22.3/src/encoding/json/encode.go#L306)で網羅されている通り、non-pointerのstructは`zero value`でも`empty`になりません。
+すで述べていますが、struct tagで`,omitempty`を指定すると、フィールドが`empty value`であるときにエンコード時にフィールドがスキップされます。
+条件は[ここ](https://github.com/golang/go/blob/go1.22.3/src/encoding/json/encode.go#L306)で網羅されている通り、ポインターでない限りstructは`zero value`でも`empty`になりません。
 
-システム間でデータを相互交換するときにフィールドがないことが重要な場合があります。`Node.js`もとい`javascript`では自然と`undefined`によってフィールドを消すことができますが、structに部分的にそういった概念を導入できるものです。
+システム間でデータを相互交換するときにフィールドがないことが重要な場合があります。
+`Node.js`もとい`javascript`では自然と`undefined`によってフィールドを消すことができます。`Go`ではこのオプションを使うことでそれを実現できます。
 
 [playground](https://go.dev/play/p/NxemIewSp2X)
 
@@ -1658,12 +1715,20 @@ func main() {
 ```
 
 普通は存在しないフィールドの表現に`*T`を用います。
-なぜなら、フィールドの型に`int`や`string`を指定したとき、`0`や`""`がフィールドがなかったということなのか、`null`だったのか、その値が渡されたのか判別がつかないため、
-それらの判別が必要なケースでは`,omitempty`を使うことができないからです。
+なぜなら、`json.Unmarshal`の挙動が
+
+- pointer type `*T`に対して、`null`は`nil`を代入
+- non-pointer type `T`に対して、`null`は値を代入しない
+- struct fieldにマッチするJSON Object fieldがない場合、値を代入しない
+
+であるので、
+フィールドの型に`int`や`string`を指定したとき、`0`や`""`がフィールドがなかったということなのか、`null`だったのか、その値が渡されたのか判別がつきません。
+
+それらの判別が必要なケースでは`T`に対して`,omitempty`を使うことができないからです。
 
 ```go
 type Sample struct {
-	// pointerにしておくと、にフィールドがなかった、もしくはnullだったらとき、
+	// pointerにしておくと、入力のJSON Objectにフィールドがなかった、もしくはnullだったとき、
 	// Unmarshal後にフィールドの値はnilになるので、それらがわかります。
 	Foo *string `json:"foo,omitempty"`
 	Bar *int    `json:",omitempty"`
@@ -1687,12 +1752,12 @@ type Sample struct {
     - 現在では[github.com/go-json-experiment/json](https://github.com/go-json-experiment/json)を使ってもいいかもしれませんが、まだいくつか破壊的変更が入るでしょうからprodでは非推奨です。
     - 3つの状態を表現できる型として`type option[T any] struct {valid bool; value T}`を定義して`type undefined[T any] option[option[T]]`を利用する
 - 特に記事では述べてない記憶がありますが、コードジェネレーターで特定の値をスキップするような`MarshalJSON`を生成しても当然達成可能です
-  - embedされたフィールドの扱いが難しいですが、`encoding/json`内部の挙動を参考にすればなんとかはなると思います
+  - embedされたフィールドの扱いが難しいですので対象読者に対してはお勧めできません。もしする場合は`encoding/json`内部の挙動を読み込んだうえで行ってください。
 - https://github.com/oapi-codegen/nullable のように、omitemptyの機能する`[]T`, `map[any]T`を利用して`type undefined []T`を定義する
 
-という感じになると思います。どれも一長一短です。
+という感じになると思います。
 [encoding/json/v2のDiscussion](https://github.com/golang/go/discussions/63397)に述べられている今のexperimental実装([github.com/go-json-experiment/json](https://github.com/go-json-experiment/json))に近いAPIスタイルで`v2`が採用されれば`,omitzero`で`type undefined[T any] struct{...}`をエンコード時に省略できるので、これでかなり簡単になります。
-ただ変更量が相当デカいので、いつstdに取り込まれるか、そもそも実現するのか自体もよくわからない段階だと思われますので、
+ただ変更量が相当デカいので、いつstdに取り込まれるかさっぱりです。
 
 - 今すぐ実行できる上記の方法を検討するか、
 - そもそもこういうことをしないAPIスタイルで何とかするか
@@ -1700,8 +1765,6 @@ type Sample struct {
 を決めたらよろしいかと思います。
 
 :::details []T版でT | null | undefinedを実装してみる
-
-以下では特に断りなく[github.com/go-json-experiment/json](https://github.com/go-json-experiment/json)向けのinterfaceを実装していまし、このライブラリの知識が暗黙的に前提となるため、detailsに隠してあります。
 
 筆者はごく最近まで上記の https://github.com/oapi-codegen/nullable を知らなかったので、こういう方法があると思いついていませんでした。
 [以前の記事]を書いた時点ではポインターを使わずにデータのあるなしを表現したい/`T`がcomparableなら`undefined[T]`もcomparableであってほしいというのが念頭にあったので、できるとわかっていてもこの方法をとらなかったもしれないですが。
@@ -1836,7 +1899,9 @@ PASS
 ok      github.com/ngicks/und/v2/internal/bench 4.606s
 ```
 
-う～んslice版のほうが若干速いですね・・・！
+う～んslice版のほうが若干速いですね・・・！`github.com/go-json-experiment/json`版の場合slice版のほうがallocが増えるのはちょっとなんでなのか気になりますね。
+
+この結果を受けて筆者の自分向けライブラリでは[slice版を実装して使っていく決断を下しました](https://github.com/ngicks/und/blob/2c4ec6b8c210ff97276f13c0777bdff3d2ff63a2/sliceund/slice.go)。
 
 :::
 
@@ -1888,6 +1953,8 @@ func main() {
 
 いくつかびっくりポイントが存在します。
 
+以下はすでに述べたものですが
+
 - json.Unmarshal時、実はフィールドはcase-insensitiveに判定されます。
 
 現在`encoding/json/v2`のプロポーザルを出そうという試みが存在し、[Discussion](https://github.com/golang/go/discussions/63397)で`encoding/json`のびっくりポイントが包括的に述べられています。大体の場合基本的な使い方の範疇で困らないと思いますけどたまにこのびっくりポイントに引っ掛かると思うので読んでおくと参考になるかも。
@@ -1896,10 +1963,14 @@ func main() {
 
 xmlの`[]byte`とデータ構造の相互変換は[encoding/xml](https://pkg.go.dev/encoding/xml@go1.22.3)で行います。
 
+xmlの使用頻度は高い人はすごく高いでしょうが、筆者の体感上htmlを除くと古いAPIとのやり取り以外で使う場面は少ないのでjsonに比べるとざっとしたことしか述べません。
+
 #### xml.(M|Unm)arshal
 
 `json`と同じく構造体を定義してxmlと相互にマッピングする方式です。
+
 こちらは`map[string]any`や`any`との相互変換はサポートされているということは書かれていません。
+xmlはJSONと違って`<tag>`に対して任意のattributeが`<tag attr=value>`のような形で追加していくことができますから、何かのデータフォーマットを定義せずに相互に変換することができないためだからでしょう。
 
 [playground](https://go.dev/play/p/m2ekpldD6wZ)
 
@@ -2147,13 +2218,26 @@ func main() {
 `Go`にはタスクランナーのようなものはコード生成以外に関してはありません。
 
 一応`python`のみしか開発経験がない対象読者のために説明すると、
-`npm run <<script-name>>`は`package.json`の`"scripts"`以下にに`{"script-name":"script"}`で記述できるスクリプトです。
-keyが`<<script-name>>`であり、valueがスクリプトそのものです。
+`npm run <<script-name>>`で`package.json`の`"scripts"`以下に書かれたスクリプトを実行できるもののことです。
+`scripts`はJJSON Objectで定義でき、`<<script-name>>`の部分がJSON Field、実際のスクリプト内容はvalueで記述されます。
 スクリプトは`{"package":{"dependencies":{...}}}`でインストールされた実行ファイルも`PATH`に加えて実行するので十分クロスプラットフォームになれるということらしいです。
-詳細はnpm公式を参照 => [npm Docs: scripts](https://docs.npmjs.com/cli/v10/using-npm/scripts)
-さらに`Node.js`には[npx](https://www.npmjs.com/package/npx)というサブコマンドが同梱されており、ドキュメントによれば`npx <command>`とすると`./node_modules/.bin`以下の実行ファイルを実行できます(e.g. `npx tsc`で`package.json`で指定されたversionのtypescript compilerを動作させる)。
 
-これに代わるものはstdのツールチェーンでは多分ありません。自分で`Makefile`をメンテしているプロジェクトをちょいちょい見るのでそれがよい方法かもしれないです。(とはいえ`Makefile`のクロスプラットフォーム化はなかなか落とし穴があるみたいです([参考](https://zenn.dev/shellyln/articles/eeee477eb74bdae8bc2f)))。筆者は`Makefile`よくわかんないのでなんとも言えないですが。
+例えば[node-canvas](https://github.com/Automattic/node-canvas)はネイティブモジュールを使うため、install時に[node-gyp](https://github.com/nodejs/node-gyp)というNode.js向けのビルドシステムを動作させます。
+
+```json
+// https://github.com/Automattic/node-canvas/blob/2de0f8b36dbb271c9dc1bdb211812c5dabca5129/package.json#L35
+ "scripts": {
+	// ...
+    "install": "prebuild-install -r napi || node-gyp rebuild",
+    // ...
+  },
+```
+
+最近はWASM/WASI(preview2)があるのでinstall時にそのシステムでビルドする仕組みを見る機会は徐々に減っていくかもしれません。
+
+これ以上の詳細はnpm公式を参照してください:[npm Docs: scripts](https://docs.npmjs.com/cli/v10/using-npm/scripts)
+
+これに代わるものは`Go`のstdのツールチェーンでは多分ありません。自分で`Makefile`をメンテしているプロジェクトをちょいちょい見るのでそれがよい方法かもしれないです。(とはいえ`Makefile`のクロスプラットフォーム化はなかなか落とし穴があるみたいです([参考](https://zenn.dev/shellyln/articles/eeee477eb74bdae8bc2f)))。(筆者は`Makefile`よくわかんないのでなんとも言えないですが。)
 
 ただし、
 
@@ -2216,9 +2300,9 @@ keyが`<<script-name>>`であり、valueがスクリプトそのものです。
 
 `Go`をスクリプト的に置く場合、ディレクトリを切って`main`パッケージでソースを置きます。
 配置としては`./cmd`以下にディレクトリを切ってもいいと思いますし、配布するつもりないよっていうのを強調するために`./script`にサブディレクトリを切ってそこをmain packageとしてもいいかもしれません。
-やったことないけど`internal/script`以下にサブディレクトリを切るとよそに公開するつもりがない雰囲気が伝わっていいかもです。
+`internal/script`以下にサブディレクトリを切るとよそに公開するつもりがない雰囲気が伝わっていいかもです。
 
-`Go`のruntimeの中だと`src/runtime`の中に`main` packageを含む`.go`ファイルがほかのソースと一緒にドカっと置かれていて、それを使ってコード生成を行っていました。そういう方法もあり見たいです。
+`Go`のruntimeの中だと`src/runtime`の中に`main` packageを含む`.go`ファイルが`package runtime`なほかのソースと一緒にドカっと置かれていて、それを使ってコード生成を行っていました。そういう方法もあり見たいです。
 
 :::
 
@@ -2308,7 +2392,7 @@ var (
 
 func main() {
 	fmt.Printf("flag1 = %s\n", flag1) // flag1 =
-	flag.Parse()
+	flag.Parse() // Parse cli arguments and set parsed result.
 	// flags are parsed and flag1 is set.
 	fmt.Printf("flag1 = %s\n", flag1) // flag1 = foo
 }
@@ -2449,7 +2533,7 @@ func main() {
 // bar = 23
 ```
 
-実際にサブコマンドを実現しようとするとまだやらないといけないことがたくさんあります。実際には[github.com/spf13/cobra](https://github.com/spf13/cobra)などのライブラリを使ったほうがよいでしょう。
+実際にサブコマンドを実現しようとするとまだやらないといけないことがたくさんあります。[github.com/spf13/cobra](https://github.com/spf13/cobra)などのライブラリを使ったほうがよいでしょう。
 
 ### github.com/spf13/cobra
 
@@ -2461,7 +2545,7 @@ func main() {
 
 などが利用しているcliフレームワークです。[使用者リスト](https://github.com/spf13/cobra/blob/main/site/content/projects_using_cobra.md)もメンテされています。
 
-この手のサブコマンドを実装できるライブラリとしてはほとんどデファクトスタンダードなのではないでしょうか？
+この手のサブコマンドを実装できるライブラリとしては[github.com/urfave/cli](https://github.com/urfave/cli)かこれかをとりあえず使っておけばよい、という感じです。
 
 利用法は簡単で
 
@@ -2518,7 +2602,7 @@ W. Richard Stevens. (2013). Advanced Programming in the Unix Environment section
 `Go`も読む限り別に[例外でない](https://github.com/golang/go/blob/go1.22.3/src/runtime/asm_amd64.s#L11-L24)らしく、[argvのすぐ後にenvironment variableを示すポインタが並んでいる](https://github.com/golang/go/blob/go1.22.3/src/runtime/runtime1.go#L82-L95)のは変わらないようです。[memmove](https://github.com/golang/go/blob/go1.22.3/src/runtime/memmove_amd64.s#L35)でコピーしているのでこのポインターにアクセスするのは１度きりのようですが。(`memmove`の実装のしかたも面白いので、興味がある方はこちらの素晴らしい記事を参照ください: [Go の copy はいかにして実装されるか](https://zenn.dev/koya_iwamura/articles/ed0b1a50f6a0ff))
 ちなみにwindowsでは[syscallで取得](https://github.com/golang/go/blob/go1.22.3/src/syscall/env_windows.go#L13-L29)しているので、ちょっと話が違いますね
 
-`Go`は`goroutine`のスタックをruntime自らallocateするのでこの`stack`の利用(=argvのバウンドチェックがおかしくて環境変数やスタックがぶっ壊れるみたいな)をユーザーコードが意識することはないはずですが、ここで重要なのはプロセスから見えるメモリ領域にこれらの変数を引き渡す方法が広く存在しており、プログラム自身が自発的に設定したり外部環境から読み込まなくても勝手に置かれるということです。これは設定ファイルを、例えば`docker`などの`container`に引き渡すのに比べてはるかに簡単です([fork(2)](https://man7.org/linux/man-pages/man2/fork.2.html)して[execve(2)](https://man7.org/linux/man-pages/man2/execve.2.html)する前にfdを閉じなければプログラムに自発的に動作させることなくファイルも引き渡すことができるんですがここではそれは置いときます)。
+`Go`はruntime起動時にこのargvとenvioronment variableをコピーしてしまい、ユーザーはコピーにしかアクセスしないのでこういったレイアウトであること(=argvのバウンドチェックがおかしくて環境変数やスタックがぶっ壊れるみたいな)をユーザーコードが意識することはないはずですが、ここで重要なのはプロセスから見えるメモリ領域にこれらの変数を引き渡す方法が広く存在しており、プログラム自身が自発的に設定したり外部環境から読み込まなくても勝手に置かれるということです。これは設定ファイルを、例えば`docker`などの`container`に引き渡すのに比べてはるかに簡単です([fork(2)](https://man7.org/linux/man-pages/man2/fork.2.html)して[execve(2)](https://man7.org/linux/man-pages/man2/execve.2.html)する前にfdを閉じなければプログラムに自発的に動作させることなくファイルも引き渡すことができるんですがここではそれは置いときます)。
 
 環境変数はファイルを受け渡すよりもより自然にプロセス間で受け渡すことができるため、これによって設定値を引き渡す決断を下すことも多いでしょう。
 
@@ -2547,7 +2631,7 @@ $NONEXISTENT = "", found = false
 環境変数をset/unsetするには[os.Setenv](https://pkg.go.dev/os@go1.22.3#Setenv) / [os.Unsetenv](https://pkg.go.dev/os@go1.22.3#Unsetenv)を呼びます。
 
 ```go
-	os.Setenv("SERVER_URL", "https://exmaple.com")
+os.Setenv("SERVER_URL", "https://exmaple.com")
 ```
 
 ただし`unix`においては`Set`も`Unset`も前述のコピーされた`environ`を書き換えるので、プログラム起動時のenvironはそのままメモリ領域に残っています。
@@ -2617,9 +2701,11 @@ func main() {
 ### 環境変数に設定すべきでないものは何か
 
 環境変数は通常であればchild processにすべて引き渡されるのでセキュリティー的に敏感な情報は設定しないほうがいいかもしれません。
+
 前述通り、`unix`系の環境ではunsetしても環境変数はメモリの先頭に残り続けるので、短命であるべき情報は特に環境変数として引き渡してきてはいけないことになります。
-セキュリティー関連の記事を見ると、パスワードなどのcred情報はファイルから読み取り、使い終わったらメモリから即座に消すべき、というのをたびたび目にします。
-現実的にメモリを読まれる状況まで行けば何でもされてしまうと思うので問題になりにくいかもしれないですが。
+セキュリティー関連の記事を見ると、パスワードなどのcred情報はファイルやsecret storeから読み取り、使い終わったらメモリから即座に消すべき、というのをたびたび目にします。
+
+現実的にメモリを読まれる状況まで行けば何でもされてしまうと思うので問題になりにくいかもしれないですが、アドバイスとして述べておく価値はあるでしょう。
 
 ## おわりに
 

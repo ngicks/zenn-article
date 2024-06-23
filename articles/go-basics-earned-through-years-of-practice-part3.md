@@ -89,8 +89,8 @@ multi-threadなプログラムで生じうる諸般の問題が起きないよ�
 
 https://go.dev/blog/waza-talk
 
-上記の11年前のRob Pikeの講演によれば _concurrency_ とはタスクをいかに分解するかという表現方法/構造であり、分解されたタスクは _parallel_ 、つまりいくつかを同時に実行できます。
-Concurrentに問題を分割しておけば、資源、つまりCPUの個数などが増加したときに全体の処理スピードが(理論上)増加量だけ(CPUコアの数が２倍になれば２倍)速くすることができるということを述べています。
+上記の11年前のRob Pikeの講演によれば _concurrency_ とはタスクをいかに分解するかという表現方法/構造であり、分解されたタスクは _parallel_ に(いくつか同時に)実行できます。
+Concurrentに問題を分割しておけば、CPUの個数などが増加したときに全体の処理スピードが(理論上)増加量だけ速くすることができるということを述べています。
 このアイデアはTony Hoare 1978 Communicating Sequential Processes.という論文に書かれていたものであり、
 _concurrent_ に物事を解くためのツールキットとして、channelやgoroutineが存在しています。
 Rob Pikeは講演上で「この話が沁みたら家に帰ってCSPの論文を読め」と言っていますね。
@@ -107,10 +107,10 @@ https://go.dev/ref/spec#Go_statements
 
 Specificationによれば`"go"`キーワードの後に関数かメソッド呼び出しのExpressionを書くことで、_an independent concurrent thread of control, goroutine_ でそれが実行されます。
 
-`go`はstatementです。つまり返り値は何もありません。`goroutine`を特定する方法は基本的にありませんし、`goroutine`を指定して終了させるような方法もありません。
+`go`はstatementです。つまり返り値は何もありません。`goroutine`を特定する方法はありませんし、`goroutine`を指定して終了させるような方法もありません。
 これは[pthread_create(3)](https://man7.org/linux/man-pages/man3/pthread_create.3.html)が`pthread_t`でthead idを返したり、[Rustのasync](https://doc.rust-lang.org/std/keyword.async.html#)が[Future](https://doc.rust-lang.org/std/future/trait.Future.html)というステートマシンを返したりするのとは対照的です。
 
-`pthread`が[pthread_join(3)](https://man7.org/linux/man-pages/man3/pthread_join.3.html)で終了を待てるのに対して、`goroutine`を指定して終了を待つ方法がありません。`goroutine`とそれを呼び出すコード間で`chan`や`sync.WaitGroup`(後述)などの変数を共有し、`goroutine`で動作する関数が明示的に通知することで終了を待ちます。
+`pthread`が[pthread_join(3)](https://man7.org/linux/man-pages/man3/pthread_join.3.html)で終了を待てるのに対して、`goroutine`を指定して終了を待つ方法がありません。`goroutine`とそれを呼び出すコード間で`chan`や`sync.WaitGroup`(後述)などの変数を共有し、`goroutine`で動作する関数がそれらを通じて明示的に終了を通知する必要があります。
 
 `goroutine`で動作する関数が終了すれば`goroutine`もexitします。きちんと終了できるようにするのはユーザーの責任です。
 
@@ -245,7 +245,6 @@ goroutineは[最低`2KiB`](https://github.com/golang/go/blob/go1.22.3/src/runtim
 `goroutine`がexitしなければこれらがfreeListに戻るなりしないので、leakyな`goroutine`はそれだけ無駄なメモリを消費します。
 
 例えば[gopls](https://github.com/golang/tools/tree/master/gopls)は[Language Server Protocol](https://learn.microsoft.com/en-us/visualstudio/extensibility/language-server-protocol?view=vs-2022)に従って`stdin`/`stdout`ごしに`jsonrcp`で通信を行います。
-
 そのための2つのファイルを１つの`duplex`なファイルであるかのように見せるために以下のような`fakeConn`を`net.Conn`として返し、
 
 https://github.com/golang/tools/blob/b6235391adb3b7f8bcfc4df81055e8f023de2688/internal/fakenet/conn.go#L18-L29
@@ -435,7 +434,7 @@ $ go install -race mypkg // to install the package
 - [CPUとメモリ負荷が大幅に増え,defer recoverで8byteの追加のメモリーがallocateされるうえにgoroutineがexitするまで回収されない](https://go.dev/doc/articles/race_detector#Runtime_Overheads)ので、長いこと動作させるとそれで落ちるケースがあります。
 - ライブラリが`race`フラグを見て動作を変える部分もあります。(例: [sync.Poolはrace enabledだとランダムな要素をPutしない](https://github.com/golang/go/blob/go1.22.3/src/sync/pool.go#L100-L107))
 - race detectorはメモリが同時に読み書きされないかチェックするツールなのでたまたま衝突が起きないケースがあると検出できません。
-  - 衝突が起きやすくなるように異なる関数やメソッドを同時に読んでみるテストを書くといいかもしれません。
+  - 衝突が起きやすくなるように異なる関数やメソッドを同時に動作させるテストを書くといいかもしれません。
 
 上記のコードスニペットをrace detector付きで実行すると、以下のように警告がstderrにプリントされます。
 (ソースのコードパスは一応`--redacted--`に置き換える編集をしています。実際にはソースのローカルストレージ上の絶対パスが出力されます)
@@ -648,7 +647,7 @@ func main() {
   - 現実的に起こるイベントはほとんどそう(だから在庫管理が一つの学問になるん)だろうという突っ込みはあります。
   - ただし、channelがキューイングしているデータの中身を観測する方法は筆者が知る限り普通にはないため、queueを管理したいならchannelではなく別のqueueを定義したほうが良い。
     - 単なるFIFO queueならchannelを利用するだけで便利だと思いますが、queueがpriority queueであってほしいとかだと特に別の実装が必要になります。
-    - ここで参考にどうぞというためだけにpriority queueを追加しました: [github.com/ngicks/eventqueue](https://github.com/ngicks/eventqueue)
+      - [github.com/ngicks/eventqueue](https://github.com/ngicks/eventqueue)でPriority Queueで中間queueが作れるものを実装しています。参考程度にはなるかも。
 
 だいたいこんなものでしょうか？何かしらを引用して経験的にこうと述べたかったんですが、goproxyに登録されているすべてのモジュールの`make(chan T)`を検索するぐらいしか思いつかなくて、
 結局引用なしで筆者がどこかで見たことのまとめになってしまいました。
@@ -657,16 +656,18 @@ buffer-size n > 1が便利な場面もあるけど、大抵の場合は0か1だ�
 
 #### channelはどのようにcloseするか
 
+- closeしない
+  - closeしなくてもGCに回収される
+  - `time.Timer`などは`<-chan time.Time`を返してくるが、これらをcloseする方法はないことから、このことがわかる。
+    - ただし`Stop`はしよう。`Stop`を呼ばないと[finalizer](https://pkg.go.dev/runtime@go1.22.3#SetFinalizer)が実行されない(`Go1.22.0`時点)。
 - いろんなところでcloseするのは避ける
   - `close of closed channel`, `send on closed channel`でパニックが起きるため、`close`の責務を負うのは誰なのかを明確にすべき
     - `make(chan T)`を呼んだ関数/structが責任をもってcloseを呼ぶ、とか
-    - `chan<- T`を関数が返す時、closeしてもらうことで終了を通知する、とか
+  - `chan<- T`を関数が返す時、closeしてもらうことで終了を通知することがある。ドキュメントにそのように書く。
+  - 関数が`<-chan T`を返す時はcloseによって終了を通知することがある。ドキュメントにそのように書く。
 - 場合によっては`sync.OnceFunc`などを使って１度しかcloseが呼ばれないのを保証する。
-- 関数が`<-chan T`を返す時はcloseによって終了を通知することがある。
-- structのフィールドにchannelを引き渡すようなケースの場合大分ややこしいのでcloseによる終了の通知よりも、明確にdone channelを作るとか、`context.Context`を引き回すとかしたほうが良い。
-- なんならcloseしなくてもよい
-  - closeしなくてもGCに回収される
-  - `time.Timer`などは`<-chan time.Time`を返してくるが、これらをcloseする方法はないことから、このことがわかる。
+- structのフィールドにchannelを引き渡すようなケースの場合大分ややこしいのでcloseによる終了の通知を避けることも多い
+  - channelから値の読み出しを行うメソッドなりの第一期比数を`context.Context`とし、`Done()`で返されるchannelを通じて終了を通知する。
 
 #### 特定のchannelを優先するには1段selectで包む
 
@@ -690,8 +691,12 @@ for {
 
 #### Example: notifier
 
+##### channel-close型: 受け取り側が複数の場合
+
 `<-chan struct{}`を返して、返したchannelをcloseすることでnotifyするパターン。
 通知される側が複数の時に用いられるのを見たことがある。
+
+特定のタイミング(=`Chan`呼び出しタイミング)以後にあるイベントの発生(=`Notify`呼び出し)がわかる。イベントの起こる回数とか頻度の情報が必要なときには使いづらい。
 
 ```go
 // Single-producer multi-consumer notifier
@@ -719,6 +724,8 @@ func (n *SpmcNotifier) Notify() {
 	}
 }
 ```
+
+##### 1-buffered channel型: 受け取り側が単数で、イベントの発生だけわかればいい場合
 
 buffer-size 1のchannelを使ってイベントがあったことだけを保存する。
 こちらは通知される側が1つだけ、あるいは1度だけの時によく使うというイメージ。
@@ -754,7 +761,9 @@ func (n *MpscNotifier) Notify() {
 
 今まで述べてきた性質を利用して、動的な個数のchannelを使ったselectを実装します。
 
-前述しましたが、nil channelからの送受信は永久にブロックします。逆に言えば、`[N]chan T`に対し、任意のインデックス`i`に`nil`を代入すれば`N`を上限とした動的な個数のchannelに送受信できます。
+普通の使い方はさほど難しくないと思うので、この記事の目的に照らし合わせて突っ込んだ話をここでします。
+
+前述しましたが、`nil channel`からの送受信は永久にブロックします。逆に言えば、`[N]chan T`に対し、任意のインデックス`i`に`nil`を代入すれば`N`を上限とした動的な個数のchannelに送受信できます。
 `reflect`を利用すれば現実的な上限なしの動的な個数のchannelの送受信を実装できます。
 
 以下で与えられた`[]chan T`のうちどれか一つからsend / recvする関数を実装してみます。
@@ -919,7 +928,9 @@ https://github.com/ngicks/go-basics-example/tree/main/snipet/chan-one-of
 
 一応動いています。(このrepositoryはバージョン管理する気が皆無なのでimportはしないでください)
 
-現実的にfan-in / fan-outを実装するときにこういうのは使いますかね？`SendEach`の使い道は筆者はぱっと思いつかなかったです。なので対象読者にとっても向こう数年は不要かもしれません。
+現実的にfan-in / fan-outを実装するときにこういうのは使いますかね？
+`SendEach`の使い道は筆者はぱっと思いつかなかったです。なので対象読者にとっても向こう数年は不要かもしれません。
+タイミングが重要なライブラリはたびたび複数のチャネルの中からどれか1つだけがreceiveするのをテストしたくなる時がありますので、ごくまれに何かの使いどころがあるかも。
 
 多分`reflect`を使うとオーバーヘッドがかかるので`len(chans)<=16`みたいな適当な小さい数までは固定数版に分岐する処理が妥当だと思って実装してみましたが、これが本当にいいことなのかはよくわかっていない(ベンチをとっていない)ので参考までに、という感じです。
 
@@ -931,7 +942,7 @@ https://pkg.go.dev/context@go1.22.3
 
 - `Value`で`context.Context`に収められた任意の値を取り出すことができます
   - [context.WithValue](https://pkg.go.dev/context@go1.22.3#WithValue)で値を収めることができます。
-  - ただこれらの`With*`関数は入れ子にしていくので、上位のスコープに`Value`を伝搬したい場合は収めた値自体に工夫が必要です。
+  - ただこれらの`With*`関数は`context.Context`を入れ子にしていくので、上位のスコープに`Value`を伝搬したい場合は収めた値自体に工夫が必要です。
     - e.g. `*sync.Map`を収めて下層で操作してもらう。
 - `Done`で`<-chan struct{}`を返します。`context.Context`がcancelされたときこのchannelはcloseされます。
 - cancelされた場合`Err`がnon-nil errorを返すようになります。
@@ -966,7 +977,7 @@ func longLoongJob(ctx context.Context) error {
 
 > Canceling this context releases resources associated with it, so code should call cancel as soon as the operations running in this Context complete.
 
-入れ子にするだけなのに何をリリースするねん？と思うかもしれませんが、親contextのcancelを伝搬するために親contextが既知の(=contextパッケージで実装された)ものでないとき、新しい`goroutine`の中で親contextのcancelを`Done`で監視するので、こういう感じで`cancel`は不明確に確保されたリソースをリリースされます。
+入れ子にするだけなのに何をリリースするねん？と思うかもしれませんが、親contextのcancelを伝搬するために親contextが既知の(≒contextパッケージで実装された)ものでないとき、新しい`goroutine`の中で親contextのcancelを`Done`で監視するので、`cancel`はこの`goroutine`のような暗黙的に確保されたリソースをリリースされます。
 
 ### sync
 
@@ -979,13 +990,14 @@ https://pkg.go.dev/sync/atomic@go1.22.3
 おそらく対象読者には`mutex`や`atomic`自体がなじみない概念だと思います。
 
 `mutex`(MUTual EXclusion=相互排他)はあるコードパス(よく*critical section*と呼ばれる)を実行している`thread of execution`が一つであることを保証する機能のことを指します。
-前述のとおり、複数の`thread`が同じ変数がアクセスし、少なくとも一つが`write`である場合data raceを起こします。`mutex`はこれらのリソースへのアクセスをたった１つのプロセス、あるいはスレッドに制限することでdata raceが起きるのを防ぐことができます。
+前述のとおり、複数の`thread`が同じ変数がアクセスし、少なくとも一つが`write`である場合data raceを起こします。一般的な`mutex`はこれらのリソースへのアクセスをたった１つのプロセス、あるいはスレッドに制限することでdata raceが起きるのを防ぐことができます。
+
 `mutex`は大抵`Lock`と`Unlock`ができるインターフェイスを備え、`Lock`によってコードパスをロックします。`Lock`を保持している状態で他の`thread`が`Lock`を呼び出すと、`Lock`を保持している`thread`が`Unlock`を呼び出すまでその`thread`はブロックしつづけます。
 
 `atomic`はCPUに備わった命令(`x86`では`LOCK` prefix)を利用してある変数の観測と変更をほかのスレッドにわりこまれないようにするものです。`mutex`より粒度が小さくできることが限られています。`mutex`の実装にも使われています。
 
-[Node.js]もとい`javascript`はスクリプトの実行はシングルスレッドなのでこういった概念が必要ないケースも多かったでしょうし、[python]には`GIL`があるのでこういう概念自体がなくてもすべてのコード呼び出しはシリアライズされていたので意識しなかったかもしれません。
-(ただ[python]においては今後[PEP703](https://peps.python.org/pep-0703/)が徐々に実装されて`GIL`を解除できるようになったらこういう`mutex`を使わないといけなくなるかもしれません。)
+[Node.js]もとい`javascript`はスクリプトの実行はシングルスレッドですし、[python]には`GIL`があるので`python`コードはシリアライズされて実行されます。
+(ただし[python]においては[PEP703](https://peps.python.org/pep-0703/)が実装されるとデフォルトが`GIL`無効になるかもしれないが)
 single threadな両者でも時にconcurrentなリソースへアクセスする際に制限をする必要があることがあるので、[async-mutex](https://www.npmjs.com/package/async-mutex)などを利用した対象読者も多いかもしれません。
 
 `mutex`と`atomic`変数以外のsynchronization primitiveは`mutex`や`atomic`を使って実装されています。
@@ -1187,6 +1199,8 @@ func loadImage(name string) (image.Image, error) {
 
 #### sync.Condの基本的な使い方
 
+[sync.Cond](https://pkg.go.dev/sync@go1.22.3#Cond)は筆者的にはわかりにくかったので基本的な使い方から入ります。
+
 ```go
 c.L.Lock()
 defer c.L.Unlock()
@@ -1220,6 +1234,10 @@ for !condition(someVar) {
 となります。
 
 `runtime_notifyListWait`がランタイムによりブロックされる`Wait`の本体のようなロジックです。見てのとおり、`c.L.Unlock`が呼ばれるので、`Wait`中はロックは解除されています。
+`runtime_notifyListAdd`で`c.notify.waiter`カウンターを1つインクリメントして、-1して(=つまりインクリメントする前の数値)返します。
+`c.Broadcast`や`c.Signal`が`c.notify.notify`をインクリメントし、`t < c.notify.notify`になるまで待つ、という感じっぽいです。
+
+`runtime_notifyListWait`がアンブロックしてから`c.L.Lock()`が取れるまでに発生した`Broadcast`はとり逃してしまうのでここにrace conditionがあります。
 
 #### Example: Cond Wait
 
@@ -1542,8 +1560,8 @@ keyの型がstringだけなので、重い関数の呼び出しパラメータ�
 サーバープログラムは通常明示的に終了されるまで動作し続けます。
 終了は大抵の場合`SIGTERM`などのシグナルによってされることが多いです。
 
-`Go`におけるsignalはすべてruntimeによってキャッチされます。
-つまり下記の「pid 1だとシグナル受け取れない問題」が起きません。
+`Go`はruntimeが起動時にすべてのsignalのsignal handlerをインストールします。
+つまり下記の「pid 1だとシグナルのデフォルトアクションによる終了が起きない問題」が起きません。
 
 > https://man7.org/linux/man-pages/man2/kill.2.html#NOTES
 >
