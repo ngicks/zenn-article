@@ -228,6 +228,8 @@ New(WithHTTPRequestDoer(c))
 
 コード例を先に示し、説明を後に乗せます。
 
+##### non-stream版
+
 [snippet](https://github.com/ngicks/go-basics-example/blob/main/snipet/http-request-multipart-form-data/main.go)
 
 ```go
@@ -338,6 +340,8 @@ func sendMultipart(ctx context.Context, url string, client *http.Client) error {
 - 4. [(\*Writer).FormDataContentType](https://pkg.go.dev/mime/multipart@go1.22.3#Writer.FormDataContentType)でboundary込みの`Content-Type`を得られます。これは手動でセットする必要があります。
 
 ただこの方法だと一旦[bytes.Buffer](https://pkg.go.dev/bytes@go1.22.3#Buffer)などにすべてのデータを受けてしまうことになり、各セクションのデータが大きい場合メモリ的負荷が高くなってしまいます。そこで、[io.Pipe](https://pkg.go.dev/io@go1.22.3#Pipe)を使ってストリーム化します。
+
+##### stream版
 
 多分以下の方法がidiomaticだと思います。ご意見などお待ちしてます。
 
