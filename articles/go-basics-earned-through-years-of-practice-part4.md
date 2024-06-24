@@ -721,14 +721,25 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L3254-L3286
 
 `*http.Server`は`(net.Listener).Accept`した後さらに`context.Context`をあれこれマネージしたり新しい`goroutine`で`conn`からヘッダーを読んで[\*http.Request](https://pkg.go.dev/net/http@go1.22.3#Request), [http.ResponseWriter](https://pkg.go.dev/net/http@go1.22.3#ResponseWriter)を用意したりして`Hnadler`を呼び出します。
 
-[\*http.ServeMux](https://pkg.go.dev/net/http@go1.22.3#ServeMux)はそれ自体が`http.Handler`です。`*http.ServeMux`はpath patternとそれ対応した`http.Handler`を登録しておくことでroutingを実現してくれるものです。
+[\*http.ServeMux](https://pkg.go.dev/net/http@go1.22.3#ServeMux)は[Router](https://expressjs.com/ja/starter/basic-routing.html)のことです。
+それ自体が`http.Handler`で、他の`http.Handler`をpath patternとともに登録しておくことで、http requestのPathに応じてroutingを行うmux(Multiplexer)であるということです。
 
-筆者は初見の時`mux`という言い回しにピンとこずに困りました。`mux`は`multiplexer`のことで、この略し方は別段`Go`に限らずされるときはされるみたいです。`multiplexer`という語自体ははデジタル回路を勉強したことがある対象読者は聞いたことがあることでしょう(アナログマルチプレクサも存在します)。回路などで言う`multiplexer`は複数の情報ストリームを１つの信号線で流す多重化の仕組みことです。ソフトウェアの文脈で言えば`HTTP/2`/`QUIC`が１つの`TCP`/`UDP`コネクションの上で`stream`を複数流すことを`multiplex`と言いますね。
+:::details muxという言い回し
+
+筆者は初見の時`mux`という言い回しにピンとこずに困りました。`mux`は`multiplexer`のことで、この略し方は別段`Go`に限らずされるときはされるみたいです。(e.g. [tmux](https://github.com/tmux/tmux))
+
+`multiplexer`という語自体ははデジタル回路を勉強したことがある対象読者は聞いたことがあることでしょう(アナログマルチプレクサも存在します)。回路などで言う`multiplexer`は複数の情報ストリームを１つの信号線で流す多重化の仕組みことです。ソフトウェアの文脈で言えば`HTTP/2`/`QUIC`が１つの`TCP`/`UDP`コネクションの上で`stream`を複数流すことを`multiplex`と言いますね。
+
+:::
 
 #### stdのみ
 
 前述のとおり、こういう感じでサーバーを書くことができます。
 下記の状態では、どのパスにアクセスされても`mux.Handle`の行に到達するようになっています。
+
+##### skeleton
+
+シンプルな構成は以下のようになります。
 
 ```go
 package main
@@ -768,20 +779,40 @@ func main() {
 
 このサンプルではオミットされていますが実際には`http.Handler`から呼び出されるアプリケーションがあって、これらの初期化やリクエスト可能になるまでの準備を先に行うことになるでしょう。
 
-[mux.Handle](https://pkg.go.dev/net/http@go1.22.3#ServeMux.Handle)はpath pattern, [http.Handler](https://pkg.go.dev/net/http@go1.22.3#Handler)を登録しておくことができ、incoming requestのPathがもっとも一致するpath patternに登録される`http.Handler`にルーティングします。
-[http.HandlerFunc](https://pkg.go.dev/net/http@go1.22.3#HandlerFunc)は関数を`http.Handler`に変換するための型です。`Go`を書いているとこういう感じで関数や単なる変数がinterfaceを満たすことができるような型を作ることがよくあると思うので覚えておくほうが良いと思います。
+##### Routing
 
-[Go 1.22](https://tip.golang.org/doc/go1.22#enhanced_routing_patterns)より[mux.Handle](https://pkg.go.dev/net/http@go1.22.3#ServeMux.Handle)のpath patternの扱いに変更がいろいろはいりMETHODを持つことができるようになりました。
+[mux.Handle](https://pkg.go.dev/net/http@go1.22.3#ServeMux.Handle)はpath pattern, [http.Handler](https://pkg.go.dev/net/http@go1.22.3#Handler)を登録しておくことができ、incoming requestのPathがもっとも一致するpath patternに登録される`http.Handler`にルーティングします。
+
+[http.HandlerFunc](https://pkg.go.dev/net/http@go1.22.3#HandlerFunc)は関数`func(w http.ResponseWriter, r *http.Request)`を`http.Handler`に変換するための型です。`Go`を書いているとこういう感じで関数や単なる変数がinterfaceを満たすことができるような型を作ることがよくあると思うので覚えておくほうが良いと思います。
 
 ```go
-	// GETはGET/HEADでマッチ
-	mux.Handle("GET /foo", handler)
-	// {name}でpath paramを設定できる。muxを通過した後にハンドラ内でr.PathValue("name")でこのパスを取得できる。
-	mux.Handle("POST /foo/{parma}", handler)
-	// 上記のmethod付きにマッチしないときこっちにルーティングされるので、http.StatusMethodNotAllowedを返したいならこういうルートを作る。
-	mux.Handle("/foo", handler)
-	// 他にマッチしないときここに必ずルートされる。
-	mux.Handle("/", handler)
+// 他にマッチしないときここに必ずルートされる。
+mux.Handle("/", handler)
+mux.Handle("/foo", handler)
+mux.Handle("/bar", handler)
+mux.Handle("/baz/{id}", handler)
+```
+
+[Go 1.22](https://tip.golang.org/doc/go1.22#enhanced_routing_patterns)より[mux.Handle](https://pkg.go.dev/net/http@go1.22.3#ServeMux.Handle)のpath patternの扱いに変更がいろいろはいりHTTP Methodをパターンに持つことができるようになりました。
+
+```go
+// GETはGET/HEADでマッチ
+mux.Handle("GET /foo", handler)
+// {name}でpath paramを設定できる。muxを通過した後にハンドラ内でr.PathValue("name")でこのパスを取得できる。
+mux.Handle("POST /foo/{parma}", handler)
+// 上記のmethod付きにマッチしないときこっちにルーティングされるので、http.StatusMethodNotAllowedを返したいならこういうルートを作る。
+mux.Handle("/foo", handler)
+// 他にマッチしないときここに必ずルートされる。
+mux.Handle("/", handler)
+```
+
+前述通り、各[http.Handler](https://pkg.go.dev/net/http@go1.22.3#Handler)は[http.ResponseWriter](https://pkg.go.dev/net/http@go1.22.3#ResponseWriter), [\*http.Request](https://pkg.go.dev/net/http@go1.22.3#Request)を受け渡されます。
+
+```go
+handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"result":"foobarbaz"}` + "\n"))
+})
 ```
 
 `r`はclient側の実装で取り扱った`*http.Request`と全く同じものなので`URL`フィールドや`Header`フィールドを持っています。それらを判定に使うことができます。
@@ -814,6 +845,8 @@ mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"result":"ok"}` + "\n"))
 }))
 ```
+
+##### example: JSON store
 
 適当な例として`sync.Map`に`type Sample struct {	Foo string;	Bar int }`なJSONを収めて取得できるハンドラを書いてみます。
 
@@ -868,7 +901,7 @@ type postResult struct {
 func main() {
 	mux := http.NewServeMux()
 	var store sync.Map
-		mux.Handle("POST /pp/{key}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /pp/{key}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
 		key := r.PathValue("key")
@@ -940,13 +973,199 @@ func main() {
 middlewareが欲しいし、結構ボイラープレートな処理がすでに発生していますね。
 後述の[github.com/labstack/echo](https://github.com/labstack/echo)を使う版ではこれを解決したいと思います。
 
+##### context.Contextハンドリング
+
 `*http.Server`の`BaseContext`および`ConnContext`フィールドにコールバック関数を渡すことで、サーバー全体/コネクション(=request)レベルで`context.Context`をトラップして変更できます。
 これらの`context.Context`は[(\*http.Request).Context](https://pkg.go.dev/net/http@go1.22.3#Request.Context)で取得できますので、`http.Handler`内で呼ばれる関数にはこれが渡されることが多いでしょう。
+
 ただし、[(\*http.Server).Close](https://pkg.go.dev/net/http@go1.22.3#Server.Close)を呼べば、この`context.Context`はcancelされるので、context cancellationのために絶対にセットしないといけないということはありません。
 
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+)
+
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	mux := http.NewServeMux()
+
+	type keyTy string
+	var (
+		baseKey keyTy = "base-key"
+		connKey keyTy = "conn-key"
+	)
+	server := &http.Server{
+		Handler: mux,
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			return context.WithValue(ctx, connKey, "conn")
+		},
+		BaseContext: func(l net.Listener) context.Context {
+			return context.WithValue(context.Background(), baseKey, "base")
+		},
+	}
+
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger.Info(
+			"context",
+			slog.Any(string(baseKey), r.Context().Value(baseKey)),
+			slog.Any(string(connKey), r.Context().Value(connKey)),
+		)
+	}))
+
+	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		panic(err)
+	}
+
+	logger.Info(fmt.Sprintf("listening = %s", listener.Addr()))
+	logger.Info(fmt.Sprintf("server closed = %v", server.Serve(listener)))
+}
+// time=2024-06-24T12:03:57.577Z level=INFO msg=context base-key=base conn-key=conn
+```
+
+##### Graceful shutdown
+
 `*http.Server`のgraceful shutdownには[(\*http.Server).Shutdown](https://pkg.go.dev/net/http@go1.22.3#Server.Shutdown), 強制的な終了には[(\*http.Server).Close](https://pkg.go.dev/net/http@go1.22.3#Server.Close)を用います。
-`Close`が呼ばれると、requestについてくるcontextはcancelされます。
-新しいrequestが来た時点で、connは別goroutineでRead待ちの状態になっており[[1]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L2028)[[2]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L677), `Close`がこれらのconnを閉じる[[3]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L2950)ことでエラーが起きます[[4]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L712),それによってrequestの親contextがcancelされます[[5]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L749)
+
+`Shutdown`は新規のリクエストの受付を止め、現在処理中のリクエストの処理完了を待ってそれによって`nil`をリターンします。
+そのため、`Shutdown`をタイムアウト可能にするには`context.Context`を`context.WithTimeout`などでキャンセル可能にしておき、それによって`Shutdown`から抜けられるようにしておきます。
+
+[(\*http.Server).RegisterOnShutdown](https://pkg.go.dev/net/http@go1.22.3#Server.RegisterOnShutdown)でシャットダウン時に呼ばれるコールバック関数を登録できます。これによってWebsocketなどの通信をシャットダウンするようにシグナルするとよいとドキュメントに書かれています。
+
+`Close`が呼ばれると、`(*http.Request).Context()`で返されるcontextはcancelされます。
+新しいrequestが来た時点で、connは別goroutineでRead待ちの状態になっており[[1]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L2028)[[2]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L677), `Close`がこれらのconnを閉じる[[3]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L2950)ことでエラーが起きます,それによってrequestの親contextがcancelされます[[4]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L712)[[5]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L749)
+
+[snippet](https://github.com/ngicks/go-basics-example/tree/main/snipet/http-server-std-only-context-management-graceful-shutdown/main.go)
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+)
+
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	mux := http.NewServeMux()
+
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger.Info("blocking on context")
+		<-r.Context().Done()
+		logger.Info("context canceled", slog.Any("err", r.Context().Err()), slog.Any("cause", context.Cause(r.Context())))
+	}))
+
+	server := &http.Server{
+		Handler: mux,
+	}
+
+	server.RegisterOnShutdown(func() {
+		logger.Info("on shutdown")
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		panic(err)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		logger.Info(fmt.Sprintf("listening = %s", listener.Addr()))
+		// Serveでブロックしておく
+		logger.Info(fmt.Sprintf("server closed = %v", server.Serve(listener)))
+	}()
+
+	// 別のgoroutineでsignal待ちに入る
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// signal.Notifyでsignalを待ち受ける。
+		// とりあえずSIGINT, SIGTERMで事足りる。環境によって決める。
+		sigChan := make(chan os.Signal, 10)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+		// signalされるまで待つ。このサーバーはsignalされる以外に終了する手段がない
+		sig := <-sigChan
+		// osによらないメッセージを得られるのでprintしてもよい
+		logger.Warn(fmt.Sprintf("signaled with %q", sig))
+
+		// Shutdownは新しいrequestの受付を止めたうえで、処理中のrequestのresponseが帰るまで待つ。
+		// 上記Handler中ではブロックしたままなのでこのctxは必ずtimeoutする。
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		logger.Info("requesting shutting down the server")
+		err := server.Shutdown(ctx)
+		logger.Error("server shutdown error", slog.Any("err", err))
+
+		// 渡したcontext.Contextのキャンセルによるエラーなのかは下記のようにするとわかる。
+		// ただし、内部的に作成されたcontext.Contextのtimeoutやcancellationは検知できない。
+		// あくまで、このctxが返したエラーなのかどうかだけ。
+		// errors.Is(err, context.DeadlineExceeded)あるいは
+		// errors.Is(err ,context.Canceled)のほうが良い時もある。
+		if err != nil && errors.Is(err, ctx.Err()) {
+			logger.Error("closing server")
+			err := server.Close()
+			logger.Error("server close error", slog.Any("err", err))
+		}
+	}()
+
+	wg.Wait()
+}
+```
+
+以下でserverを起動し
+
+```
+# go run .
+```
+
+別のターミナルでリクエストします。
+
+```
+# curl localhost:8080/
+```
+
+以下のようなログが出ます。`^C`は`Ctrl+C`を押したたときにターミナルに表示されます。
+
+```
+time=2024-06-24T12:19:42.066Z level=INFO msg="listening = 127.0.0.1:8080"
+# handlerがblock
+time=2024-06-24T12:19:43.640Z level=INFO msg="blocking on context"
+# ^Cでinterrupt
+^Ctime=2024-06-24T12:19:45.409Z level=WARN msg="signaled with \"interrupt\""
+time=2024-06-24T12:19:45.409Z level=INFO msg="requesting shutting down the server"
+# Serveは即座にリターン
+time=2024-06-24T12:19:45.409Z level=INFO msg="server closed = http: Server closed"
+# RegisterOnShutdownで登録された関数が呼ばれている
+time=2024-06-24T12:19:45.409Z level=INFO msg="on shutdown"
+# 10秒たったのでtimeout
+time=2024-06-24T12:19:55.410Z level=ERROR msg="server shutdown error" err="context deadline exceeded"
+time=2024-06-24T12:19:55.410Z level=ERROR msg="closing server"
+# handlerがunblock
+time=2024-06-24T12:19:55.410Z level=INFO msg="context canceled" err="context canceled" cause="context canceled"
+time=2024-06-24T12:19:55.410Z level=ERROR msg="server close error" err=<nil>
+```
+
+ちょっとわかりにくいですが、`Close`を呼び出した後に`http.Handler`でブロックしていた`Done()`がunblockされています。
 
 #### [github.com/labstack/echo](https://github.com/labstack/echo)
 
@@ -1245,7 +1464,7 @@ components:
   schemas:
     Foo:
       type: object
-	  required:
+      required:
         - name
         - rant
       properties:
@@ -1676,14 +1895,24 @@ logger.Error("baz", "a", "b", "c", 123)
 [python]は[keyword argument](https://docs.python.org/3/glossary.html#term-argument)があったり、[winston](https://www.npmjs.com/package/winston)ではObjectをそのまま渡すことが多かったりします。
 `Go`にはそういったものはないですし、Objectみたいに`map[string]any`を書くのは煩雑だったりするので、variadic argと`With`のようなメソッドで解決する形になります。
 
-### Log contextのストレージ
+### log contextのストレージ
 
 log contextを引きまわすことですべてのログにトレースIDを乗せることができますが、引き回す方法がそのままコードの複雑さに跳ね返ります。
 すでに前述のとおり、[*slog.Logger]\(というか[slog.Handler]\)にlog contextを関連付けることができることは述べましたが、実は`context.Context`によって引きまわすこともできます。
 
-普通、マルチスレッドなプログラムは`TLS(Thread Local Storage)`にスレッド固有なデータを入れるのが普通らしいです。
+- [*slog.Logger]
+  - というか[slog.Handler]
+  - `With`, `WithAttrs`, `WithGroup`で任意の情報をlog contextに追加したlogger objectが作られる
+- `context.Context`
+  - [*slog.Logger]には`InfoContext(ctx context.Context, msg string, args ...any)`のようなメソッドがあり、これから情報を引き出してログに乗せることが想定されています。
+  - 大抵の長く動作する関数は第一引数でこれを受け取ります。
+    - [WithValue](https://pkg.go.dev/context@go1.22.3#WithValue)によって任意の情報を任意のキーに関連付けた形で格納した`context.Context`を得られることができる
+    - `Value`メソッドによって、キーに関連づいた情報を引き出せる
+  - ただし、`log/slog`で提供される`slog.Handler`(`slog.TextHandler`、`slog.JSONHandler`)は`context.Context`から情報を引き出してログに乗せる機能を提供しない(`Go1.22.4`時点)。
+    - なのでサンプルとして`context.Context`をとって格納された値をログに乗せる`slog.Handler`のexampleを実装します(後述)
+
+普通、マルチスレッドなプログラムは`TLS(Thread Local Storage)`にスレッド固有なデータを入れるものらしいです。
 `POSIX API`で言えば[pthread_getspecific(3p)](https://man7.org/linux/man-pages/man3/pthread_getspecific.3p.html)で取り出します。
-`Go`は`goroutine`を特定する方法が通常ないことからわかる通り、`goroutine`ローカル的な考え自体がありません。
 
 と言いつつ、`TLS`自体対象読者にとってはあまりなじみない何かだと思います。
 なぜなら通常[python]も[Node.js]も`async`なコンテキストを追跡するAPIを提供し、通常そちらを使うことが多いからなはずだからです。
@@ -1696,18 +1925,8 @@ log contextを引きまわすことですべてのログにトレースIDを乗�
 これらはすべて`async`なコンテキストごとにデータを保存できるのでこれらをlog contextのストレージとして使うことができました。
 言及しておいてなんですが、`tokio::task::LocalKey`は触ったことがないのでどういう制約があるのかはさっぱりです。
 
-これらに対して`Go`はもっと明示的に引き回します。
-
-- [*slog.Logger]
-  - というか[slog.Handler]
-  - `With`, `WithAttrs`, `WithGroup`で任意の情報をlog contextに追加したlogger objectが作られる
-- `context.Context`
-  - [*slog.Logger]には`InfoContext(ctx context.Context, msg string, args ...any)`のようなメソッドがあり、これから情報を引き出してログに乗せることが想定されています。
-  - 大抵の長く動作する関数は第一引数でこれを受け取ります。
-    - [WithValue](https://pkg.go.dev/context@go1.22.3#WithValue)によって任意の情報を任意のキーに関連付けた形で格納した`context.Context`を得られることができる
-    - `Value`メソッドによって、キーに関連づいた情報を引き出せる
-  - ただし、`log/slog`で提供される`slog.Handler`(`slog.TextHandler`、`slog.JSONHandler`)は`context.Context`から情報を引き出してログに乗せる機能を提供しない(`Go1.22.4`時点)。
-    - なのでサンプルとして`context.Context`をとって格納された値をログに乗せる`slog.Handler`のexampleを実装します(後述)
+`Go`は`goroutine`を特定する方法が通常ないことからわかる通り、`goroutine`ローカル的な考え自体がありません。
+`*slog.Logger`や`context.Context`のような明確な方法でlog contextをやり取りします。
 
 ### log contextを構築する
 
@@ -2148,8 +2367,102 @@ logger.LogAttrs(ctx, level, msg, slog.Group("s", slog.Int("a", 1), slog.Int("b",
 このケースのように、なるだけトップレベルに情報を後付けしたいよっていうケースではそれらの挙動がどうしても邪魔になってしまうため、`Handle`まで下層の`slog.Handler`を触らないようにしています。
 
 思いのほか面倒ですね。パフォーマンスと使いやすさと間違いにくさの折り合いがつくのがこの辺だったのでしょう。
+
 実際[zapのパフォーマンステスト](https://github.com/uber-go/zap?tab=readme-ov-file#performance)を見ても、そこまでめちゃくちゃ遅い感じはしないです。特に`WithAttrs`された場合、その時点でログが部分的に書きだされるのが機能しているのか、`already has 10 fields of context`のテストでは結構パフォーマンスがいいですから、そういうことなんでしょうね。
-ここら辺がもうちょい簡単だったら`XmlHandler`も例示してみようかなとか考えていたんですが、難しそうなのでやめておきました。
+
+ここら辺がもうちょい簡単だったら`XmlHandler`も例示してみようかなとか考えていたんですが、難しそうなのでやめておきました。(そもそもxmlと`map[string]any`の相互変換が難しいのでそのせいで`slogtest.TestHandler`に通しにくいのもある)
+
+### example: echo middlewareでcontext.Contextに\*slog.Loggerを持たせる
+
+[example-request-idをつける](#example-request-idをつける)のところで述べた、`*slog.Logger`と`X-Request-Id`と`context.Context`の組み合わせの話です。
+
+`echo`のmiddlewareで`*http.Request`にぶら下がる`context.Context`に`*slog.Logger`を関連付け、関連付ける`*slog.Logger`に`With`で`Request-Id`を渡します。
+
+こうすることで、`Handler`は`*http.Request`の`context.Context`からロガーを取り出せば、常に`Request-Id`の付いたログを行うことができるため、サービス間串刺しでのログ追跡が容易になります。
+
+`context.Context`への値の関連付けは簡単化のために[github.com/ngicks/go-common/contextkey](https://github.com/ngicks/go-common/blob/main/contextkey/slog_logger.generated.go)を作って筆者はそれを利用することにしています。
+
+[snippet](https://github.com/ngicks/go-basics-example/tree/main/snipet/logger-slog-echo-server/main.go)
+
+```go
+package main
+
+import (
+	"crypto/rand"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+
+	"github.com/labstack/echo/v4"
+	"github.com/ngicks/go-common/contextkey"
+)
+
+func main() {
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+
+	baseLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
+
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			reqId := c.Request().Header.Get("X-Request-Id")
+			if reqId == "" {
+				var bytes [16]byte
+				_, err := io.ReadFull(rand.Reader, bytes[:])
+				if err != nil {
+					return err
+				}
+				reqId = fmt.Sprintf("%x", bytes)
+			}
+			c.SetRequest(
+				c.Request().WithContext(
+					contextkey.WithSlogLogger(
+						c.Request().Context(),
+						baseLogger.With(slog.String("request-id", reqId)),
+					),
+				),
+			)
+			return next(c)
+		}
+	})
+
+	// fallback先にio.Discardに書き込むloggerを用意しておくと、context.Contextにロガーがない時ログを出さないという決断ができます。
+	nopLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	e.GET("/", func(c echo.Context) error {
+		logger := contextkey.ValueSlogLoggerFallback(c.Request().Context(), nopLogger)
+		logger.Info("request")
+		return nil
+	})
+
+	server := &http.Server{
+		Handler: e,
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("listening = %s\n", listener.Addr())
+	fmt.Printf("server closed = %v\n", server.Serve(listener))
+}
+```
+
+```
+# client
+curl localhost:8080/
+# server
+{"time":"2024-06-24T16:56:42.005664845Z","level":"INFO","msg":"request","request-id":"237d0641b8fe95e3fbf9b874f3c9308e"}
+# client
+curl localhost:8080/ -H 'X-Request-Id:foobar'
+# server
+{"time":"2024-06-24T16:57:01.051332767Z","level":"INFO","msg":"request","request-id":"foobar"}
+```
+
+ちゃんとついていますね。
 
 ## slice
 

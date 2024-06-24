@@ -26,7 +26,7 @@ yet another入門記事です。
   - なぜそれらを使わないといけないか(`data race`)についても述べます
 - signal handling
 
-筆者は「並行」と「並列」がどっちがどっちのことを言ってるのかたびたびわからなくなってしまうので全般的に並行のことを*concurrent*, *concurrency*と記述し、並列のことを*parallel*, *parallelism*と記述します。
+筆者は「並行」と「並列」がどっちがどっちのことを言ってるのかたびたびわからなくなってしまうので _concurrent_, _concurrency_ および _parallel_, _parallelism_ と記述します。
 
 ## 2種の想定読者
 
@@ -435,6 +435,7 @@ $ go install -race mypkg // to install the package
 - ライブラリが`race`フラグを見て動作を変える部分もあります。(例: [sync.Poolはrace enabledだとランダムな要素をPutしない](https://github.com/golang/go/blob/go1.22.3/src/sync/pool.go#L100-L107))
 - race detectorはメモリが同時に読み書きされないかチェックするツールなのでたまたま衝突が起きないケースがあると検出できません。
   - 衝突が起きやすくなるように異なる関数やメソッドを同時に動作させるテストを書くといいかもしれません。
+  - n回に1回しか衝突が起きないこともあるので何度も動作させてみるのもいいかもしれません。
 
 上記のコードスニペットをrace detector付きで実行すると、以下のように警告がstderrにプリントされます。
 (ソースのコードパスは一応`--redacted--`に置き換える編集をしています。実際にはソースのローカルストレージ上の絶対パスが出力されます)
@@ -642,6 +643,8 @@ func main() {
     - buffer-size 1の例に`time.Timer`がちょうどいいかと思っていたんですが、`Go1.23`から改善が入るので正しくなってしまいました。
       - https://github.com/golang/go/issues/37196
       - https://github.com/golang/go/commit/966609ad9e
+  - e.g. [signal.Notify](https://pkg.go.dev/os/signal@go1.22.3#Notify)で受け取るchannelは1以上のバッファーをつける必要がある。
+    - `select { case c <- sig; default: }`でnon-blockingに送信するため
   - 後述のnotifier
 - N: pipeline風にデータを引き渡しており、consumerとproducerの間に処理速度差があり、producerがburstyならば、バックプレッシャーをかけ始めたい任意のサイズN
   - 現実的に起こるイベントはほとんどそう(だから在庫管理が一つの学問になるん)だろうという突っ込みはあります。
@@ -662,9 +665,9 @@ buffer-size n > 1が便利な場面もあるけど、大抵の場合は0か1だ�
     - ただし`Stop`はしよう。`Stop`を呼ばないと[finalizer](https://pkg.go.dev/runtime@go1.22.3#SetFinalizer)が実行されない(`Go1.22.0`時点)。
 - いろんなところでcloseするのは避ける
   - `close of closed channel`, `send on closed channel`でパニックが起きるため、`close`の責務を負うのは誰なのかを明確にすべき
-    - `make(chan T)`を呼んだ関数/structが責任をもってcloseを呼ぶ、とか
-  - `chan<- T`を関数が返す時、closeしてもらうことで終了を通知することがある。ドキュメントにそのように書く。
-  - 関数が`<-chan T`を返す時はcloseによって終了を通知することがある。ドキュメントにそのように書く。
+  - 例1: `make(chan T)`を呼んだ関数/structが責任をもってcloseを呼ぶ
+  - 例2: `chan<- T`を関数が返す時、closeしてもらうことで終了を通知する。ドキュメントにそのように書く。
+  - 例3: 関数が`<-chan T`を返す時は,呼び出し側はcloseによって終了を通知する。ドキュメントにそのように書く。
 - 場合によっては`sync.OnceFunc`などを使って１度しかcloseが呼ばれないのを保証する。
 - structのフィールドにchannelを引き渡すようなケースの場合大分ややこしいのでcloseによる終了の通知を避けることも多い
   - channelから値の読み出しを行うメソッドなりの第一期比数を`context.Context`とし、`Done()`で返されるchannelを通じて終了を通知する。
@@ -730,8 +733,11 @@ func (n *SpmcNotifier) Notify() {
 buffer-size 1のchannelを使ってイベントがあったことだけを保存する。
 こちらは通知される側が1つだけ、あるいは1度だけの時によく使うというイメージ。
 
-[time.Timer](https://pkg.go.dev/time@go1.22.3#Timer)が返す`C`はbuffer-size 1でchannelが埋まっていなければ時間をsendするようになっています。
-ただし`Go.1.23`から[改善が入る](https://github.com/golang/go/commit/966609ad9e)のでそれ以降はこの記述は正しくならなくなりました。
+- [time.Timer](https://pkg.go.dev/time@go1.22.3#Timer)が返す`C`はbuffer-size 1でchannelが埋まっていなければ時間をsendするようになっています。
+  - ただし`Go.1.23`から[改善が入る](https://github.com/golang/go/commit/966609ad9e)のでそれ以降はこの記述は正しくならなくなりました。
+- [signal.Notify](https://pkg.go.dev/os/signal@go1.22.3#Notify)は第一引数でchannelを渡して、プロセスがシグナルを受けとるたび、それを受け取ったchannelにsendされます。
+  - このchannelは1以上のバッファーをつける必要があります。
+  - `select { case c <- sig; default: }`でnon-blockingに送信するためです。
 
 ```go
 // Multi-producer single-consumer notifier
@@ -943,9 +949,10 @@ https://pkg.go.dev/context@go1.22.3
 - `Value`で`context.Context`に収められた任意の値を取り出すことができます
   - [context.WithValue](https://pkg.go.dev/context@go1.22.3#WithValue)で値を収めることができます。
   - ただこれらの`With*`関数は`context.Context`を入れ子にしていくので、上位のスコープに`Value`を伝搬したい場合は収めた値自体に工夫が必要です。
-    - e.g. `*sync.Map`を収めて下層で操作してもらう。
+    - e.g. 上位で`*sync.Map`を収めて下層で操作してもらう。
 - `Done`で`<-chan struct{}`を返します。`context.Context`がcancelされたときこのchannelはcloseされます。
 - cancelされた場合`Err`がnon-nil errorを返すようになります。
+- [context.Cause](https://pkg.go.dev/context@go1.22.3#Cause)で[context.WithCancelCause](https://pkg.go.dev/context@go1.22.3#WithCancelCause)などで返された[context.CancelCauseFunc](https://pkg.go.dev/context@go1.22.3#CancelCauseFunc)に渡された`error`を取り出せます。
 
 処理時間の長くかかる関数/メソッドはとりあえず第一引数に`context.Context`を受けとって起き、`ctx.Done()`や、`ctx.Err()`によってcancellationされた時を検知して即座にreturnできるようにするとよいでしょう。
 
@@ -998,7 +1005,7 @@ https://pkg.go.dev/sync/atomic@go1.22.3
 
 [Node.js]もとい`javascript`はスクリプトの実行はシングルスレッドですし、[python]には`GIL`があるので`python`コードはシリアライズされて実行されます。
 (ただし[python]においては[PEP703](https://peps.python.org/pep-0703/)が実装されるとデフォルトが`GIL`無効になるかもしれないが)
-single threadな両者でも時にconcurrentなリソースへアクセスする際に制限をする必要があることがあるので、[async-mutex](https://www.npmjs.com/package/async-mutex)などを利用した対象読者も多いかもしれません。
+single threadedな両者でも時にconcurrentなリソースへアクセスする際に制限をする必要があることがあるので、[async-mutex](https://www.npmjs.com/package/async-mutex)などを利用した対象読者も多いかもしれません。
 
 `mutex`と`atomic`変数以外のsynchronization primitiveは`mutex`や`atomic`を使って実装されています。
 
@@ -1588,8 +1595,8 @@ ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 ```
 
 `Notify`/`NotifyContext`のvariadicな第二引数で受け取るsignalを指定できますが、ここに何も渡さないとすべてのsignalを受け取れます。
-しかし基本的にはこうしません。
-なぜなら、`unix`では[preemptiveなスケジューリングのためにSIGURGを使用する](https://go.googlesource.com/proposal/+/master/design/24543-non-cooperative-preemption.md)ので、ノイズとなる[syscall.SIGURG](https://pkg.go.dev/syscall@go1.22.3#SIGURG)をたくさん受け取ってしまうためです。
+
+しかし基本的にはこうしません。なぜなら、`unix`では[preemptiveなスケジューリングのためにSIGURGを使用する](https://go.googlesource.com/proposal/+/master/design/24543-non-cooperative-preemption.md)ので、ノイズとなる[syscall.SIGURG](https://pkg.go.dev/syscall@go1.22.3#SIGURG)をたくさん受け取ってしまうためです。
 とりたいsignalだけを指定するようにするとよいでしょう。
 
 終了を通知されたいだけのケースの場合、とりあえずは以下二つだけを受けとっておけば困らないと思います
