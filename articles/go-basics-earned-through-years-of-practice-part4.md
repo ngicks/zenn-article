@@ -501,8 +501,8 @@ Headerに`X-Request-Id`がない場合付け足す`RoundTripper`実装です。
 > // RoundTrip should not modify the request, except for
 > // consuming and closing the Request's Body.
 
-と書かれています。以下実装ではmutationを防ぐために`req.Clone`を呼んでdata raceを避蹴ることができますが、
-これを行うと`redirect`のたびに`Clone`が呼ばれることになるので効率は悪いです。
+と書かれています。以下実装ではmutationを防ぐために`req.Clone`を呼んでdata raceを避けています。
+ただし、これを行うと`redirect`のたびに`Clone`が呼ばれることになるので効率は悪いです。
 
 `context.Context`経由でrequest-idが渡されるケースも想定してあります。
 
