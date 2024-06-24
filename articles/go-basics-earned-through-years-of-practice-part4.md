@@ -497,7 +497,9 @@ Headerに`X-Request-Id`がない場合付け足す`RoundTripper`実装です。
 > // RoundTrip should not modify the request, except for
 > // consuming and closing the Request's Body.
 
-と書かれています。以下実装ではmutationを防ぐために`req.Clone`を呼んでdata raceを避けます。
+と書かれています。以下実装ではmutationを防ぐために`req.Clone`を呼んでdata raceを避蹴ることができますが、
+これを行うと`redirect`のたびに`Clone`が呼ばれることになるので効率は悪いです。
+
 `context.Context`経由でrequest-idが渡されるケースも想定してあります。
 
 [snippet](https://github.com/ngicks/go-basics-example/blob/main/snipet/http-client-request-id/main.go)
@@ -550,7 +552,8 @@ client := &http.Client{
 }
 ```
 
-これを[echo](https://echo.labstack.com/)などのmiddlewareと`log/slog`を組み合わせると一貫したロギングができるので調査がしやすくなります(後述)。
+これを[echo](https://echo.labstack.com/)などのmiddlewareと`log/slog`を組み合わせると一貫したロギングができるので調査がしやすくなります([後述](#example-echo-middlewareでcontextcontextにslogloggerを持たせる))。
+
 `RoundTripper`でやるのは邪道な感はあるので、できれば`*http.Client`を呼び出す前の段階で`addReuqestID`を使ったほうがいいですね。
 
 ##### Example: 名前解決を[github.com/miekg/dns](https://github.com/miekg/dns)に差し替える
