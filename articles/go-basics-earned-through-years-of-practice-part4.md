@@ -556,7 +556,7 @@ client := &http.Client{
 }
 ```
 
-これを[echo](https://echo.labstack.com/)などのmiddlewareと`log/slog`を組み合わせると一貫したロギングができるので調査がしやすくなります([後述](#example-echo-middlewareでcontextcontextにslogloggerを持たせる))。
+これを[echo](https://echo.labstack.com/)などのmiddlewareと`log/slog`を組み合わせると一貫したロギングができるので調査がしやすくなります([後述](#example%3A-echo-middlewareでcontext.contextに*slog.loggerを持たせる))。
 
 `RoundTripper`でやるのは邪道な感はあるので、できれば`*http.Client`を呼び出す前の段階で`addReuqestID`を使ったほうがいいですね。
 
@@ -2381,7 +2381,7 @@ logger.LogAttrs(ctx, level, msg, slog.Group("s", slog.Int("a", 1), slog.Int("b",
 
 ### example: echo middlewareでcontext.Contextに\*slog.Loggerを持たせる
 
-[example-request-idをつける](#example-request-idをつける)のところで述べた、`*slog.Logger`と`X-Request-Id`と`context.Context`の組み合わせの話です。
+`example request-idをつける`のところで述べた、`*slog.Logger`と`X-Request-Id`と`context.Context`の組み合わせの話です。
 
 `echo`のmiddlewareで`*http.Request`にぶら下がる`context.Context`に`*slog.Logger`を関連付け、関連付ける`*slog.Logger`に`With`で`Request-Id`を渡します。
 
