@@ -1768,120 +1768,9 @@ type Sample struct {
 筆者はごく最近まで上記の https://github.com/oapi-codegen/nullable を知らなかったので、こういう方法があると思いついていませんでした。
 [以前の記事]を書いた時点ではポインターを使わずにデータのあるなしを表現したい/`T`がcomparableなら`undefined[T]`もcomparableであってほしいというのが念頭にあったので、できるとわかっていてもこの方法をとらなかったもしれないですが。
 
-リンク先の実装が`map[bool]T`を利用するので試しに`[]T`バージョンだとどんな感じになるのか試してみます。
+リンク先の実装が`map[bool]T`を利用するので試しに`[]T`バージョンだとどんな感じになるのか試しました
 
-[snippet](https://github.com/ngicks/und/blob/7023c73fcedcae8014dd8007bcbd230af3cc6824/internal/bench/slice.go)
-
-```go
-package bench
-
-import (
-	"encoding/json"
-
-	jsonv2 "github.com/go-json-experiment/json"
-	"github.com/go-json-experiment/json/jsontext"
-	"github.com/ngicks/und/v2"
-)
-
-type undSlice[T any] []und.Option[T]
-
-func (u undSlice[T]) IsZero() bool {
-	return u.IsUndefined()
-}
-
-func (u undSlice[T]) IsDefined() bool {
-	return len(u) > 0 && u[0].IsSome()
-}
-
-func (u undSlice[T]) IsNull() bool {
-	return len(u) > 0 && u[0].IsNone()
-}
-
-func (u undSlice[T]) IsUndefined() bool {
-	return len(u) == 0
-}
-
-func (u undSlice[T]) Value() T {
-	if u.IsDefined() {
-		return u[0].Value()
-	}
-	var zero T
-	return zero
-}
-
-var _ json.Marshaler = undSlice[any]{}
-
-func (u undSlice[T]) MarshalJSON() ([]byte, error) {
-	if !u.IsDefined() {
-		return []byte(`null`), nil
-	}
-	return json.Marshal(u[0].Value())
-}
-
-var _ json.Unmarshaler = (*undSlice[any])(nil)
-
-func (u *undSlice[T]) UnmarshalJSON(data []byte) error {
-	if string(data) == "null" {
-		if len(*u) == 0 {
-			*u = []und.Option[T]{und.None[T]()}
-		} else {
-			(*u)[0] = und.None[T]()
-		}
-		return nil
-	}
-
-	var t T
-	err := json.Unmarshal(data, &t)
-	if err != nil {
-		return err
-	}
-
-	if len(*u) == 0 {
-		*u = []und.Option[T]{und.Some(t)}
-	} else {
-		(*u)[0] = und.Some(t)
-	}
-	return nil
-}
-
-var _ jsonv2.MarshalerV2 = undSlice[any]{}
-
-func (u undSlice[T]) MarshalJSONV2(enc *jsontext.Encoder, opts jsonv2.Options) error {
-	if !u.IsDefined() {
-		return enc.WriteToken(jsontext.Null)
-	}
-	return jsonv2.MarshalEncode(enc, u.Value(), opts)
-}
-
-var _ jsonv2.UnmarshalerV2 = (*undSlice[any])(nil)
-
-func (u *undSlice[T]) UnmarshalJSONV2(dec *jsontext.Decoder, opts jsonv2.Options) error {
-	if dec.PeekKind() == 'n' {
-		err := dec.SkipValue()
-		if err != nil {
-			return err
-		}
-		if len(*u) == 0 {
-			*u = []und.Option[T]{und.None[T]()}
-		} else {
-			(*u)[0] = und.None[T]()
-		}
-		return nil
-	}
-	var t T
-	err := jsonv2.UnmarshalDecode(dec, &t, opts)
-	if err != nil {
-		return err
-	}
-
-	if len(*u) == 0 {
-		*u = []und.Option[T]{und.Some(t)}
-	} else {
-		(*u)[0] = und.Some(t)
-	}
-	return nil
-}
-```
+https://github.com/ngicks/und/blob/7023c73fcedcae8014dd8007bcbd230af3cc6824/internal/bench/slice.go
 
 `map[bool]T`版とのパフォーマンス差を測るために[benchも実装してみました](https://github.com/ngicks/und/blob/7023c73fcedcae8014dd8007bcbd230af3cc6824/internal/bench/beanch_test.go)
 
@@ -1898,7 +1787,7 @@ PASS
 ok      github.com/ngicks/und/v2/internal/bench 4.606s
 ```
 
-う～んslice版のほうが若干速いですね・・・！`github.com/go-json-experiment/json`版の場合slice版のほうがallocが増えるのはちょっとなんでなのか気になりますね。
+う～んslice版のほうが若干速いですね・・・！多分それなりにフェアな比較になっていると思います。
 
 この結果を受けて筆者の自分向けライブラリでは[slice版を実装して使っていく決断を下しました](https://github.com/ngicks/und/blob/2c4ec6b8c210ff97276f13c0777bdff3d2ff63a2/sliceund/slice.go)。
 
@@ -2538,7 +2427,6 @@ func main() {
 
 - [Github CLI](https://github.com/cli/cli/blob/faef2ddd81b0736748413a7c646cd0bfc26c00a0/pkg/cmd/root/root.go#L61)
 - [github.com/docker/cli](https://github.com/docker/cli/blob/8ed44f916fa908a04f03f69369bc2a16e0db7cc9/cmd/docker/docker.go#L67)
-- [github.com/docker/compose](https://github.com/docker/compose/blob/main/cmd/compose/build.go#L88)
 - [nerdctl](https://github.com/containerd/nerdctl/blob/c0adea84eb9aa77e8eeb4b0f73fbfe5455bacf57/cmd/nerdctl/main.go#L193)
 - [kubertenes](https://github.com/kubernetes/kubernetes/blob/master/pkg/kubectl/cmd/convert/convert.go#L93)
 
