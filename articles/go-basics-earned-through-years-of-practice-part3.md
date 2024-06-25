@@ -101,7 +101,7 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L3285
 
 という感じで新しいgoroutineでハンドラが実行されます。
 
-### goroutine
+## goroutine
 
 https://go.dev/ref/spec#Go_statements
 
@@ -238,7 +238,7 @@ MiB Swap:   8192.0 total,   8192.0 free,      0.0 used.  22346.2 avail Mem
 
 :::
 
-### goroutineはすべて終了できるようにする
+## goroutineはすべて終了できるようにする
 
 goroutineは[最低`2KiB`](https://github.com/golang/go/blob/go1.22.3/src/runtime/proc.go#L4901),[最大`1GB`](https://github.com/golang/go/blob/go1.22.3/src/runtime/proc.go#L153-L160)のstackを持ち、詳細な条件は調べてないのでわかりませんが、freeListに入れられて再利用されます。
 
@@ -309,9 +309,9 @@ func (w *Watcher) Wait() {
 }
 ```
 
-### Multi-threadedプログラムで起こる典型的問題: data race(race condition)
+## Multi-threadedプログラムで起こる典型的問題: data race(race condition)
 
-#### race condition
+### race condition
 
 [Wikipedia article](https://en.wikipedia.org/wiki/Race_condition)によれば、ソフトウェア文脈におけるrace conditionとは、複数のコードパスが同時に動作しており、それぞれのコードパスがそれぞれに予測とは異なった時間がかかってしまうことで、予測とは違った順序で処理を完了することで起きます。
 
@@ -321,7 +321,7 @@ func (w *Watcher) Wait() {
 
 そういったrace conditionの典型の一つにdata raceがあります。
 
-#### data race
+### data race
 
 [Data Race Detector](https://go.dev/doc/articles/race_detector)によれば、`Go`におけるdata raceは複数のgoroutineが同じ変数にアクセスしており、少なくとも1つ以上がwriteであると起きます。
 以下があげられているdata raceを起こすコードのスニペットです
@@ -415,7 +415,7 @@ func main() {
 }
 ```
 
-#### race detector
+### race detector
 
 ブログポスト[Data Race Detector](https://go.dev/doc/articles/race_detector)で紹介される通り、`Go`にはrace detectorというdata raceを検知するためのツールが組み込まれています。
 
@@ -491,7 +491,7 @@ Found 4 data race(s)
 exit status 66
 ```
 
-#### テストは-raceあり/なしどっちもで実行しよう
+### テストは-raceあり/なしどっちもで実行しよう
 
 race detectorは有効/無効でふるまいに違いが出てきます。(特にテストは)`-race`あり/なしどちらでも実行してうまく動作するか確認したほうがよいでしょう。
 
@@ -501,7 +501,7 @@ race detectorは有効/無効でふるまいに違いが出てきます。(特�
 
 もちろんしっかりsynchronizationを(テストの中で)とれるように実装する必要はあります。そのためのツールキットは次の節以降で触れていきます。
 
-### chan
+## chan
 
 https://go.dev/ref/spec#Channel_types
 
@@ -635,7 +635,7 @@ func main() {
 }
 ```
 
-#### buffer-sizeはどう決めるか？
+### buffer-sizeはどう決めるか？
 
 - 0: synchronizationしたい
 - 1: 送信でブロックしたくないけど受信はブロックしたい(i.e. asyncに通知を行いたい)
@@ -657,7 +657,7 @@ func main() {
 
 buffer-size n > 1が便利な場面もあるけど、大抵の場合は0か1だと思います。
 
-#### channelはどのようにcloseするか
+### channelはどのようにcloseするか
 
 - closeしない
   - closeしなくてもGCに回収される
@@ -672,7 +672,7 @@ buffer-size n > 1が便利な場面もあるけど、大抵の場合は0か1だ�
 - structのフィールドにchannelを引き渡すようなケースの場合大分ややこしいのでcloseによる終了の通知を避けることも多い
   - channelから値の読み出しを行うメソッドなりの第一期比数を`context.Context`とし、`Done()`で返されるchannelを通じて終了を通知する。
 
-#### 特定のchannelを優先するには1段selectで包む
+### 特定のchannelを優先するには1段selectで包む
 
 初期の講演でRob Pike自身も述べていますが[selectで送受信が同時に可能になっている場合ランダムにどれかが選ばれる](https://go.dev/ref/spec#Select_statements)ので、優先して送受信したいチャネルがある場合は、1段selectで包む必要があります
 
@@ -692,9 +692,9 @@ for {
 }
 ```
 
-#### Example: notifier
+### Example: notifier
 
-##### channel-close型: 受け取り側が複数の場合
+#### channel-close型: 受け取り側が複数の場合
 
 `<-chan struct{}`を返して、返したchannelをcloseすることでnotifyするパターン。
 通知される側が複数の時に用いられるのを見たことがある。
@@ -728,7 +728,7 @@ func (n *SpmcNotifier) Notify() {
 }
 ```
 
-##### 1-buffered channel型: 受け取り側が単数で、イベントの発生だけわかればいい場合
+#### 1-buffered channel型: 受け取り側が単数で、イベントの発生だけわかればいい場合
 
 buffer-size 1のchannelを使ってイベントがあったことだけを保存する。
 こちらは通知される側が1つだけ、あるいは1度だけの時によく使うというイメージ。
@@ -763,7 +763,7 @@ func (n *MpscNotifier) Notify() {
 }
 ```
 
-#### Example: send / recv one of
+### Example: send / recv one of
 
 今まで述べてきた性質を利用して、動的な個数のchannelを使ったselectを実装します。
 
@@ -940,7 +940,7 @@ https://github.com/ngicks/go-basics-example/tree/main/snipet/chan-one-of
 
 多分`reflect`を使うとオーバーヘッドがかかるので`len(chans)<=16`みたいな適当な小さい数までは固定数版に分岐する処理が妥当だと思って実装してみましたが、これが本当にいいことなのかはよくわかっていない(ベンチをとっていない)ので参考までに、という感じです。
 
-### context.Context
+## context.Context
 
 https://pkg.go.dev/context@go1.22.3
 
@@ -986,7 +986,7 @@ func longLoongJob(ctx context.Context) error {
 
 入れ子にするだけなのに何をリリースするねん？と思うかもしれませんが、親contextのcancelを伝搬するために親contextが既知の(≒contextパッケージで実装された)ものでないとき、新しい`goroutine`の中で親contextのcancelを`Done`で監視するので、`cancel`はこの`goroutine`のような暗黙的に確保されたリソースをリリースされます。
 
-### sync
+## sync
 
 https://pkg.go.dev/sync@go1.22.3
 https://pkg.go.dev/sync/atomic@go1.22.3
@@ -1009,7 +1009,7 @@ single threadedな両者でも時にconcurrentなリソースへアクセスす�
 
 `mutex`と`atomic`変数以外のsynchronization primitiveは`mutex`や`atomic`を使って実装されています。
 
-#### sync/atomicの概要
+### sync/atomicの概要
 
 [sync/atomic](https://pkg.go.dev/sync/atomic@go1.22.3)で各種`atomic`な変数の操作が実装されています。各`int`/`uint` variantに対して`Add*`, `CompareAndSwap*`, `Load*`, `Store*`, `Swap*`が実装されています。
 さらに[Go1.19](https://tip.golang.org/doc/go1.19#atomic_types)より便利な[atomic type](https://pkg.go.dev/sync/atomic@go1.22.3#pkg-types)が実装されています。
@@ -1033,7 +1033,7 @@ TODO: add progress reader example
 
 余談ですが、C++やRustはatomic accessのorderingを複数選択可能です([The Rustonomicon::atomics](https://doc.rust-lang.org/nomicon/atomics.html))が、[Goはsequentially consistentしかありません](https://pkg.go.dev/sync/atomic@go1.22.3#pkg-overview)
 
-#### syncの概要
+### syncの概要
 
 [sync](https://pkg.go.dev/sync@go1.22.3)は`Go`のstdが提供するツールキットの中でもとりわけ重要できちんと理解しておく必要があります。
 以下で現時点(=`Go1.22.3`)でexportされている関数や型を適当な順番でざっくり説明します。
@@ -1088,7 +1088,7 @@ TODO: add progress reader example
   - [こういう概念自体はPOSIX APIにもあって](https://man7.org/linux/man-pages/man3/pthread_cond_init.3p.html)広く認知されています
   - 一応使用例を後述します
 
-#### sync.Poolの典型的ユースケース: buf pool
+### sync.Poolの典型的ユースケース: buf pool
 
 [sync.Pool](https://pkg.go.dev/sync@go1.22.3#Pool)の典型的ユースケースにbuf poolがあります。
 
@@ -1162,7 +1162,7 @@ https://github.com/golang/go/blob/go1.22.3/src/crypto/tls/conn.go#L985-L995
 
 `Put`する前にgrowしたスライスをescape済みのポインターに再代入するとallocationの頻発を防げます。
 
-#### sync.Mapの典型的ユースケース: キャッシュ
+### sync.Mapの典型的ユースケース: キャッシュ
 
 [sync.Map](https://pkg.go.dev/sync@go1.22.3#Map)の想定される典型的ユースケースにcacheがあります
 
@@ -1204,7 +1204,7 @@ func loadImage(name string) (image.Image, error) {
 }
 ```
 
-#### sync.Condの基本的な使い方
+### sync.Condの基本的な使い方
 
 [sync.Cond](https://pkg.go.dev/sync@go1.22.3#Cond)は筆者的にはわかりにくかったので基本的な使い方から入ります。
 
@@ -1246,7 +1246,7 @@ for !condition(someVar) {
 
 `runtime_notifyListWait`がアンブロックしてから`c.L.Lock()`が取れるまでに発生した`Broadcast`はとり逃してしまうのでここにrace conditionがあります。
 
-#### Example: Cond Wait
+### Example: Cond Wait
 
 [sync.Cond](https://pkg.go.dev/sync@go1.22.3#Cond)の利用例を以下のように実装します。
 
@@ -1408,13 +1408,13 @@ func main() {
 }
 ```
 
-### sub-repositoryのsync
+## sub-repositoryのsync
 
 https://pkg.go.dev/golang.org/x/sync
 
 sub-repositoryにもsyncが実装されています。
 
-#### errgroup.Group
+### errgroup.Group
 
 https://pkg.go.dev/golang.org/x/sync@v0.7.0/errgroup#Group
 
@@ -1480,7 +1480,6 @@ func tasksErrgroup(ctx context.Context, tasks []task, work func(ctx context.Cont
 以下のような感じでしょうか
 
 ```go
-
 func tasksErrgroupRepanic(ctx context.Context, tasks []task, work func(ctx context.Context, t task) error) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(15)
@@ -1521,7 +1520,7 @@ panicよる強制終了は他のgoroutineのdeferを実行せずに終わって�
 panicは伝搬させられるならなるだけしたほうが良いと思います。
 とはいえ、筆者の体感上panicはほとんど遭遇しないので困る機会は少ないかもしれません。
 
-#### semaphore.Weighted
+### semaphore.Weighted
 
 https://pkg.go.dev/golang.org/x/sync@v0.7.0/semaphore#Weighted
 
@@ -1530,7 +1529,7 @@ token量で制限する[semaphore](<https://en.wikipedia.org/wiki/Semaphore_(pro
 
 `semaphore.Weighted`は`weighted semaphore`なので任意のtoken量`n`に対して、[(\*semaphore.Weighted).Acquire](https://pkg.go.dev/golang.org/x/sync@v0.7.0/semaphore#Weighted.Acquire)は任意の`m`を取得します。もし現在`m`個のtokenが利用可能でなければ、利用可能になるまでブロックし続けます。
 
-#### singleflight.Group
+### singleflight.Group
 
 https://pkg.go.dev/golang.org/x/sync@v0.7.0/singleflight#Group
 

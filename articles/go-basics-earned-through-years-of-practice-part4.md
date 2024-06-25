@@ -98,13 +98,15 @@ https://github.com/ngicks/go-basics-example
 
 ## HTTP client / server
 
+[net/http]: https://pkg.go.dev/net/http@go1.22.3
+
 現実的なソフトウェアを作るうえでHTTPを通じて通信を行うことは非常に多いと思います。
 
 最近では[gRPC](https://grpc.io/)を使うことも多いかもしれません(と言いつつ筆者は製品で使ったことはありませんが)
 
-### client
+HTTPで通信を行うclient / serverともに[net/http]で実装されます。下記でそれぞれポイントを紹介していきます。
 
-[net/http]: https://pkg.go.dev/net/http@go1.22.3
+## net/http client
 
 https://pkg.go.dev/net/http@go1.22.3#pkg-overview
 
@@ -129,7 +131,7 @@ https://pkg.go.dev/net/http@go1.22.3#pkg-overview
 
 cookieの保存は`Client`の`Jar`フィールドに[\*(net/http/cookiejar).Jar](https://pkg.go.dev/net/http/cookiejar@go1.22.3#Jar)インスタンスを渡せば大体のケースでokです。`Jar`フィールドは[CookieJar](https://pkg.go.dev/net/http@go1.22.3#CookieJar)というinterfaceなので挙動を変えたい場合は上記`net/http/cookiejar`実装をラップするなりします。
 
-#### \*http.Clientを引数として受け取る
+### \*http.Clientを引数として受け取る
 
 例えばその構造体が以下であるとして
 
@@ -220,7 +222,7 @@ New(WithHTTPRequestDoer(c))
 
 一般にdata raceを避けるために引数に受け取った`*http.Client`のフィールドに対してwriteを行うのはお勧めできない行為なので型の詳細はいりませんし、`Doer`のほうがtest doubleを用意しやすいのでこちらのほうが良いケースもたくさんあるでしょう。
 
-#### Requestを送る(multipart/form-data)
+### Requestを送る(multipart/form-data)
 
 普通のrequestの送り方はドキュメントを見ていたらすぐわかると思うので、基本から少し飛び出して`multipart/form-data`の送信のexampleを示します。
 
@@ -228,7 +230,7 @@ New(WithHTTPRequestDoer(c))
 
 コード例を先に示し、説明を後に乗せます。
 
-##### non-stream版
+#### non-stream版
 
 [snippet](https://github.com/ngicks/go-basics-example/blob/main/snipet/http-request-multipart-form-data/main.go)
 
@@ -341,7 +343,7 @@ func sendMultipart(ctx context.Context, url string, client *http.Client) error {
 
 ただこの方法だと一旦[bytes.Buffer](https://pkg.go.dev/bytes@go1.22.3#Buffer)などにすべてのデータを受けてしまうことになり、各セクションのデータが大きい場合メモリ的負荷が高くなってしまいます。そこで、[io.Pipe](https://pkg.go.dev/io@go1.22.3#Pipe)を使ってストリーム化します。
 
-##### stream版
+#### stream版
 
 多分以下の方法がidiomaticだと思います。ご意見などお待ちしてます。
 
@@ -484,7 +486,7 @@ func sendMultipartStream(ctx context.Context, url string, client *http.Client) e
 とりあえずこのようにしておけば、筆者が体験する限りrequestがはじかれるようなことはありませんでした。
 おそらくこれで行けてると思うんですが、ダメなケースがあるなどの場合コメントで教えていただけると幸いです。
 
-#### \*http.Clientを色々差し替える
+### \*http.Clientを色々差し替える
 
 `Go`のstdは全般的にいい感じの粒度でinterfaceに切り分けられているため、内部の挙動を実装をラップする形で差し替えたり変更するのが容易です。
 
@@ -492,7 +494,7 @@ func sendMultipartStream(ctx context.Context, url string, client *http.Client) e
 
 これがinterfaceであるので、これの実装である[http.Transport](https://pkg.go.dev/net/http@go1.22.3#Transport)をラップしたり、全く別な実装を与えることで挙動を変更することができます。
 
-##### Example: Request-idをつける
+#### Example: Request-idをつける
 
 Headerに`X-Request-Id`がない場合付け足す`RoundTripper`実装です。
 
@@ -560,7 +562,7 @@ client := &http.Client{
 
 `RoundTripper`でやるのは邪道な感はあるので、できれば`*http.Client`を呼び出す前の段階で`addReuqestID`を使ったほうがいいですね。
 
-##### Example: 名前解決を[github.com/miekg/dns](https://github.com/miekg/dns)に差し替える
+#### Example: 名前解決を[github.com/miekg/dns](https://github.com/miekg/dns)に差し替える
 
 ※例示であってセキュリティー的に安全なのかいまいちわかっていません。
 
@@ -690,11 +692,11 @@ DNS clientって何があるんですかね？こんな困りかたするの稀�
 筆者はDNSのメッセージフォーマットそのものをしっかり理解して[github.com/miekg/dns](https://github.com/miekg/dns)を直接使う方向に進もうかと思っています。
 お勧めのDNS Clientあったら教えてください。
 
-### server
+## HTTP server
 
 `Go`のhttp serverはstdの時点で非常に強力で、std以外を一切使わないで開発するというのも十分可能です。
 
-stdの`net/http`だけでサーバーを実装するときにかかわる概念をざっくり切り分けると以下のようになります。
+stdの[net/http]だけでサーバーを実装するときにかかわる概念をざっくり切り分けると以下のようになります。
 
 ```
         +---------------+
@@ -731,6 +733,13 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L3254-L3286
 [\*http.ServeMux](https://pkg.go.dev/net/http@go1.22.3#ServeMux)は[Router](https://expressjs.com/ja/starter/basic-routing.html)のことです。
 それ自体が`http.Handler`で、他の`http.Handler`をpath patternとともに登録しておくことで、http requestのPathに応じてroutingを行うmux(Multiplexer)であるということです。
 
+ここで重要なのは、`*http.Server`から上下に依存する`net.Listener`と`*http.ServeMux`・・・ではなく`http.Handler`はどちらもinterfaceであり、これらの実装は差し替え可能なので、
+
+- テストダブルへの差し替え
+- `net.Listener`に偽の`net.Conn`を返させることで、例えばstdin/stdoutごしにgRPCをさせる(できることまでは[確認しています](https://github.com/ngicks/example-grpc-over-file))
+
+みたいなことができるということです。
+
 :::details muxという言い回し
 
 筆者は初見の時`mux`という言い回しにピンとこずに困りました。`mux`は`multiplexer`のことで、この略し方は別段`Go`に限らずされるときはされるみたいです。(e.g. [tmux](https://github.com/tmux/tmux))
@@ -739,14 +748,15 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L3254-L3286
 
 :::
 
-#### stdのみ
+### stdのみ
 
-前述のとおり、こういう感じでサーバーを書くことができます。
-下記の状態では、どのパスにアクセスされても`mux.Handle`の行に到達するようになっています。
-
-##### skeleton
+#### skeleton
 
 シンプルな構成は以下のようになります。
+
+前述の構成図を逆順に初期化していく様に以下のように書けます。
+
+下記の状態では、どのパスにアクセスされても`handler`に到達するようになっています。
 
 ```go
 package main
@@ -786,7 +796,7 @@ func main() {
 
 このサンプルではオミットされていますが実際には`http.Handler`から呼び出されるアプリケーションがあって、これらの初期化やリクエスト可能になるまでの準備を先に行うことになるでしょう。
 
-##### Routing
+#### Routing
 
 [mux.Handle](https://pkg.go.dev/net/http@go1.22.3#ServeMux.Handle)はpath pattern, [http.Handler](https://pkg.go.dev/net/http@go1.22.3#Handler)を登録しておくことができ、incoming requestのPathがもっとも一致するpath patternに登録される`http.Handler`にルーティングします。
 
@@ -853,7 +863,7 @@ mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 }))
 ```
 
-##### example: JSON store
+#### example: JSON store
 
 適当な例として`sync.Map`に`type Sample struct {	Foo string;	Bar int }`なJSONを収めて取得できるハンドラを書いてみます。
 
@@ -980,7 +990,7 @@ func main() {
 middlewareが欲しいし、結構ボイラープレートな処理がすでに発生していますね。
 後述の[github.com/labstack/echo](https://github.com/labstack/echo)を使う版ではこれを解決したいと思います。
 
-##### context.Contextハンドリング
+#### context.Contextハンドリング
 
 `*http.Server`の`BaseContext`および`ConnContext`フィールドにコールバック関数を渡すことで、サーバー全体/コネクション(=request)レベルで`context.Context`をトラップして変更できます。
 これらの`context.Context`は[(\*http.Request).Context](https://pkg.go.dev/net/http@go1.22.3#Request.Context)で取得できますので、`http.Handler`内で呼ばれる関数にはこれが渡されることが多いでしょう。
@@ -1037,7 +1047,7 @@ func main() {
 // time=2024-06-24T12:03:57.577Z level=INFO msg=context base-key=base conn-key=conn
 ```
 
-##### Graceful shutdown
+#### Graceful shutdown
 
 `*http.Server`のgraceful shutdownには[(\*http.Server).Shutdown](https://pkg.go.dev/net/http@go1.22.3#Server.Shutdown), 強制的な終了には[(\*http.Server).Close](https://pkg.go.dev/net/http@go1.22.3#Server.Close)を用います。
 
@@ -1174,7 +1184,7 @@ time=2024-06-24T12:19:55.410Z level=ERROR msg="server close error" err=<nil>
 
 ちょっとわかりにくいですが、`Close`を呼び出した後に`http.Handler`でブロックしていた`Done()`がunblockされています。
 
-#### [github.com/labstack/echo](https://github.com/labstack/echo)
+### [github.com/labstack/echo](https://github.com/labstack/echo)
 
 `std`の`net/http`をラップする形でmiddlewareの追加などを提供するライブラリがあります。
 `net/http`を使わない別の方向に進んだライブラリももちろんあるんですがここではそれらは取り扱いません。
@@ -1800,7 +1810,7 @@ structured loggingというのは言葉の通り構造化された情報をロ�
 - log contextは任意の構造であること
   - `winston`の例で行くと`Object`
   - `structlog`で言うと`dict[str, Any]`
-  - `Go`の場合は`[]slog.Attr`
+  - `Go`の`log/slog`場合は`[]slog.Attr`
 - ログ出力時にはそれらの情報の構造を任意のフォーマットに変換して出力できること
 
 一般に、ログ出力時間、ログレベル、ロガーメソッドを呼び出したソースコード上の短い名前などを出力したいという要求があるため、特に設定を行わなくてもロガーメソッドを呼ぶだけでこれらの情報がlog contextに追加されて出力されることが多いです。
