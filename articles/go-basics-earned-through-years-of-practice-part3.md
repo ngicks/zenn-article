@@ -344,7 +344,7 @@ func main() {
 
 [FAQ: Why are map operations not defined to be atomic?](https://go.dev/doc/faq#atomic_maps)によると、`map[T]U`へのconcurrentなアクセスはruntime panicが起こるように特別なチェックがかかっていますので上記のコードもうまくいけば(うまくいかなければ？)fatal panicが起きます(試した限り`recover`できない)。
 
-`map[T]U`はruntimeにおいてはは[map構造体](https://github.com/golang/go/blob/go1.22.3/src/runtime/map.go#L116-L131)への[ポインター](https://go.dev/doc/effective_go#maps)で、mapへのwriteはあれこれ計算したうえで構造体に代入を行います(この場合[mapassign_faststr](https://github.com/golang/go/blob/go1.22.3/src/runtime/map_faststr.go#L203))。
+`map[T]U`はruntimeにおいてはは[hmapという構造体](https://github.com/golang/go/blob/go1.22.3/src/runtime/map.go#L116-L131)で[これはmapのheaderで内部にポインターを持ちます](https://go.dev/doc/effective_go#maps)。mapへのwriteはあれこれ計算したうえでこの構造体に代入を行います(この場合[mapassign_faststr](https://github.com/golang/go/blob/go1.22.3/src/runtime/map_faststr.go#L203))。
 readして計算してwriteを行いますので、複数のスレッドが同時にそのような処理を試みるとwrite中にreadして、途中のよくわからない状態を観測しまうことが考えれます。
 
 ...が、これを手元で動かしてみると特にエラーなく実行されることが多いですね。
