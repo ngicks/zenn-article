@@ -1257,7 +1257,7 @@ stdにおける、データ構造とバイト列`[]byte`との変換は全般的
 
 例えば、`encoding/csv`ならば`csv`とデータ構造との相互変換ができるなど、そういった感じです。
 
-`encoding/*`パッケージ群はserialize/deserializeの代わりに`Marshal`/`Unmarshal`という語を使います。
+`encoding/*`パッケージ群はserialize/deserializeの代わりに`Marshal`/`Unmarshal`という語を使います。おそらく単なるでデータと`map[string]any`のようなプログラム内の表現の相互変換をするというよりは、structのようなmethodを持てるデータ構造とのマッピングだらかそういう言い回しなんだと思います([参考: stack overflow::What is the difference between Serialization and Marshaling?](https://stackoverflow.com/questions/770474/what-is-the-difference-between-serialization-and-marshaling))
 
 以降の節では、std libraryを使った`json`と`xml`の読み書きの基本を紹介します。
 
@@ -1378,6 +1378,7 @@ type Unmarshaler interface {
 
 - `json.Marshaler`は1つの有効なjson valueの`[]byte`を返す
   - `[]byte("null")`でもよい
+  - method receiverをpointer type(`*T`)にすると、フィールドが[addressable](https://go.dev/ref/spec#Method_values)でないときに呼び出されない([参考](https://go.dev/play/p/Bh-pGQBUckm))
 - `json.Unmarshaler`は`[]byte`を解釈してメソッドレシーバに情報を代入する
   - なるだけ中途半端な結果を代入しないように、代入するのは処理最後まで遅延したほうが良い。
 - `type T struct`に(M|Unm)arshalerを実装する際、
