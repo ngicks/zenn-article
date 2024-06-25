@@ -1841,9 +1841,8 @@ func main() {
 
 いくつかびっくりポイントが存在します。
 
-以下はすでに述べたものですが
-
 - json.Unmarshal時、実はフィールドはcase-insensitiveに判定されます。
+- `MarshalJSON`のmethod receiverがpointer type`*T`の場合、[adrresable](https://go.dev/ref/spec#Method_values)でないとメソッドが呼ばれない
 
 現在`encoding/json/v2`のプロポーザルを出そうという試みが存在し、[Discussion](https://github.com/golang/go/discussions/63397)で`encoding/json`のびっくりポイントが包括的に述べられています。大体の場合基本的な使い方の範疇で困らないと思いますけどたまにこのびっくりポイントに引っ掛かると思うので読んでおくと参考になるかも。
 
