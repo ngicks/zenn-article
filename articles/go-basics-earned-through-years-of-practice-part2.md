@@ -886,7 +886,6 @@ stdのエラーが全般的にstacktrace情報を含んでくれればと思う�
 などだと思います。
 
 この辺のAPIはエンコーディングを指定すると勝手に文字列に変換されたり、指定しないと適当なサイズのバッファがallocateされていたり、ファイルを全部読みこんでメモリに乗せてしまうのが普通だったりします。(pythonはシステムのロケールを使ってしまうので日本語のwindowsでひどい目にあったことがあります。)
-エンコーディングの指定でstringが帰ってくるかバイト列が帰ってくるか切り替わるのは動的型付け言語ならではですね。
 
 これに対して`Go`は、[io.Reader](https://pkg.go.dev/io@go1.22.3#Reader)/[io.Writer](https://pkg.go.dev/io@go1.22.3#Writer)が中心的に取り扱われ、ファイル([\*os.File](https://pkg.go.dev/os@go1.22.3#File))はそれらを実装します。
 `Go`でstreamといえば[io.Reader](https://pkg.go.dev/io@go1.22.3#Reader)/[io.Writer](https://pkg.go.dev/io@go1.22.3#Writer)のことを指していることが多いと思います。
@@ -1378,7 +1377,6 @@ type Unmarshaler interface {
 
 - `json.Marshaler`は1つの有効なjson valueの`[]byte`を返す
   - `[]byte("null")`でもよい
-  - method receiverをpointer type(`*T`)にすると、フィールドが[addressable](https://go.dev/ref/spec#Method_values)でないときに呼び出されない([参考](https://go.dev/play/p/Bh-pGQBUckm))
 - `json.Unmarshaler`は`[]byte`を解釈してメソッドレシーバに情報を代入する
   - なるだけ中途半端な結果を代入しないように、代入するのは処理最後まで遅延したほうが良い。
 - `type T struct`に(M|Unm)arshalerを実装する際、
