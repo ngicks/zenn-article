@@ -1259,9 +1259,9 @@ stdにおける、データ構造とバイト列`[]byte`との変換は全般的
 
 `encoding/*`パッケージ群はserialize/deserializeの代わりに`Marshal`/`Unmarshal`という語を使います。
 
-この節では、std libraryを使った`json`と`xml`の読み書きの基本を紹介します。
+以降の節では、std libraryを使った`json`と`xml`の読み書きの基本を紹介します。
 
-### json
+## encoding/json
 
 [encoding/json]: https://pkg.go.dev/encoding/json@go1.22.3
 
@@ -1269,7 +1269,7 @@ jsonの`[]byte`とデータ構造の相互変換は[encoding/json]で行いま�
 
 go.devのブログポスト: [JSON and Go](https://go.dev/blog/json)
 
-#### json.(M|Unm)arshal
+### json.(M|Unm)arshal
 
 `json.Marshal`によってエンコード、`json.Unmarshal`によってデコードを行います。
 
@@ -1360,7 +1360,7 @@ func main() {
 なので、`map[string]any`への変換よりは、任意の型を受けつられる関数の様式になります。
 任意の型に対する演算を行うためには、`Go`では[reflect](https://pkg.go.dev/reflect@go1.22.3)を使います。`reflect`は`any`から型情報を得ることもできるので、データをallocateするかどうかをユーザーに選択させながら任意の変数を受けるには`any`で任意の型`T`の値のポインター`*T`を受け付けるのが都合がいいということになります。
 
-#### json.(M|Unm)arshaler
+### json.(M|Unm)arshaler
 
 対象の type が[json.Marshaler](https://pkg.go.dev/encoding/json@go1.22.3#Marshaler), [json.Unmarshaler](https://pkg.go.dev/encoding/json@go1.22.3#Unmarshaler)を実装している場合、そちらが優先して使われます。
 
@@ -1499,7 +1499,7 @@ func main() {
 
 こんな感じでjson.Marshal/json.Unmarshalで呼び出されるときの挙動を差し替えることができます。荒はたくさんある気がしますが、読者がなんとなくインサイトを得られていればよいと思います。
 
-#### map[string]any / []any　/ anyへの(M|Unm)arshal
+### map[string]any / []any / anyへの(M|Unm)arshal
 
 事前にデータ構造を定義しない場合は`map[string]any`, `[]any` `any`をエンコード元/デコード先に使うこともできます
 
@@ -1603,7 +1603,7 @@ func main() {
 }
 ```
 
-#### json.New(En|De)coder
+### json.New(En|De)coder
 
 `json.(En|De)coder`を使うことでstreamでJSONの処理が行えます。と言いつつ、以下のように
 
@@ -1660,7 +1660,7 @@ func main() {
 }
 ```
 
-#### `json.(M|Unm)arshal` | `json.New(En|De)coder`の使い分け方
+### `json.(M|Unm)arshal` | `json.New(En|De)coder`の使い分け方
 
 `json.NewEncoder` / `json.NewDecoder`を利用するのは以下のような場合です
 
@@ -1673,7 +1673,7 @@ func main() {
 
 `json.Marshal` / `json.Unmarshal`を利用するのはそれ以外の時、という感じになると思います。
 
-#### 空の値のフィールドをスキップする(omitempty)
+### 空の値のフィールドをスキップする(omitempty)
 
 すで述べていますが、struct tagで`,omitempty`を指定すると、フィールドが`empty value`であるときにエンコード時にフィールドがスキップされます。
 条件は[ここ](https://github.com/golang/go/blob/go1.22.3/src/encoding/json/encode.go#L306)で網羅されている通り、ポインターでない限りstructは`zero value`でも`empty`になりません。
@@ -1737,7 +1737,7 @@ type Sample struct {
 }
 ```
 
-#### T | null | undefinedの表現の仕方
+### T | null | undefinedの表現の仕方
 
 [以前の記事]: https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined
 
@@ -1905,7 +1905,7 @@ ok      github.com/ngicks/und/v2/internal/bench 4.606s
 
 :::
 
-#### struct tagの参照のしかた
+### struct tagの参照のしかた
 
 上記でしれっと`struct tag`を使用しています
 
@@ -1949,7 +1949,7 @@ func main() {
 }
 ```
 
-#### encoding/jsonのびっくりポイント
+### encoding/jsonのびっくりポイント
 
 いくつかびっくりポイントが存在します。
 
@@ -1959,13 +1959,13 @@ func main() {
 
 現在`encoding/json/v2`のプロポーザルを出そうという試みが存在し、[Discussion](https://github.com/golang/go/discussions/63397)で`encoding/json`のびっくりポイントが包括的に述べられています。大体の場合基本的な使い方の範疇で困らないと思いますけどたまにこのびっくりポイントに引っ掛かると思うので読んでおくと参考になるかも。
 
-### xml
+## encoding/xml
 
 xmlの`[]byte`とデータ構造の相互変換は[encoding/xml](https://pkg.go.dev/encoding/xml@go1.22.3)で行います。
 
 xmlの使用頻度は高い人はすごく高いでしょうが、筆者の体感上htmlを除くと古いAPIとのやり取り以外で使う場面は少ないのでjsonに比べるとざっとしたことしか述べません。
 
-#### xml.(M|Unm)arshal
+### xml.(M|Unm)arshal
 
 `json`と同じく構造体を定義してxmlと相互にマッピングする方式です。
 
@@ -2028,7 +2028,7 @@ func main() {
 }
 ```
 
-#### xml.(M|Unm)arshaler
+### xml.(M|Unm)arshaler
 
 [xml.Marshaler](https://pkg.go.dev/encoding/xml@go1.22.3#Marshaler), [xml.Unmarshaler](https://pkg.go.dev/encoding/xml@go1.22.3#Unmarshaler)を通じて挙動を変更できるのは`json`と同様ですが、こちらは[Encoder](https://pkg.go.dev/encoding/xml@go1.22.3#Encoder), [Decoder](https://pkg.go.dev/encoding/xml@go1.22.3#Decoder)を受けとるため`json`のそれとは様式が違います。
 
@@ -2039,7 +2039,7 @@ func main() {
 
 ぐらいでしょうか。
 
-##### Example: XMLEither
+#### Example: XMLEither
 
 例として前作った`Either[T, U any]`を載せます。
 普通は数字だけど値が入っていないとfallback文字列が入っているというxmlで困ったので作ったものです。
