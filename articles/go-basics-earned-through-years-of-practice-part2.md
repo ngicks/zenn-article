@@ -1352,7 +1352,7 @@ func main() {
   - `C/C++`のポインタ渡しは任意の型を渡すようなことはできない(`void *`をどう解釈するかは関数側ではわからない)はずですが、`Go`は`reflect`で型情報を取り出せるので、これによって`any`が渡せるようになっています。
   - non nilなポインタを渡せればokです。`(*T)(nil)`を渡すとエラーになります。
   - ちなみに`**T`を渡してもよいです。(`var t *T; _ = json.Unmarshal(data, &t)`)
-    - `**T`を渡した場合は`null`リテラルを入力されたときの挙動が`*T`の場合と違うので少し有益な要素もあります(後述)
+    - `**T`を渡した場合は`null`リテラルを入力されたとき`*T`が`nil`なのでわかるというメリットがあります。
 
 `Node.js`で、というか`javascript`で`json`を解析する場合は[JSON.parse](https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse)を使って解析結果の`Object`を受け取りますよね。`javascript`は取り扱う変数は大部分が`Object`であるのでこの決断には違和感がないかもしれません。
 それに対して`Go`はデータ構造のサイズを既知とすることでスタックに置けるようにしたいわけですから、データ構造を先立たせるような考え方になるはずですね。
@@ -1498,7 +1498,7 @@ func main() {
 
 こんな感じでjson.Marshal/json.Unmarshalで呼び出されるときの挙動を差し替えることができます。荒はたくさんある気がしますが、読者がなんとなくインサイトを得られていればよいと思います。
 
-### map[string]any / []any / anyへの(M|Unm)arshal
+### map[string]any / []any / anyとの(M|Unm)arshal
 
 事前にデータ構造を定義しない場合は`map[string]any`, `[]any` `any`をエンコード元/デコード先に使うこともできます
 
@@ -1742,30 +1742,48 @@ type Sample struct {
 
 [Node.js]を扱っていた対象読者はナチュラルに`json`のフィールドが`T | null | undefined`を持てると思うかもしれませんが、普通にやるとそういうことはできません([以前の記事]を参照)
 
-ではどうやるのかというと
+ではどうやるのかというとフィールドに[github.com/oapi-codegen/nullable](https://github.com/oapi-codegen/nullable)で定義される型を`jsog:",omitempty"`付きで指定します。
 
+[playground](https://go.dev/play/p/xlKXCdn1GEG)
+
+```go
+type Sample struct {
+	Padding1 int
+	Opt      nullable.Nullable[string] `json:"opt,omitempty"`
+	Padding2 int
+}
+```
+
+上記playgroundで実際にスキップされるのを確認してください。
+
+:::details どうして普通にできないかとか
+
+`T | null | undefined`というのを表現しようとすると一つのデータ型で3つのステート(値がある、値がない(`null`)、フィールドがない(`undefined`))を表現する必要があります。
+`javascript`の`Object`は`Go`で言えば`map[string]any`なので、フィールドがない|`nil`|値があるが表現できていたわけですね。
+`Go1.18`以降、genericsが追加されたので3つのステートと任意の型`T`のデータを持つ型というのが定義できるようになりました。
+ただし前述通り、`,omitempty`はstructには機能しないので、`struct`でこういった型を定義できません。
+
+そこで以下のいずれかの方法をとる必要があると思います
+
+- `,omitempty`が機能する`[]T`, `map[K]V`を利用する
+  - 前述の[github.com/oapi-codegen/nullable](https://github.com/oapi-codegen/nullable)は`map[bool]T`を利用します。
 - [以前の記事]で述べた通り
   - `[]byte`やstructなどを一旦`map[string]any`に変換し、これを介してフィールド存在チェック/削除をする
   - `IsZero() == true`の時、フィールドをスキップできるエンコーダーを用意して、3以上の状態を表現できる型を定義する
-    - [以前の記事]では[github.com/json-iterator/go](https://github.com/json-iterator/go)を用いていました。
-    - 現在では[github.com/go-json-experiment/json](https://github.com/go-json-experiment/json)を使ってもいいかもしれませんが、まだいくつか破壊的変更が入るでしょうからprodでは非推奨です。
+    - エンコーダーは以下などがある
+      - [github.com/json-iterator/go](https://github.com/json-iterator/go)
+      - [github.com/go-json-experiment/json](https://github.com/go-json-experiment/json)
     - 3つの状態を表現できる型として`type option[T any] struct {valid bool; value T}`を定義して`type undefined[T any] option[option[T]]`を利用する
 - 特に記事では述べてない記憶がありますが、コードジェネレーターで特定の値をスキップするような`MarshalJSON`を生成しても当然達成可能です
   - embedされたフィールドの扱いが難しいですので対象読者に対してはお勧めできません。もしする場合は`encoding/json`内部の挙動を読み込んだうえで行ってください。
-- https://github.com/oapi-codegen/nullable のように、omitemptyの機能する`[]T`, `map[any]T`を利用して`type undefined []T`を定義する
 
-という感じになると思います。
-[encoding/json/v2のDiscussion](https://github.com/golang/go/discussions/63397)に述べられている今のexperimental実装([github.com/go-json-experiment/json](https://github.com/go-json-experiment/json))に近いAPIスタイルで`v2`が採用されれば`,omitzero`で`type undefined[T any] struct{...}`をエンコード時に省略できるので、これでかなり簡単になります。
-ただ変更量が相当デカいので、いつstdに取り込まれるかさっぱりです。
+[github.com/go-json-experiment/json](https://github.com/go-json-experiment/json)は`encoding/json/v2`としてプロポーズしようとしているexperimental実装です。まだ破壊的変更を予定しているらしいですので本番で使うのはまだ怖いですね。
 
-- 今すぐ実行できる上記の方法を検討するか、
-- そもそもこういうことをしないAPIスタイルで何とかするか
-
-を決めたらよろしいかと思います。
+:::
 
 :::details []T版でT | null | undefinedを実装してみる
 
-筆者はごく最近まで上記の https://github.com/oapi-codegen/nullable を知らなかったので、こういう方法があると思いついていませんでした。
+筆者はごく最近まで上記の`nullable`を知らなかったので、こういう方法があると思いついていませんでした。
 [以前の記事]を書いた時点ではポインターを使わずにデータのあるなしを表現したい/`T`がcomparableなら`undefined[T]`もcomparableであってほしいというのが念頭にあったので、できるとわかっていてもこの方法をとらなかったもしれないですが。
 
 リンク先の実装が`map[bool]T`を利用するので試しに`[]T`バージョンだとどんな感じになるのか試しました
