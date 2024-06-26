@@ -106,7 +106,7 @@ https://github.com/ngicks/go-basics-example
 
 HTTPで通信を行うclient / serverともに[net/http]で実装されます。下記でそれぞれポイントを紹介していきます。
 
-## net/http client
+## HTTP client
 
 https://pkg.go.dev/net/http@go1.22.3#pkg-overview
 
