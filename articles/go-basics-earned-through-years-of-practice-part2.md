@@ -1786,7 +1786,7 @@ type Sample struct {
 筆者はごく最近まで上記の`nullable`を知らなかったので、こういう方法があると思いついていませんでした。
 [以前の記事]を書いた時点ではポインターを使わずにデータのあるなしを表現したい/`T`がcomparableなら`undefined[T]`もcomparableであってほしいというのが念頭にあったので、できるとわかっていてもこの方法をとらなかったもしれないですが。
 
-リンク先の実装が`map[bool]T`を利用するので試しに`[]T`バージョンだとどんな感じになるのか試しました
+リンク先の実装が`map[bool]T`を利用するので、`[]T`バージョンだとどんな感じになるのか試しました
 
 https://github.com/ngicks/und/blob/7023c73fcedcae8014dd8007bcbd230af3cc6824/internal/bench/slice.go
 
@@ -1860,7 +1860,7 @@ func main() {
 いくつかびっくりポイントが存在します。
 
 - json.Unmarshal時、実はフィールドはcase-insensitiveに判定されます。
-- `MarshalJSON`のmethod receiverがpointer type`*T`の場合、[adrresable](https://go.dev/ref/spec#Method_values)でないとメソッドが呼ばれない
+- `MarshalJSON`のmethod receiverがpointer type`*T`の場合、フィールドが[adrresable](https://go.dev/ref/spec#Method_values)でないとメソッドが呼ばれない
 
 現在`encoding/json/v2`のプロポーザルを出そうという試みが存在し、[Discussion](https://github.com/golang/go/discussions/63397)で`encoding/json`のびっくりポイントが包括的に述べられています。大体の場合基本的な使い方の範疇で困らないと思いますけどたまにこのびっくりポイントに引っ掛かると思うので読んでおくと参考になるかも。
 
