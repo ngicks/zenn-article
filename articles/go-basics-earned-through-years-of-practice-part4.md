@@ -10,8 +10,6 @@ published: false
 
 yet another入門記事です。
 
-1記事にまとめようとしたら8万文字を超えて怒られたのでいくつかに分割しています。
-
 - [part1 プロジェクトを始めるまで編](https://zenn.dev/ngicks/articles/go-basics-earned-through-years-of-practice-part1)
 - [part2 cliアプリをつくれるところまで編](https://zenn.dev/ngicks/articles/go-basics-earned-through-years-of-practice-part2)
 - [part3 concurrent GO編](https://zenn.dev/ngicks/articles/go-basics-earned-through-years-of-practice-part3)
