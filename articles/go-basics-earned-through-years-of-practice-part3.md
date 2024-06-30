@@ -993,7 +993,7 @@ https://pkg.go.dev/sync@go1.22.3
 https://pkg.go.dev/sync/atomic@go1.22.3
 
 `sync`および`sync/atomic`パッケージではsynchronization primitiveが実装されています。
-`Go`には`channel`という第一級市民が存在していますが、[mutex](https://en.wikipedia.org/wiki/Mutual_exclusion)や[atomic](https://en.wikipedia.org/wiki/Linearizability)を使うほうが問題をシンプルに解決できるときがたびたびあります。
+`Go`には`channel`という第一級市民が存在していますが、[mutex](https://en.wikipedia.org/wiki/Mutual_exclusion)や[atomic](https://en.wikipedia.org/wiki/Linearizability#Primitive_atomic_instructions)を使うほうが問題をシンプルに解決できるときがたびたびあります。
 
 おそらく対象読者には`mutex`や`atomic`自体がなじみない概念だと思います。
 
