@@ -2542,7 +2542,7 @@ os.Setenv("SERVER_URL", "https://exmaple.com")
 ```
 
 ただし`unix`においては`Set`も`Unset`も前述のコピーされた`environ`を書き換えるので、プログラム起動時のenvironはそのままメモリ領域に残っています。
-そもそも`argv`に直接代入しても`/proc/$pid/environ`の内容は変わらないので、unsetしようがどこかに情報は残ってしまいます。(筆者環境で`gcc`でビルドした`C`のコードで確認。多分あってると思う。多分。)
+`Set`や`Unset`をした後でも`/proc/$pid/environ`の内容は変わらないことからこのことがわかります。
 
 ### github.com/caarlos0/env
 
