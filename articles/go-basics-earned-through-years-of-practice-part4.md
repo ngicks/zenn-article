@@ -40,7 +40,7 @@ httpで通信を行うソフトウェアを作る機会は多いというか、�
 - ロギングライブラリについて紹介します。
   - structured loggingのみに絞ります
 
-この記事ではHTTPのサーバー実装はすでに経験があるという前提で組まれています。プロトコルそのものや、例えば`multipart/form-data`とはなんなのか、みたいなことは説明されません。
+この記事では読者はHTTPサーバーアプリの実装経験があるという前提で組まれています。プロトコルそのものや、例えば`multipart/form-data`とはなんなのか、みたいなことは説明されません。
 
 ## 2種の想定読者
 
@@ -132,6 +132,8 @@ https://pkg.go.dev/net/http@go1.22.3#pkg-overview
 cookieの保存は`Client`の`Jar`フィールドに[\*(net/http/cookiejar).Jar](https://pkg.go.dev/net/http/cookiejar@go1.22.3#Jar)インスタンスを渡せば大体のケースでokです。`Jar`フィールドは[CookieJar](https://pkg.go.dev/net/http@go1.22.3#CookieJar)というinterfaceなので挙動を変えたい場合は上記`net/http/cookiejar`実装をラップするなりします。
 
 ### \*http.Clientを引数として受け取る
+
+[\*http.Client](https://pkg.go.dev/net/http@go1.22.3#Client)をfieldに持つようなstructは引数で`*http.Client`を受けとれるようにしたほうがよいでしょう。
 
 例えばその構造体が以下であるとして
 
@@ -823,7 +825,7 @@ mux.Handle("/foo", handler)
 mux.Handle("/", handler)
 ```
 
-前述通り、各[http.Handler](https://pkg.go.dev/net/http@go1.22.3#Handler)は[http.ResponseWriter](https://pkg.go.dev/net/http@go1.22.3#ResponseWriter), [\*http.Request](https://pkg.go.dev/net/http@go1.22.3#Request)を受け渡されます。
+前述通り、各[http.Handler](https://pkg.go.dev/net/http@go1.22.3#Handler)には[http.ResponseWriter](https://pkg.go.dev/net/http@go1.22.3#ResponseWriter)と[\*http.Request](https://pkg.go.dev/net/http@go1.22.3#Request)が渡されます。
 
 ```go
 handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -835,7 +837,9 @@ handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 `r`はclient側の実装で取り扱った`*http.Request`と全く同じものなので`URL`フィールドや`Header`フィールドを持っています。それらを判定に使うことができます。
 `w`は`io.Writer`を実装するので`io`パッケージの各種関数群や`Write`メソッドを呼び出すことでresponseを書くことができます。
 
-client側としてrequestを送る際は`Content-Length`ヘッダーは無視されていましたが、serverがResponseを送る際は[headerの値が使われます](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L1191-L1195)。セットしなくても1度きりの`Write`しかしなかったりなどする場合は自動的に`Content-Length`が自動的につけられたりしますが、サイズが既知の場合はなるだけつけたほうがいいでしょうね。
+`w.WriteHeader`でstatus codeとheaderを書き込んで、その後bodyを書き込むのは他の言語のフレームワークと同様です。
+
+client側としてrequestを送る際は`Content-Length`ヘッダーは無視されていましたが、serverがResponseを送る際は[headerの値が使われます](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L1191-L1195)。セットしなくても、1度きりの`Write`しかしなかったりなどする場合は自動的につけられたりしますが、サイズが既知の場合はなるだけつけたほうがいいでしょうね。
 コードを見る限り`Content-Type`もsniffingによって自動的にセットされる挙動があるようですが、以下のコードのようなjsonはsniffingでは判別不可能なようです。手動で`w.Header().Set("Content-Type", "application/json")`しなければなりません。
 
 [snippet](https://github.com/ngicks/go-basics-example/blob/main/snipet/http-server-std-only/main.go)
@@ -1051,10 +1055,11 @@ func main() {
 
 `*http.Server`のgraceful shutdownには[(\*http.Server).Shutdown](https://pkg.go.dev/net/http@go1.22.3#Server.Shutdown), 強制的な終了には[(\*http.Server).Close](https://pkg.go.dev/net/http@go1.22.3#Server.Close)を用います。
 
-`Shutdown`は新規のリクエストの受付を止め、現在処理中のリクエストの処理完了を待ってそれによって`nil`をリターンします。
-そのため、`Shutdown`をタイムアウト可能にするには`context.Context`を`context.WithTimeout`などでキャンセル可能にしておき、それによって`Shutdown`から抜けられるようにしておきます。
+`Shutdown`は新規のリクエストの受付を止め、現在処理中のリクエストの処理完了を無限に待ち、すべて終わると`nil`をリターンします。
+そのため、`Shutdown`には`context.Context`を渡すことができ、処理完了待ち中にこれがcancelされるとその`ctx.Err()`が返されます。
+渡すcontextは`context.WithTimeout`などを用いてタイムアウトできるようにしておくとよいでしょう。
 
-[(\*http.Server).RegisterOnShutdown](https://pkg.go.dev/net/http@go1.22.3#Server.RegisterOnShutdown)でシャットダウン時に呼ばれるコールバック関数を登録できます。これによってWebsocketなどの通信をシャットダウンするようにシグナルするとよいとドキュメントに書かれています。
+[(\*http.Server).RegisterOnShutdown](https://pkg.go.dev/net/http@go1.22.3#Server.RegisterOnShutdown)でシャットダウン時に呼ばれるコールバック関数を登録できます。これによってWebsocketなどのhttpをHijackするような通信をシャットダウンするようにシグナルするとよいとドキュメントに書かれています。
 
 `Close`が呼ばれると、`(*http.Request).Context()`で返されるcontextはcancelされます。
 新しいrequestが来た時点で、connは別goroutineでRead待ちの状態になっており[[1]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L2028)[[2]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L677), `Close`がこれらのconnを閉じる[[3]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L2950)ことでエラーが起きます,それによってrequestの親contextがcancelされます[[4]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L712)[[5]](https://github.com/golang/go/blob/go1.22.3/src/net/http/server.go#L749)
@@ -1195,7 +1200,7 @@ time=2024-06-24T12:19:55.410Z level=ERROR msg="server close error" err=<nil>
 
 あたりが有名だと思います。
 
-筆者は[github.com/labstack/echo](https://github.com/labstack/echo)しか使ったことがないので他の詳細はわかりませんがおそらくおおむねに多様な形になっていると思います。
+筆者は[github.com/labstack/echo](https://github.com/labstack/echo)しか使ったことがないので他の詳細はわかりませんがおそらくおおむね似たような形になっていると思います。
 
 以下で、stdのみでつくったAPIを`echo`を使って再実装してみます。
 
@@ -1384,7 +1389,7 @@ OpenAPIはHTTP APIの定義フォーマットです。プログラミング言�
 `https://github.com/OpenAPITools/openapi-generator`は、複数のプログラミング言語向けのコードを出力できることを強みとしていますが、１年ほど前の時点では実装しやすいserver stubやclientなどをうまいことえられず、
 断念して各プログラミング言語でそれぞれに実装されたものを用いるようにしています。現在はどうなっているのかわかりませんので対象読者はそれぞれよく検討していただくのがいいかと思います。
 
-現在(2024/06時点)の最新バージョンは`3.1.0`ですが、`https://github.com/oapi-codegen/oapi-codegen`が追従していないので`3.0.3`を使うことをお勧めします。
+現在(2024/06時点)のOpenAPIの最新バージョンは`3.1.0`ですが、`https://github.com/oapi-codegen/oapi-codegen`が追従していないので`3.0.3`を使うことをお勧めします。
 
 #### github.com/oapi-codegen/oapi-codegen
 
@@ -1705,7 +1710,7 @@ func main() {
 {"foo":{"name":"foo","rant":"🤬"}}
 ```
 
-おお機能していますね。
+おお機能していますね。必要なキーがない時にvalidationエラーが起きています。
 
 サーバーを起動しなおしてoneOfやallOfのエラーがうまく機能するか確認しましょう。
 
@@ -1739,7 +1744,7 @@ type FooError struct {
 }
 ```
 
-なんですが、exportされないfieldは`json.Marshal`に無視されるので、何もフィールドのない`JSON Object`が出力されるわけです。
+となっています。exportされないfieldは`json.Marshal`に無視されるので、何もフィールドのない`JSON Object`が出力されるわけです。
 
 ですので
 
@@ -2036,7 +2041,7 @@ func (*Something) someWork(ctx context.Context, logger *slog.Logger) error {
 	// ...
 }
 
-// ctxつけてひきまわす
+// context.WithValueでctxに付与する
 type keyTy string
 const (
 	SlogLoggerKey keyTy = "*slog.Logger"
@@ -2057,7 +2062,7 @@ if !ok || logger == nil {
   - functional options patternを併用すると、interface上気付きやすく、なおかつデフォルトも持たせられるのでバランスがいいかもしれません
   - 代わりにライブラリの使用者は個別にloggerの渡し方を考える必要があって手間ではあります。
   - unexport functionは引数でloggerを受けとることは多いかもしれません。
-- 3. ctxにつけてひきます
+- 3. `context.WithValue`でctxに付与する
   - おそらく最も非明示的です
   - どのcontext keyに`*slog.Logger`をつけるかの同意をとるのが最も難しいです
     - std内での使い方などを見ると、ctxにValueを持たせるのは公開interface上に情報を出さず、なおかつ特定の条件のみ与えられるoptionalな値など(=context-scopeの値)を引き渡すのに有用な手段という雰囲気を感じます。
@@ -2372,6 +2377,8 @@ func main() {
 }
 ```
 
+snippetでは`Handle`まで下層の`slog.Handler`を触らないようにしています。これは前述の`WithGroup`と`WithAttrs`がlog contextにlogを部分的に書き込む挙動があるために、log contextトップレベルに情報を付け足す場合はこれらのメソッドを呼ぶことができないからです。
+
 前述のとおり、以下の二つは同じログを出力し、
 
 ```go
@@ -2381,11 +2388,11 @@ logger.LogAttrs(ctx, level, msg, slog.Group("s", slog.Int("a", 1), slog.Int("b",
 
 なおかつ、`WithGroup`や`WithAttrs`はhandler内でlog contextをすべてクローンしたうえで部分的なlogを書き出してバッファしておく挙動があります。
 
-このケースのように、なるだけトップレベルに情報を後付けしたいよっていうケースではそれらの挙動がどうしても邪魔になってしまうため、`Handle`まで下層の`slog.Handler`を触らないようにしています。
+トップレベルに情報を後付けしたい今回のユースケースではこれらのmethodのこの挙動が邪魔になってしまうので、`Handle`までは呼び出すことができません。
 
 思いのほか面倒ですね。パフォーマンスと使いやすさと間違いにくさの折り合いがつくのがこの辺だったのでしょう。
 
-実際[zapのパフォーマンステスト](https://github.com/uber-go/zap?tab=readme-ov-file#performance)を見ても、そこまでめちゃくちゃ遅い感じはしないです。特に`WithAttrs`された場合、その時点でログが部分的に書きだされるのが機能しているのか、`already has 10 fields of context`のテストでは結構パフォーマンスがいいですから、そういうことなんでしょうね。
+実際[zapのパフォーマンステスト](https://github.com/uber-go/zap?tab=readme-ov-file#performance)を見ても、そこまでめちゃくちゃ遅い感じはしないです。`already has 10 fields of context`のテスト(=`WithAttrs`をあらかじめ呼んである)では結構パフォーマンスがいいですから、この最適化は有効に機能しているということでしょう。
 
 ここら辺がもうちょい簡単だったら`XmlHandler`も例示してみようかなとか考えていたんですが、難しそうなのでやめておきました。(そもそもxmlと`map[string]any`の相互変換が難しいのでそのせいで`slogtest.TestHandler`に通しにくいのもある)
 

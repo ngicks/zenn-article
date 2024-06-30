@@ -262,9 +262,9 @@ https://github.com/golang/tools/blob/b6235391adb3b7f8bcfc4df81055e8f023de2688/in
 https://github.com/golang/tools/blob/b6235391adb3b7f8bcfc4df81055e8f023de2688/internal/fakenet/conn.go#L86-L93
 
 このように、自然なリソース解放処理で作られた`goroutine`はすべてexitできるようになっているべきです(特にライブラリを作るときは)。
-もし、リソース解放処理の後に実際に`goroutine`がexitするまでに時間がかかる場合は終了を待てる方法を提供するほうがよいでしょう。
+もし、リソース解放に時間がかかる場合は、解放のリクエストと、`goroutine`のexitを待つ処理を分けて実装するとよいでしょう。
 
-例えば以下みたいに、全部の`goroutine`を終了させるメソッドと全部の`goroutine`の終了を待てるメソッドを作っておくほうがよいでしょう。
+例えば以下みたいに、全部の`goroutine`を終了を依頼するメソッドと、全部の`goroutine`の終了を待てるメソッドを作っておくほうがよいでしょう。
 
 ```go
 type Watcher struct {
@@ -292,6 +292,7 @@ func (w *Watcher) Add(target Target) {
 		for {
 			select {
 			case <-w.ctx.Done():
+				// Closeが呼ばれるとreturnする
 				return
 			case ev := <-target.Events():
 				// ... watch logic ...
@@ -300,10 +301,12 @@ func (w *Watcher) Add(target Target) {
 	}()
 }
 
+// Closeで、Addで作られたgoroutineの終了を依頼する。
 func (w *Watcher) Close() {
 	w.cancel()
 }
 
+// WaitはAddで作られたgoroutineがすべてexitするまでブロックする
 func (w *Watcher) Wait() {
 	w.wg.Wait()
 }
@@ -344,7 +347,7 @@ func main() {
 
 [FAQ: Why are map operations not defined to be atomic?](https://go.dev/doc/faq#atomic_maps)によると、`map[T]U`へのconcurrentなアクセスはruntime panicが起こるように特別なチェックがかかっていますので上記のコードもうまくいけば(うまくいかなければ？)fatal panicが起きます(試した限り`recover`できない)。
 
-`map[T]U`はruntimeにおいてはは[hmapという構造体](https://github.com/golang/go/blob/go1.22.3/src/runtime/map.go#L116-L131)で[これはmapのheaderで内部にポインターを持ちます](https://go.dev/doc/effective_go#maps)。mapへのwriteはあれこれ計算したうえでこの構造体に代入を行います(この場合[mapassign_faststr](https://github.com/golang/go/blob/go1.22.3/src/runtime/map_faststr.go#L203))。
+`map[T]U`はruntimeにおいては[hmapという構造体](https://github.com/golang/go/blob/go1.22.3/src/runtime/map.go#L116-L131)です。[これはmapのheaderで内部にポインターを持ちます](https://go.dev/doc/effective_go#maps)。mapへのwriteはあれこれ計算したうえでこの構造体に代入を行います(この場合[mapassign_faststr](https://github.com/golang/go/blob/go1.22.3/src/runtime/map_faststr.go#L203))。
 readして計算してwriteを行いますので、複数のスレッドが同時にそのような処理を試みるとwrite中にreadして、途中のよくわからない状態を観測しまうことが考えれます。
 
 ...が、これを手元で動かしてみると特にエラーなく実行されることが多いですね。
@@ -769,7 +772,7 @@ func (n *MpscNotifier) Notify() {
 
 channelの普通の使い方は難しくないので、この記事の目的に照らし合わせて突っ込んだ話をここでします。
 
-前述しましたが、`nil channel`からの送受信は永久にブロックします。逆に言えば、`[N]chan T`に対し、任意のインデックス`i`に`nil`を代入すれば`N`を上限とした動的な個数のchannelに送受信できます。
+`nil channel`の送受信は永久にブロックします。逆に言えば、`[N]chan T`に対し、任意のインデックス`i`に`nil`を代入すれば`N`を上限とした動的な個数のchannelに送受信できます。
 `reflect`を利用すれば現実的な上限なしの動的な個数のchannelの送受信を実装できます。
 
 以下で与えられた`[]chan T`のうちどれか一つからsend / recvする関数を実装してみます。
@@ -932,7 +935,7 @@ func SendEach[T ~[]C, C ~(chan<- E), E any](chans T, fn func() E, cancel <-chan 
 
 https://github.com/ngicks/go-basics-example/tree/main/snipet/chan-one-of
 
-一応動いています。(このrepositoryはバージョン管理する気が皆無なのでimportはしないでください)
+一応動いています。(リンク先はlocal-onlyモジュールなのでimportできません。単なるサンプルです。)
 
 現実的にfan-in / fan-outを実装するときにこういうのは使いますかね？
 `SendEach`の使い道は筆者はぱっと思いつかなかったです。なので対象読者にとっても向こう数年は不要かもしれません。
@@ -948,7 +951,7 @@ https://pkg.go.dev/context@go1.22.3
 
 - `Value`で`context.Context`に収められた任意の値を取り出すことができます
   - [context.WithValue](https://pkg.go.dev/context@go1.22.3#WithValue)で値を収めることができます。
-  - ただこれらの`With*`関数は`context.Context`を入れ子にしていくので、上位のスコープに`Value`を伝搬したい場合は収めた値自体に工夫が必要です。
+  - ただこれらの`With*`関数は`context.Context`を入れ子にして情報を付け足しながら新しい`context.Context`返すので、上位のスコープに`Value`を伝搬したい場合は収めた値自体に工夫が必要です。
     - e.g. 上位で`*sync.Map`を収めて下層で操作してもらう。
 - `Done`で`<-chan struct{}`を返します。`context.Context`がcancelされたときこのchannelはcloseされます。
 - cancelされた場合`Err`がnon-nil errorを返すようになります。
@@ -1092,7 +1095,7 @@ TODO: add progress reader example
 
 [sync.Pool](https://pkg.go.dev/sync@go1.22.3#Pool)の典型的ユースケースにbuf poolがあります。
 
-大きな`[]byte`や`*bytes.Buffer`が必要であるが、毎回allocateするとメモリー的に負荷が高いので、その関数が高い確率で繰り返し実行されると予測されるときこういったpoolが必要となります。
+大きな`[]byte`や`*bytes.Buffer`が必要な関数を何度も実行する場合はpoolを使ってallocationの負荷を低減(あるいはzero allocationに)できます。
 前述通り`goroutine`の初期スタックサイズは`2-6KiB`なので大きなbyte array`[N]byte`を宣言してしまうとおそらくスタック成長が起きてパフォーマンスが落ちるはずなので、`[]byte`のallocation自体は避けられません。
 
 よく[io.CopyBuffer](https://pkg.go.dev/io@go1.22.3#CopyBuffer)と一緒に使います。
@@ -1471,7 +1474,7 @@ func tasksErrgroup(ctx context.Context, tasks []task, work func(ctx context.Cont
 - [(\*errgroup.Group).Wait](https://pkg.go.dev/golang.org/x/sync@v0.7.0/errgroup#Group.Wait)で実行されたすべての関数が終わるまで待ち、
   - `Go`に渡された関数が最初に返したnon-nil errorを返します。
 - [errgroup.WithContext](https://pkg.go.dev/golang.org/x/sync@v0.7.0/errgroup#WithContext)で`*errgroup.Group`と親contextを受け継いだ`context.Context`を返します
-  - この`context.Context`は`Go`に渡された関数のエラーでcancelされます。
+  - この`context.Context`は`Go`に渡された関数のがnon-nilエラーを返すとそのエラーでcancelされます。
   - これによって`Go`に渡す関数をキャンセルできるようにするとエラーで全体を中断できます。
 
 めちゃ便利ですね。これはすごく多用します。

@@ -107,7 +107,7 @@ https://github.com/ngicks/go-basics-example
 `Go`には`try-catch`のような構文や、`Result<T, E>`のようなtagged union typeのようなものは現状存在しません。([sum typeのproposalは長く存在する](https://github.com/golang/go/issues/19412))
 代わりに、`Go`では多値返却で、ソース順で最後の返り値の型を`error`とすることでエラーしうる処理を表現し、その値をチェックすることでエラーハンドリングを行います。
 
-この節では、対象読者がまず気にするであろう、どうやってエラーをハンドルするかについて先に述べ、エラーの組み立て方、`errors.Is`や`errors.As`の内部的な挙動について述べ、最後にエラーを定義して返す方法を述べます。
+この節では、対象読者がまず気にするであろう、どうやってエラーをハンドルするかについて先に述べ、エラーの組み立て方、`errors.Is`や`errors.As`の内部的な挙動について述べます。その後、独自エラー型を定義するときの注意点やtry-catch的なpanicの使い方について述べます。
 
 ### error != nilならほかの返り値は使わない
 
@@ -894,7 +894,7 @@ stdのエラーが全般的にstacktrace情報を含んでくれればと思う�
 
 - バッファ(`[]byte`)は呼び出すユーザーがサイズを決めてallocateします。
 - 文字列への変換が自動的に起きることはありません。
-- ファイルを全部読んで`[]byte`にして扱うこともありますが、`io.Reader`/`io.Writer`を引きまわす方が普通かと思います。
+- ファイルを全部読んで`[]byte`にして扱うこともありますが、`io.Reader`/`io.Writer`を引数にとって渡す方が普通かと思います。
 - `string([]byte(v))`で文字列への変換ができますが、この変換は`[]byte`を`utf-8`として解釈しますので、ほかのエンコーディングで表現される文字列は意図的に変換する必要があります(e.g.　EUC-JPなどを変換するときは[golang.org/x/text/encoding/japanese](https://pkg.go.dev/golang.org/x/text@v0.15.0/encoding/japanese)を用いる、など)
   - 正しいutf8かは[utf8.Valid([]byte(v))](https://pkg.go.dev/unicode/utf8@go1.22.3#Valid)で別途チェックするか必要があります。
   - `new TextDecoder().decode(new TextEncoder().encode(str))`相当のこと(invalid runeをreplacement charに置き換え)をするには[strings.ToValidUTF8(str, "\uFFFD")](https://pkg.go.dev/strings@go1.22.3#ToValidUTF8)を呼びます。
@@ -1256,7 +1256,7 @@ stdにおける、データ構造とバイト列`[]byte`との変換は全般的
 
 例えば、`encoding/csv`ならば`csv`とデータ構造との相互変換ができるなど、そういった感じです。
 
-`encoding/*`パッケージ群はserialize/deserializeの代わりに`Marshal`/`Unmarshal`という語を使います。おそらく単なるでデータと`map[string]any`のようなプログラム内の表現の相互変換をするというよりは、structのようなmethodを持てるデータ構造とのマッピングだらかそういう言い回しなんだと思います([参考: stack overflow::What is the difference between Serialization and Marshaling?](https://stackoverflow.com/questions/770474/what-is-the-difference-between-serialization-and-marshaling))
+`encoding/*`パッケージ群はserialize/deserializeの代わりに`Marshal`/`Unmarshal`という語を使います。おそらく単なるデータと`map[string]any`(のようなプログラム内の表現)との相互変換をするというよりは、structのようなmethodを持てるデータ構造とのマッピングだらかそういう言い回しなんだと思います([参考: stack overflow::What is the difference between Serialization and Marshaling?](https://stackoverflow.com/questions/770474/what-is-the-difference-between-serialization-and-marshaling))
 
 以降の節では、std libraryを使った`json`と`xml`の読み書きの基本を紹介します。
 
@@ -1354,10 +1354,12 @@ func main() {
   - ちなみに`**T`を渡してもよいです。(`var t *T; _ = json.Unmarshal(data, &t)`)
     - `**T`を渡した場合は`null`リテラルを入力されたとき`*T`が`nil`なのでわかるというメリットがあります。
 
-`Node.js`で、というか`javascript`で`json`を解析する場合は[JSON.parse](https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse)を使って解析結果の`Object`を受け取りますよね。`javascript`は取り扱う変数は大部分が`Object`であるのでこの決断には違和感がないかもしれません。
+`Node.js`で、というか`javascript`で`json`を解析する場合は[JSON.parse](https://developer.mozilla.org/ja/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse)を使って解析結果の`Object`を受け取りますよね。`javascript`では取り扱う変数は大部分が`Object`であるのでこの決断には違和感がないかもしれません。
 それに対して`Go`はデータ構造のサイズを既知とすることでスタックに置けるようにしたいわけですから、データ構造を先立たせるような考え方になるはずですね。
 なので、`map[string]any`への変換よりは、任意の型を受けつられる関数の様式になります。
-任意の型に対する演算を行うためには、`Go`では[reflect](https://pkg.go.dev/reflect@go1.22.3)を使います。`reflect`は`any`から型情報を得ることもできるので、データをallocateするかどうかをユーザーに選択させながら任意の変数を受けるには`any`で任意の型`T`の値のポインター`*T`を受け付けるのが都合がいいということになります。
+
+任意の型に対する演算を行うためには、`Go`では[reflect](https://pkg.go.dev/reflect@go1.22.3)を使います。
+`reflect`は`any`から型情報を得ることもできます。データをallocateするかどうかをユーザーに選択させながら任意の変数を受けるには`any`で任意の型`T`の値のポインター`*T`を受け付けるのが都合がいいということになります。
 
 ### json.(M|Unm)arshaler
 
@@ -1721,7 +1723,7 @@ func main() {
 - struct fieldにマッチするJSON Object fieldがない場合、値を代入しない
 
 であるので、
-フィールドの型に`int`や`string`を指定したとき、`0`や`""`がフィールドがなかったということなのか、`null`だったのか、その値が渡されたのか判別がつきません。
+フィールドの型に`int`や`string`を指定したとき、`0`や`""`が、JSONにフィールドがなかったということなのか、`null`だったのか、その値が渡されたのか判別がつきません。
 
 それらの判別が必要なケースでは`T`に対して`,omitempty`を使うことができないからです。
 
@@ -2124,7 +2126,7 @@ func main() {
 
 一応`python`のみしか開発経験がない対象読者のために説明すると、
 `npm run <<script-name>>`で`package.json`の`"scripts"`以下に書かれたスクリプトを実行できるもののことです。
-`scripts`はJJSON Objectで定義でき、`<<script-name>>`の部分がJSON Field、実際のスクリプト内容はvalueで記述されます。
+`scripts`はJSON Objectで定義でき、`<<script-name>>`の部分がJSON Field、実際のスクリプト内容はvalueで記述されます。
 スクリプトは`{"package":{"dependencies":{...}}}`でインストールされた実行ファイルも`PATH`に加えて実行するので十分クロスプラットフォームになれるということらしいです。
 
 例えば[node-canvas](https://github.com/Automattic/node-canvas)はネイティブモジュールを使うため、install時に[node-gyp](https://github.com/nodejs/node-gyp)というNode.js向けのビルドシステムを動作させます。
@@ -2132,7 +2134,7 @@ func main() {
 ```json
 // https://github.com/Automattic/node-canvas/blob/2de0f8b36dbb271c9dc1bdb211812c5dabca5129/package.json#L35
  "scripts": {
-	// ...
+    // ...
     "install": "prebuild-install -r napi || node-gyp rebuild",
     // ...
   },
@@ -2148,7 +2150,7 @@ func main() {
 
 - `go run path/to/module/path/to/main/pkg@version`がリモートモジュールを実行できること
   - 常に最新がいいなら`@latest`とします
-- `cgo`(`C`言語で書かれたコードを`Go`から呼び出す)を使う際は`pkg-config`とか入れれば基本的に`go build`ですむので別コマンドは不要。
+- `cgo`(`C`言語で書かれたコードを`Go`から呼び出す)を使う際は(`pkg-config`の設定を要求してくるライブラリがあることはあるにしろ)基本的に`go build`ですむので別コマンドは不要。
   - ただしcross-compilationが大変になります。
 - `//go:generate [options] <<command>>`でソースが置かれたパッケージのディレクトリをcwdにして任意のコマンドが実行できること
 - `docker`で[マルチプラットフォームビルド](https://docs.docker.com/build/building/multi-platform/)が行えること
@@ -2231,7 +2233,7 @@ go generate [-run regexp] [-n] [-v] [-x] [build flags] [file.go... | packages]
 
 `go:generate`は上記ドキュメントによればコード生成を主眼としていますが、実際上はコマンドはおおよそ何でも実行できます。
 
-コマンドのcwdはデフォルトでは`go:generate`が書かれたファイルのパッケージのディレクトリになるので相対パスを使用できます。
+コマンドのcwdはデフォルトでは`go:generate`が書かれたファイルのパッケージのディレクトリになるので、相対パスはそのファイルからの相対パスになります。
 
 ```go: gen_ent.go
 //go:generate go run -mod=mod entgo.io/ent/cmd/ent@v0.12.3 generate --target ./gen ./schema
@@ -2245,13 +2247,13 @@ go generate [-run regexp] [-n] [-v] [-x] [build flags] [file.go... | packages]
 //go:generate go run ./split-server-interface/ -i ../somewhere/server-interface.go -o ./server_interface.generated.go
 ```
 
-なので、`go generate`でコード生成を行うプロジェクトは変更する度にモジュールのルートディレクトリで
+なので、`go generate`でコード生成を行うプロジェクトは変更する度に`go.mod`と同階層で
 
 ```
 go generate ./...
 ```
 
-としておけばすべての`go:generate`を実行できるので、スクリプト実行忘れを防ぐことができます。
+としておけばすべての`go:generate`を実行できるので、`generate`の実行忘れを防ぐことができます。
 
 ## cli flag
 
@@ -2259,6 +2261,7 @@ cli flagの解析はstd範疇で取り扱われています。ちょっとした
 
 - シンプルなフラグ解析はstdの`flag`が強力です
 - サブコマンドの分割を行ったり、long flag/short flagのサポートをえたい場合は[github.com/spf13/cobra](https://github.com/spf13/cobra) + [github.com/spf13/pflag](https://github.com/spf13/pflag)がよいかも
+  - 単に`--x`というフラグの指定がしたいだけなら`flag`でokです。
 
 ### flag
 
@@ -2287,6 +2290,8 @@ go run ./main.go --f1 foo
 フラグのバインディングを`flag`パッケージで定義してから[flag.Parse](https://pkg.go.dev/flag@go1.22.3#Parse)でフラグのパーズを行います。
 
 シンプルなフラグの設定は`flag.T`で行います。(`T`は任意の組み込み型 e.g. `string`, `bool`, `int`)
+
+[snippet](https://github.com/ngicks/go-basics-example/blob/main/snipet/flags/main.go)
 
 ```go
 import "flag"
@@ -2539,8 +2544,7 @@ os.Setenv("SERVER_URL", "https://exmaple.com")
 ```
 
 ただし`unix`においては`Set`も`Unset`も前述のコピーされた`environ`を書き換えるので、プログラム起動時のenvironはそのままメモリ領域に残っています。
-書き換えが起きていないのは、(筆者の理解が正しければ)`Set`や`Unset`を読んだ後も`/proc/$pid/environ`に変更がないことからわかります。
-`linux`の[prctl(2)](https://man7.org/linux/man-pages/man2/prctl.2.html)の説明を見る限り、environそのものは書き込み可能な領域(stack area)にマップされるので、書き込まないようになっているのはわざとなはずです。
+そもそも`argv`に直接代入しても`/proc/$pid/environ`の内容は変わらないので、unsetしようがどこかに情報は残ってしまいます。(筆者環境で`gcc`でビルドした`C`のコードで確認。多分あってると思う。多分。)
 
 ### github.com/caarlos0/env
 
