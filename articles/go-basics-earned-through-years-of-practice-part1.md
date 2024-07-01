@@ -3,7 +3,7 @@ title: "Goで開発して3年のプラクティスまとめ(1/4): プロジェ�
 emoji: "💪"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## Goで開発して3年のプラクティスまとめ(1/4): プロジェクトを始めるまで編

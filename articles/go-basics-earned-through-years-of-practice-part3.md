@@ -3,7 +3,7 @@ title: "Goで開発して3年のプラクティスまとめ(3/4): concurrent GO�
 emoji: "💪"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## Goで開発して3年のプラクティスまとめ(3/4): concurrent GO編
