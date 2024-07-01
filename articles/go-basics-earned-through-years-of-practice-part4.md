@@ -2076,6 +2076,8 @@ if !ok || logger == nil {
 
 前述の「ライブラリに引数として`*slog.Logger`を渡すことで明示的コントロールを行う」と「request-scopeな情報を引き出せる」のいいとこどりをするための`slog.Handler`実装を通して、このinterfaceの実装のコツというか癖みたいなのを述べたいと思います。
 
+基本的かつ詳細な情報はこちらをご覧ください:[https://golang.org/s/slog-handler-guide](https://golang.org/s/slog-handler-guide)
+
 [(\*log/slog.Logger).Log](https://pkg.go.dev/log/slog@go1.22.3#Logger.Log)および`foobarContext`のような名前のメソッドは第一引数に`context.Context`を受けとることができ、これから情報を引き出してログに乗せることができます。
 
 他の関数が`context.Context`を第一引数で受けるときと違い、これはcancellationをとるためではなく、値を取り出すためだけに渡されます。
