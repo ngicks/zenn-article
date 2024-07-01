@@ -2213,7 +2213,16 @@ func (h *ctxHandler) Handle(ctx context.Context, record slog.Record) error {
 		return true
 	})
 	if len(attachedAttrs) > 0 {
+		// dropping attrs
 		record = slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	} else {
+		// But you must call Clone anyway.
+
+		// https://pkg.go.dev/log/slog#hdr-Working_with_Records
+		//
+		// > Before modifying a Record, use Record.Clone to create a copy that shares no state with the original,
+		// > or create a new Record with NewRecord and build up its Attrs by traversing the old ones with Record.Attrs.
+		record = record.Clone()
 	}
 	if h.ctxGroupName != "" {
 		record.AddAttrs(slog.Attr{Key: h.ctxGroupName, Value: slog.GroupValue(ctxAttrs...)})
