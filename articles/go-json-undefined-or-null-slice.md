@@ -17,7 +17,7 @@ published: false
 
 `JSON`を相互に送りあうシステムではたびたび`T`(フィールドにある型の値がある, _defined_, _specified_, _present_)、`null`(`null`がフィールドにセットされている)、`undefined`(フィールドが存在しない, _undefined_, _unspecified_, _absent_)を使い分けることがあります。これは`Go`のstdが敷く「structとバイト列と相互変換する」というデータ変換の様式の中で表現するのが難しく、特別な努力を要していました。
 
-[以前の記事]で似たようなテーマについていろいろ述べて解決法までを示しました。それから1年ほどたって色々知見が筆者の脳内で整理できたり、そもそも大がかりなこと(エンコーダーの用意とか)をしなくても`[]Option[T]`を利用すれば`encoding/json`にオミットされることが可能かつ`T | null | undefined`を表現できる型を定義できることに気付きました。
+[以前の記事]で同じテーマについていろいろ述べて解決法までを示しました。それから1年ほどたって色々知見が筆者の脳内で整理できたり、そもそも大がかりなこと(エンコーダーの用意とか)をしなくても`[]Option[T]`を利用すれば`encoding/json`にオミットされることが可能かつ`T | null | undefined`を表現できる型を定義できることに気付きました。
 
 この記事は[以前の記事]の置き換えを意図しており、それをobsoleteにするものとして書いています。そのためこの記事だけを読めばいいだけになるようにします。
 この目的から[以前の記事]とこの記事は大部分が重複し、一部を追加し後半の大分部分を削除するような記事になります。
@@ -26,7 +26,7 @@ published: false
 
 ## Overview(TL;DR)
 
-- [Elasticsearch](の update API)のような`JSON`における`null`と`undefined`(`JSON`にフィールドがない)状態をうまく使い分けるシステムに送る`JSON`を structをmarshalするだけでいい感じに作りたい。
+- [Elasticsearch](のupdate API)のような`JSON`における`null`と`undefined`(`JSON`にフィールドがない)状態をうまく使い分けるシステムに送る`JSON`を structをmarshalするだけでいい感じに作りたい。
 - `encoding/json`の挙動を利用し、`map[K]V`もしくは`[]T`をベースとする型を工夫することで可能なことが分かった。
 - some/noneを表現できる型として`Option[T]`を定義して、`[]Option[T]`を`T | null | undefined`を表現する型とした。
   - [github.com/oapi-codegen/nullable](https://github.com/oapi-codegen/nullable)は`map[bool]T`として利用するが、`[]T`のほうが動作が速いんじゃないかという仮説があった
@@ -35,7 +35,7 @@ published: false
 
 - `Go`で`T | null | undefined`がなぜ表現しにくいかについて説明します
 - `T | null | undefined`のユースケースとして`Elasticsearch`のpartial updateを説明します
-- 普通、フィールドのあるなしをどうやってチェックするなどをwildに存在する広く使われるライブラリの例を引用指定説明します
+- 普通、フィールドのあるなしをどうやってチェックするなどをwildに存在する広く使われるライブラリの例を引用し説明します
 - 解決法を二つ紹介します。
   - `encoding/json`とすでに互換性のある方法(`[]Option[T]`)
   - `encoding/json/v2`のみで使えるもっと効率的な方法(`Option[Option[T]]`)
@@ -44,14 +44,18 @@ published: false
 
 [Go programming language]の細かい説明はしてますが全体の説明はしないので、ある程度知っている人じゃないと意味が分からないかもしれません。
 
-# 環境
+## 環境
+
+ドキュメントはすべて`Go1.22.5`のものを参照します。
+
+筆者環境は以下のように`Go1.22.0`のままですが、リリースノートを見る限り記事中で言及する挙動に関する変更はなさそうなので特に影響はありません。
 
 ```
 # go version
 go version go1.22.0 linux/amd64
 ```
 
-ただし`Go 1.18`で追加されたgenericsを用いる以外はバージョン依存な要素はないはずなので、`Go 1.18`ではおおむね通じる話をします。
+`Go 1.18`で追加されたgenericsを用いる以外はバージョン依存な要素はないはずなので、`Go 1.18`ではおおむね通じる話をします。
 
 ## 対象読者
 
@@ -83,7 +87,7 @@ structと他の表現の相互変換機能でそういった機能がよくつ�
 >
 > If a field has the zero value for its type (except for arrays; see above), it is omitted from the transmission.
 
-`encoding/json`, `encoding/xml`はstruct tagで`,omitempty`を指定すると`zero value`がオミットされます。
+`encoding/json`, `encoding/xml`はstruct tagで`,omitempty`を指定すると`zero value`(厳密にいうと違うが)がオミットされます。
 
 > https://pkg.go.dev/encoding/json@go1.22.5#Marshal
 >
@@ -274,9 +278,9 @@ func main() {
 
 ```go
 type Example struct {
-	Kwd             string                               `json:"kwd"`
-	Long            int64                                `json:"long"`
-	Text            string                               `json:"text"`
+	Kwd             []string                               `json:"kwd"`
+	Long            []int64                                `json:"long"`
+	Text            []string                               `json:"text"`
 }
 ```
 
@@ -339,7 +343,7 @@ https://github.com/getkin/kin-openapi/blob/2692f43ba21c89366b2a221a86be520b87539
 上記より、`JSON`にフィールドが存在しない場合、`Go`フィールドにはなにも代入しません。
 `JSON`フィールドに`null`がセットされている場合、pointer type `*T`に対しては`nil`を代入し、**non-pointer type Tに対しては何も代入しない挙動になります**。
 
-この挙動より、wacky valueを用いればPartial JSONの受け側には十分なれます。
+この挙動より、wacky valueを用いればPartial `JSON`の受け側には十分なれます。
 
 [playground](https://go.dev/play/p/1eB1P3Oj7lm)
 
@@ -575,21 +579,380 @@ func (u *Und[T]) UnmarshalJSON(data []byte) error {
 }
 ```
 
-## 課題: encoding/jsonはstructをskipしない
+## 課題: encoding/jsonはstructをオミットしない
+
+stdで`JSON`とバイト列(`[]byte`)の相互変換を行うには`encoding/json`を利用します。`json.Marshal`や`(*json.Encoder).Encode`はstruct tagに`,omitempty`が設定されていると`zero value`(厳密にはempty valueであってzeroではない)であるフィールドをオミット(=出力先データにフィールドが出現しない)する挙動がありますが、これはフィールドの型がstructであるときには起きません。これが課題となります。
+
+emptyの判定式は以下で行われます
+
+https://github.com/golang/go/blob/go1.22.5/src/encoding/json/encode.go#L306-L318
+
+また、型レベルで[json.Marshaler](https://pkg.go.dev/encoding/json@go1.22.5#Marshaler)/[json.Unmarshaler](https://pkg.go.dev/encoding/json@go1.22.5#Unmarshaler)を実装すると`Marshal`/`Unmarshal`時にこれらを呼び出されることができますが、
+
+> https://pkg.go.dev/encoding/json@go1.22.5#Marshal
+>
+> ...If an encountered value implements Marshaler and is not a nil pointer, Marshal calls [Marshaler.MarshalJSON] to produce JSON. ...
+
+という記述から、少しわかりにくいですがreceiverが`nil`の時にフィールドをオミットさせるようなことを`MarshalJSON`の実装の中でコントロールさせる方法がありません。
+
+実際上、下記の`encoding/json`のコードを参照するとわかる通り、`MarshalJSON`呼び出した時点ですでにフィールド名は書き込まれていますし、`MarshalJSON`は1つの有効な`JSON value`を返すことが(`appendCompact`により)期待されています。
+
+https://github.com/golang/go/blob/go1.22.5/src/encoding/json/encode.go#L698-L704
+
+https://github.com/golang/go/blob/go1.22.5/src/encoding/json/encode.go#L430-L450
+
+## 関連issue
+
+### encoding/jsonを改善したい系
+
+- https://github.com/golang/go/issues/5901
+  - `json.Marshaler`/`json.Unmarshaler`で型レベルではどのようにバイト列(`[]byte`)と相互変換されるかを定義できますが、per-encoder / per-decoderレベルで変更できたほうが便利じゃないですかという古い提案。
+- https://github.com/golang/go/issues/11939
+  - structのzero value時にomitemptyを起動させましょうという提案
+  - `time.Time`のように、`IsZero`を実装するものはこのメソッドの返り値を見て判別したらよいじゃないかという提案
+
+ただし`encoding/json`は長い歴史があって些細な変更が大きな影響を持つ破壊的変更となってしまうので取り込むのも大変みたいです。
+
+### encoding/json/v2
+
+- https://github.com/golang/go/discussions/63397
+
+`encoding/json`にもコミット履歴がある[dsnet](https://github.com/dsnet)氏の立てたdiscussionで、`encoding/json`のもろもろの欠点と、互換性を保ったままそれらを修正する方法がないという経緯の説明、さらに`v2`のAPIの提案とexperimental実装([github.com/go-json-experiment/json])の紹介がなされています。
+
+## 没解放
+
+先に没になった解放と没にした理由を述べます。
+
+### structのzero valueをomitするjson encoder/decoder実装を用いる
+
+以下のようなサードパーティのjson encoder/decoder実装はstructのzero valueをオミットする機能を有しています。
+
+- https://github.com/clarketm/json
+- https://github.com/json-iterator/go
+
+[以前の記事]では`github.com/json-iterator/go`のほうを採用して、これの[Extension](https://pkg.go.dev/github.com/json-iterator/go#Extension)を駆使して何とかしました。
+ただし、このライブラリは`encoding/json`といくつか挙動が違っていたり(筆者自身もいくつか見つけました[#657](https://github.com/json-iterator/go/issues/657))して少し不安になります。
+
+`github.com/clarketm/json`のほうは使ったことがないので何ともですが、どちらに対しても言えるのは、`json.Marshaler`を実装する型が内部で`json.Marshal`を呼び出すとそこ以後でstructをオミットする挙動が起きなくなるので、genericsの導入よって可能になった種々のdata container系の型がネストしたときに不整合が起きます。ここが割とよろしくないわけですね。
+
+できればstdの`encoding/json`のmarshalerの中で事足りる方法であってほしいということです。
+
+### 特定の値をスキップするMarshalJSONを実装する
+
+当然これは可能です。ただすべての型に対してそういった`MarshalJSON`を実装するのは手間なので、現実的にはcode generatorによって実装することになると思います。
+
+没になった理由はそこで、code generatorを実装しようにも`encoding/json`の挙動はなかなか複雑なので、そこがハードルとなっていたわけです。
+
+こういったstructをとって何かのデータ構造に変換をかけるタイプの処理を実装したことがある方はわかるかもしれませんが、`Go`は[struct fieldのembedding](https://gobyexample.com/struct-embedding)が可能で、`encoding/json`の挙動は
+
+> https://pkg.go.dev/encoding/json@go1.22.5#Marshal
+>
+> Embedded struct fields are usually marshaled as if their inner exported fields were fields in the outer struct, subject to the usual Go visibility rules amended as described in the next paragraph. An anonymous struct field with a name given in its JSON tag is treated as having that name, rather than being anonymous. An anonymous struct field of interface type is treated the same as having that type as its name, rather than being anonymous.
+
+という感じでembedされたstructのフィールドは親structのフィールドであるかのように出現します。二つ以上embedされたフィールドがあってそれぞれに同名フィールドがあったときどちらが優先されるか、などなど微妙で面倒でわかりにくくて不具合になりそうな要素がたくさんあります。
+
+さらに面倒なのが、struct fieldのembedで型的な再帰を行うことが許されているんですね。これは、`Tree`を定義するために以下のような型は普通にありえるので許されれているのだと思います。
+
+```go
+type Tree[T any] struct {
+	node *node[T]
+}
+
+type node[T any] struct {
+	left, right *node[T] // type recursion
+	value T
+}
+```
+
+さらに、`encoding/json`はstruct tagを使ってJSON Objectのフィールド名と`Go` structのフィールドの対応付けを定義できますので、ここでフィールド名の被りは当然起きえますし、実は`json.Unmarshal`時のフィールド名の比較はcase-insensitiveだったりしてかぶってないつもりで被ってたりもありまえます。
+
+つまり以下のようなエッジケースが存在します。
+
+```go
+type OverlappingKey1 struct {
+	Foo string
+	Bar string `json:"Baz"`
+	Baz string
+}
+// OverlappingKey1{Foo: "foo", Bar: "bar", Baz: "baz"},
+// ↓
+// {"Foo":"foo","Baz":"bar"}
+// tagが優先
+
+type OverlappingKey2 struct {
+	Foo string
+	Bar string `json:"Bar"`
+	Baz string `json:"Bar"`
+}
+// OverlappingKey2{Foo: "foo", Bar: "bar", Baz: "baz"}
+// ↓
+// {"Foo":"foo"}
+// 同名のtagはどちらも削除
+
+type OverlappingKey3 struct {
+	Foo string
+	Bar string `json:"Baz"`
+	Baz string
+	Qux string `json:"Baz"`
+}
+// OverlappingKey3{Foo: "foo", Bar: "bar", Baz: "baz", Qux: "qux"}
+// ↓
+// {"Foo":"foo"}
+// tag名で被り+元のstruct field名で被りの場合でも全部まとめて消されますね。
+
+type Sub1 struct {
+	Foo string
+	Bar string `json:"Bar"`
+}
+
+type OverlappingKey4 struct {
+	Foo string
+	Bar string
+	Baz string
+	Sub1
+}
+// OverlappingKey4{Foo: "foo", Bar: "bar", Baz: "baz", Sub1: Sub1{Foo: "foofoo", Bar: "barbar"}}
+// ↓
+// {"Foo":"foo","Bar":"bar","Baz":"baz"}
+// Embeddedの場合、上の階層にあるほうが優先。
+
+type Recursive1 struct {
+	R string `json:"r"`
+	Recursive2
+}
+
+type Recursive2 struct {
+	R  string `json:"r"`
+	RR string `json:"rr"`
+	*OverlappingKey5
+}
+
+type OverlappingKey5 struct {
+	Foo string
+	Recursive1
+}
+// OverlappingKey5{Foo: "foo", Recursive1: Recursive1{R: "r", Recursive2: Recursive2{R: "r2", RR: "rr"}}},
+// ↓
+// {"Foo":"foo","r":"r","rr":"rr"}
+// 型の再帰が起きた時、1周まではエンコードされるがその後は無視される挙動のようですね。
+```
+
+どのフィールドを優先するかのルールは以下で記述されています。
+
+https://github.com/golang/go/blob/go1.22.5/src/encoding/json/encode.go#L1184-L1244
+
+- nameは出力先の`JSON`上でのフィールドの名前です。(つまり、`Go`のstruct field名か`json:"name"`で付けられた名前)
+- indexは`[]int`でstruct定義でソースコード順で先に来たものが小さくなる値です。struct fieldのembedが起きた場合にappendされます。
+- tagはstruct tagでつけられた`json:"name"`があったかどうかです。
+
+`dominantField`は以下のように実装されます。不可思議に感じた上記のエッジケースの挙動はこれによって起きています。
+
+https://github.com/golang/go/blob/go1.22.5/src/encoding/json/encode.go#L1248-L1262
+
+型的な再帰が起きていた場合の挙動は以下のコードによって律せられています
+
+https://github.com/golang/go/blob/go1.22.5/src/encoding/json/encode.go#L1075-L1092
+
+こんなエッジケースはわざわざ探すまで体感することはなかったのでstdはさすがによく叩かれていますなと感じますね。
 
 ## 解決法1: map[T]U, []Tはomitemptyでskip可能
 
-## 解決法2: encoding/json/v2(の候補版を使う)
+`encoding/json`のemptyの判別は以下で行われます。
+
+https://github.com/golang/go/blob/go1.22.5/src/encoding/json/encode.go#L306-L318
+
+`map`, `slice`は`len(v) == 0`時にスキップされるようになっていますね。
+
+`map[T]K`あるいは`[]T`ベースで例えば以下のように
+
+```go
+type undefinedableMap map[bool]T
+
+type undefinedableSlice []T
+```
+
+こういう型を定義すれば`encoding/json`にオミットされうる型を定義できますね(もちろん`omitempty`は必要です)
+
+> https://pkg.go.dev/builtin@go1.22.5#len
+>
+> ... Slice, or map: the number of elements in v; if v is nil, len(v) is zero.
+
+とある通り、lenに`nil`を渡すとpanicするとかはないので、`zero value`をそのまま使っても大丈夫です。
+
+[以前の記事]を書いていた時点では全く気付いていませんでした。なんで気付かなかったんだろう・・・
 
 ### map[bool]Tを使う実装: [github.com/oapi-codegen/nullable](https://github.com/oapi-codegen/nullable)
 
+`OpenAPI spec`から`Go`のserver/clientを生成するoapi-codegenの一部として`map[bool]T`をベースとした`T | null | undefined`を表現できる型が実装されています。
+
+- `undefined`: `len(m) == 0`
+- `null`: `_, ok := m[false]; ok`時
+- `T`: `_, ok := m[true]; ok`時
+
+`bool`をkey用いれば表現できる状態の数が「キーがない」、「`true`」、「`false`」、「`true`/`false`」の4種のみになります。「`true`/`false`」は未使用とし、他3つをつかって`T | null | undefined`とすればよいわけです。
+
 ### []Option[T]も使える
+
+同様に、`[]T`をベースとした実装もできます。こっちは`map[bool]T`と違ってとれる状態の数を制限するような方法はありません。
+
+ただ`[]T`にしたいのは任意のmethod setを持ちながら`encoding/json`にオミットされたいからなだけなので、`undefined`を表現する以外の用途では`T`の実装に工夫をするほうが違和感がないと思います。
+
+なので、
+
+```go
+// 前述したOption型。
+// Option represents an optional value.
+type Option[T any] struct {
+	some bool
+	v    T
+}
+
+type Undefinedable[T any] []Option[T any]
+```
+
+とします。
+
+## 解決法2: encoding/json/v2(の候補版を使う)
+
+[github.com/go-json-experiment/json]を使うと`omitzero`オプションがついていてなおかつ`IsZero`メソッドが`true`を返す時エンコーダーがオミットする挙動があるのでこれを利用すれば`[]T`や`map[bool]T`を利用せずとも任意の値をオミットすることができます。
+
+[playground](https://go.dev/play/p/y4pgTPf6WD7)
+
+```go
+type Sample struct {
+	Padding1 int      `json:",omitzero"`
+	V        NonEmpty `json:",omitzero"`
+	Padding2 int      `json:",omitzero"`
+}
+
+type NonEmpty struct {
+	Foo string
+}
+
+func (z NonEmpty) IsZero() bool {
+	return z.Foo == "foo"
+}
+
+func main() {
+	var (
+		bin []byte
+		err error
+	)
+	bin, err = jsonv2.Marshal(Sample{})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("zero = %s\n", bin) // zero = {"V":{"Foo":""}}
+
+	bin, err = jsonv2.Marshal(Sample{V: NonEmpty{Foo: "foo"}})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("foo = %s\n", bin) // foo = {}
+}
+```
+
+そのため、以下のように`Option[Option[T]]`も`IsZero`さえ実装していれば同様に`undefined`時にオミットされることが可能です。
+
+```go
+type Und[T any] struct {
+	opt option.Option[option.Option[T]]
+}
+
+func (u Und[T]) IsZero() bool {
+	return u.IsUndefined()
+}
+```
+
+ただしこの場合でもdata container系の型が`MarshalJSON`を実装している場合に内部で`json.Marshal`を呼び出している場合、ここで`IsZero() == true`の時オミットされる挙動が引き継がれなくなります。
+`v2`と正式になれば十分な権威がありますから、メンテされているライブラリは`MarshalJSONV2`を実装してくると予測できるので、そこまで悪くはないと思います。
 
 ## 実装
 
+実装物は以下で管理されます
+
+https://github.com/ngicks/und/tree/main
+
+[以前の記事]で述べたrepositoryと同じです。色々事情が変わったので破壊的変更を行い、`jsoniter`への依存などが完全になくなるようになっています。
+
+`encoding/json/v2`が実装されるまで[github.com/go-json-experiment/json]に依存し、`v2`の実装に伴ってその依存を取り消すことで`v1.0.0`となる予定です。
+今後は破壊的変更はない予定です。
+
 ### Option[T]
 
+`Option[T]`型を実装します。と言ってもこれは前述したものと全く一緒です。
+
+https://github.com/ngicks/und/blob/a63886fe856b790120d5c01b0e2a0613786fb3f7/option/opt.go#L40-L55
+
+`MarshalJSON`, `UnmarshalJSON`,`MarshalJSONV2`, `UnmarshalJSONV2`が実装してあり、`None`は`null`に変換されます。
+
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/option/opt.go#L171-L223
+
+(`// same as bytes.Clone.`っていうコメントは消し忘れなので、なんの意味もないです)
+
+`MarshalJSONV2`向けに`IsZero`が実装してあります
+
+https://github.com/ngicks/und/blob/a63886fe856b790120d5c01b0e2a0613786fb3f7/option/opt.go#L64-L66
+
+この`Option[T]`実装は`Rust`の`std::Option<T>`をミミックしていますが、`Go`には借用など概念がなく、値はすべて`zero value`で初期化されるわけですから、内部の値を取り出すのはもっと単純な仕組みでよいことになります。
+
+https://github.com/ngicks/und/blob/a63886fe856b790120d5c01b0e2a0613786fb3f7/option/opt.go#L85-L89
+
+`T`がcomparableなら`Option[T]`もcomparableですが、`time.Time`のような一部の型は`Equal`メソッドによる比較を必要としますから、`Equal`も実装しておきます。
+
+https://github.com/ngicks/und/blob/a63886fe856b790120d5c01b0e2a0613786fb3f7/option/opt.go#L122-L146
+
+記事の主題とは全く関係ないですが、`Option[T]`には`Rust`の`std::Option<T>`をまねたメソッド群が実装されます
+
+```go
+func (o Option[T]) And(u Option[T]) Option[T]
+func (o Option[T]) AndThen(f func(x T) Option[T]) Option[T]
+func (o Option[T]) Filter(pred func(t T) bool) Option[T]
+func FlattenOption[T any](o Option[Option[T]]) Option[T]
+func (o Option[T]) IsNone() bool
+func (o Option[T]) IsSome() bool
+func (o Option[T]) IsSomeAnd(f func(T) bool) bool
+func MapOption[T, U any](o Option[T], f func(T) U) Option[U]
+func (o Option[T]) Map(f func(v T) T) Option[T]
+func MapOrOption[T, U any](o Option[T], defaultValue U, f func(T) U) U
+func (o Option[T]) MapOr(defaultValue T, f func(T) T) T
+func MapOrElseOption[T, U any](o Option[T], defaultFn func() U, f func(T) U) U
+func (o Option[T]) MapOrElse(defaultFn func() T, f func(T) T) T
+func (o Option[T]) Or(u Option[T]) Option[T]
+func (o Option[T]) OrElse(f func() Option[T]) Option[T]
+func (o Option[T]) Xor(u Option[T]) Option[T]
+```
+
+これらがあると便利です。(というか複数の`*T`を相手に「このポインターが`nil`なら～」みたいな処理を何度も書いていて煩雑に思ったから`Option[T]`を実装したかったのです)
+
+この手の型は[sql.Scanner](https://pkg.go.dev/database/sql@go1.22.5#Scanner)を実装するかが(体感上)気にされやすいです。そのためシンプルなラッパーで[sql.Scanner](https://pkg.go.dev/database/sql@go1.22.5#Scanner)および[driver.Driver](https://pkg.go.dev/database/sql/driver@go1.22.5#Driver)を実装します。
+
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/option/sql_null.go#L13-L74
+
+そのほかにも[xml.Marshaler](https://pkg.go.dev/encoding/xml@go1.22.5#Marshaler),[xml.Unmarshaler](https://pkg.go.dev/encoding/xml@go1.22.5#Unmarshaler),[slog.LogValuer](https://pkg.go.dev/log/slog@go1.22.5#LogValuer)を実装しておきます。
+
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/option/opt.go#L15-L23
+
 ### Und[T] []Option[T]
+
+本題である`[]Option[T]`ベースの`omitempty`でオミット可能な`T | null | undefined`を表現する型です。
+
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/sliceund/slice.go#L48-L63
+
+[以前の記事]では`Undefinedable`という名前にしていましたが型名が長すぎると画面がうるさいので`Und[T]`まで短縮しました。
+
+`len(u) == 0`のときを`undefined`とし、`u[0]`がnoneなら`null`, someなら`T`であるとしています。
+
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/sliceund/slice.go#L105-L119
+
+`Option[T]`と同じく`MarshalJSON`, `UnmarshalJSON`,`MarshalJSONV2`, `UnmarshalJSONV2`を実装しています。
+non-zero valueに対して`UnmarshalJSON`が呼ばれるケースもあることを考慮して`len(u) != 0`の場合、index 0に代入するような考慮がされています。
+
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/sliceund/slice.go#L130-L197
+
+これまた記事の主題とは無関係ですが以下のように`Und[T]`も[xml.Marshaler](https://pkg.go.dev/encoding/xml@go1.22.5#Marshaler),[xml.Unmarshaler](https://pkg.go.dev/encoding/xml@go1.22.5#Unmarshaler),[slog.LogValuer](https://pkg.go.dev/log/slog@go1.22.5#LogValuer)を実装してあります。
+
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/sliceund/slice.go#L16-L28
 
 ## ベンチマーク
 
@@ -618,12 +981,34 @@ PASS
 ok      github.com/ngicks/und/internal/bench    8.056s
 ```
 
-V1は`encoding/json`+`,omitempty`オプション、V2は[github.com/go-json-experiment/json]+`,omitzero`オプションをさします。
-Nullableは[github.com/oapi-codegen/nullable]の`Nullable[T]`型、Mapは自家版`map[bool]T`実装(なくていいんですが`Nullable[T]`とほぼ同じ実装なので、`go get`せずにベンチで比較するために作ってありました)、sliceは`[]Option[T]`ベースの型、NonSliceは`Option[Option[T]]`ベースの型のことをさします。
+各テストの`V1`, `V2`サフィックスはそれぞれ以下を意味します。
 
-実行するたび当然数値は変わりますが傾向的に速度の順序はこの通りで入れ替わることはありません。`[]Option[T]`のほうが速いでまあ多分間違いなさそうですね。
+- V1: `encoding/json`+`,omitempty`オプション
+- V2: [github.com/go-json-experiment/json]+`,omitzero`オプション
+
+さらに、Serdeの後に続くワードはそれぞれ以下を意味します
+
+- Nullable: [github.com/oapi-codegen/nullable]の`Nullable[T]`型
+- Map: 自家版`map[bool]T`実装(なくていいんですが`Nullable[T]`とほぼ同じ実装なので、`go get`せずにベンチで比較するために作ってありました)
+- Slice: `[]Option[T]`ベースの`Und[T]`
+- NonSlice: `Option[Option[T]]`ベースの`Und[T]`
+
+実行するたび当然数値は変わりますが傾向的に速度の順序はこの通りで入れ替わることはありません。
+`map[bool]T`ベース実装より`[]Option[T]`のほうが速いです。ただ現実的なアプリが気にする必要がある差にも思いません。他の重い処理をすればほとんどノイズレベルの差でしかなさそうに思います。
+
+`Option[Option[T]]`ベースの`Und[T]`が最もパフォーマントなのはまあ想像に難くないです。各種slice向けの処理を通らないから`[]Option[T]`よりも早くて当然だといえます。
+他の結果も予測どおりです。`NullableV2`と`MapV2`で差がついてるのは`Nullable[T]`が`IsZero`を実装しないからかもしれません。
 
 ## おわりに
+
+`JSON`がたびたび持つ`T | null | undefined`を表現する必要性と、なぜ`Go`ではそれが表現しづらいかについて述べました。
+その後、可能だがとらなかった方法について述べ、`[]Option[T]`をベースとする実装のしかたについて説明し、
+最後にベンチマークをとって`[]Option[T]`が`map[bool]T`に比べて若干パフォーマントであることを示しました。
+
+筆者が`Node.js`で書いていた`Elasticsearch`の前に立つサーバーアプリケーションをどうやって`Go`に移植すればよいのだろうか疑問からから始まった探索でしたが、
+現実的で扱える方法が見つかったことで、一旦終わりということになります。
+記事中では特に触れていなかったですが、`Elasticsearch`に格納する`JSON`向けの`undefined | null | T | [](null | T)`を表現できる型も[作成済み](https://github.com/ngicks/und/blob/v1.0.0-alpha3/sliceund/elastic/elastic.go)です。
+しかし残念ながら、筆者はそういったアプリを実際に移植することはなさそうなのであまりこの成果を生かせなさそうです。
 
 [Go programming language]: https://go.dev/
 [以前の記事]: https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined
