@@ -1150,11 +1150,14 @@ func main() {
 
 ## ベンチマーク
 
-3パターンの入力(フィールドがない/`null`/ある)をUnmarshal/Marshalするラウンドトリップのパフォーマンスをとって比較してみます。
+3パターンの入力(フィールドがない/`null`/ある)を`Marshal`する/`Unmarshal`する/`Unmarshal`して`Marshal`するの3パターンのベンチマークをとって比較してみます。
 
-https://github.com/ngicks/und/blob/c1689d2e6c9e6a5f010a78fa6fb36401f709a9da/internal/bench/beanch_test.go
+https://github.com/ngicks/und/blob/a4291a4a0126836a8be44d11e4d4651fc080a1a2/internal/bench/beanch_test.go
 
-このベンチを筆者環境で実行します(`Docker Desktop`で構築された`wsl2`上の`docker container`)
+[github.com/go-json-experiment/json]の`Marshal`は入力がaddressable valueでないとき(=ポインターではないとき)にaddressableになるようにallocationしますので、`Marshal`にはポインターを渡すようにします。
+
+このベンチを筆者環境で実行します。`Docker Desktop`で構築された`wsl2`上の`docker container`です。
+ソースを読まなくても結果の意味が分かるように、ベンチ結果の後に各テストケースのネーミングについて説明します。
 
 ```
 # go version
@@ -1164,34 +1167,51 @@ goos: linux
 goarch: amd64
 pkg: github.com/ngicks/und/internal/bench
 cpu: AMD Ryzen 9 7900X 12-Core Processor
-BenchmarkSerdeNullableV1-24       589605              1858 ns/op            1362 B/op         32 allocs/op
-BenchmarkSerdeMapV1-24            609927              1878 ns/op            1362 B/op         32 allocs/op
-BenchmarkSerdeSliceV1-24          642109              1742 ns/op            1250 B/op         30 allocs/op
-BenchmarkSerdeNullableV2-24       661170              1712 ns/op             786 B/op         23 allocs/op
-BenchmarkSerdeMapV2-24            742197              1600 ns/op             633 B/op         21 allocs/op
-BenchmarkSerdeSliceV2-24          704398              1558 ns/op             665 B/op         22 allocs/op
-BenchmarkSerdeNonSliceV2-24       782139              1457 ns/op             633 B/op         20 allocs/op
+BenchmarkUnd_Marshal/NullableV1-24               2611189               458.7 ns/op           144 B/op          8 allocs/op
+BenchmarkUnd_Marshal/MapV1-24                    2612364               459.0 ns/op           144 B/op          8 allocs/op
+BenchmarkUnd_Marshal/SliceV1-24                  2743136               442.2 ns/op           216 B/op          8 allocs/op
+BenchmarkUnd_Marshal/NullableV2-24               2255996               529.2 ns/op           144 B/op          8 allocs/op
+BenchmarkUnd_Marshal/MapV2-24                    2213857               542.6 ns/op           136 B/op          7 allocs/op
+BenchmarkUnd_Marshal/SliceV2-24                  2064949               581.9 ns/op           280 B/op         10 allocs/op
+BenchmarkUnd_Marshal/NonSliceV2-24               2155774               555.6 ns/op           280 B/op         10 allocs/op
+BenchmarkUnd_Unmarshal/NullableV1-24              947925              1158 ns/op            1216 B/op         24 allocs/op
+BenchmarkUnd_Unmarshal/MapV1-24                   910396              1148 ns/op            1216 B/op         24 allocs/op
+BenchmarkUnd_Unmarshal/SliceV1-24                1000000              1008 ns/op            1032 B/op         22 allocs/op
+BenchmarkUnd_Unmarshal/NullableV2-24             1563200               781.3 ns/op           568 B/op         12 allocs/op
+BenchmarkUnd_Unmarshal/MapV2-24                  1786958               669.0 ns/op           424 B/op         11 allocs/op
+BenchmarkUnd_Unmarshal/SliceV2-24                2058493               583.4 ns/op           240 B/op          9 allocs/op
+BenchmarkUnd_Unmarshal/NonSliceV2-24             2303660               522.3 ns/op           208 B/op          7 allocs/op
+BenchmarkUnd_Serde/NullableV1-24                  629516              1864 ns/op            1362 B/op         32 allocs/op
+BenchmarkUnd_Serde/MapV1-24                       604058              1875 ns/op            1362 B/op         32 allocs/op
+BenchmarkUnd_Serde/SliceV1-24                     667900              1719 ns/op            1250 B/op         30 allocs/op
+BenchmarkUnd_Serde/NullableV2-24                  756122              1560 ns/op             641 B/op         17 allocs/op
+BenchmarkUnd_Serde/MapV2-24                       802083              1405 ns/op             489 B/op         15 allocs/op
+BenchmarkUnd_Serde/SliceV2-24                     844695              1357 ns/op             377 B/op         16 allocs/op
+BenchmarkUnd_Serde/NonSliceV2-24                  911815              1277 ns/op             345 B/op         14 allocs/op
 PASS
-ok      github.com/ngicks/und/internal/bench    8.056s
+ok      github.com/ngicks/und/internal/bench    30.814s
 ```
 
-各テストの`V1`, `V2`サフィックスはそれぞれ以下を意味します。
-
-- V1: `encoding/json`+`,omitempty`オプション
-- V2: [github.com/go-json-experiment/json]+`,omitzero`オプション
-
-さらに、Serdeの後に続くワードはそれぞれ以下を意味します
+各テストのprefixはそれぞれ以下を意味します
 
 - Nullable: [github.com/oapi-codegen/nullable]の`Nullable[T]`型
 - Map: 自家版`map[bool]T`実装(なくていいんですが`Nullable[T]`とほぼ同じ実装なので、`go get`せずにベンチで比較するために作ってありました)
 - Slice: `[]Option[T]`ベースの`Und[T]`
 - NonSlice: `Option[Option[T]]`ベースの`Und[T]`
 
-実行するたび当然数値は変わりますが傾向的に速度の順序はこの通りで入れ替わることはありません。
-`map[bool]T`ベース実装より`[]Option[T]`のほうが速いです。ただ現実的なアプリが気にする必要がある差にも思いません。他の重い処理をすればほとんどノイズレベルの差でしかなさそうに思います。
+`V1`, `V2`はsuffixそれぞれ以下を意味します。
+
+- V1: `encoding/json`+`,omitempty`オプション
+- V2: [github.com/go-json-experiment/json]+`,omitzero`オプション
+
+ベンチとるまで気づきませんでしたがこのぐらいのサイズのstructを`Marshal`するとき[github.com/go-json-experiment/json]のほうが`encoding/json`に比べて遅いんですね。
+とは言え差は100nsecないので気にならないケースのほうが多いと思います。
+
+`Marshal`+`V2`の時のみ`Nullable`実装が最速です。それ以外は予測通り、`Nullable` > `Slice` > `NonSlice`です。
+ただ現実的なアプリが気にする必要がある差にも思いません。他の重い処理をすればほとんどノイズレベルの差でしかなさそうに思います。
 
 `Option[Option[T]]`ベースの`Und[T]`が最もパフォーマントなのはまあ想像に難くないです。各種slice向けの処理を通らないから`[]Option[T]`よりも早くて当然だといえます。
-他の結果も予測どおりです。`NullableV2`と`MapV2`で差がついてるのは`Nullable[T]`が`IsZero`を実装しないからかもしれません。
+他の結果も予測どおりです。`Unmarshal`+`V2`のケースで`NullableV2`と`MapV2`で差がついてるのは`Nullable[T]`が`IsZero`を実装しないからかもしれません。
 
 ## おわりに
 
