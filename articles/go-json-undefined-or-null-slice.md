@@ -35,7 +35,7 @@ published: false
 
 - `Go`で`T | null | undefined`がなぜ表現しにくいかについて説明します
 - `T | null | undefined`のユースケースとして`Elasticsearch`のpartial updateを説明します
-- 普通、フィールドのあるなしをどうやってチェックするなどをwildに存在する広く使われるライブラリの例を引用し説明します
+- 普通、フィールドのあるなしをどうやってチェックするかなどを、広く使われるライブラリの実装を例に説明します
 - 解決法を二つ紹介します。
   - `encoding/json`とすでに互換性のある方法(`[]Option[T]`)
   - `encoding/json/v2`のみで使えるもっと効率的な方法(`Option[Option[T]]`)
@@ -72,21 +72,29 @@ go version go1.22.0 linux/amd64
 | :---------------- | :------------------------------------------------------------------------------------------------------------------ |
 | encode            | `Go` valueからバイト列(`[]byte`)への変換                                                                            |
 | decode            | バイト列(`[]byte`)から`Go` valueへの変換                                                                            |
-| Marshal/Unmarshal | encode/decodeとほぼ同義、ただしencode元/decode先がメソッドをもてる型であるときこの言い回しを好む                    |
+| Marshal/Unmarshal | encode/decodeとほぼ同義。この記事においては違いは気にされない                                                       |
 | `undefined`       | encode先/decode元のJSON Objectのフィールドが存在しないこと、およびそれを出力しないような`Go` valueの状態のこと      |
 | `null`            | encode先/decode元のJSON Objectのフィールドが`null` literalであること、およびそれを出力する`Go` valueの状態のこと    |
 | `T`               | encode先/decode元のJSON Objectのフィールドがある型`T`の値に対応すること、およびそれを出力する`Go` valueの状態のこと |
 
+`JSON`は[RFC8259]の定義を用います。
+
 ## おさらい: 時たま困る「データがない状態」の扱い
 
-`JSON`などのバイト列(`[]byte`)と`Go` valueの相互変換はしばしばそのフォーマットの持つ特性により、しばしば変換方法が難しいことがあります。
+### JSONの特殊性
 
-特に`JSON`は`JavaScript Object Notation`(javascriptのobjectの記法)という言い回しからわかる通り、`javascript`の事情を多分に含んでいます。
-`javascript`には`null`とは別に`undefined`という「データがない状態」の表現が存在します。
-`javascript`を書いているとき、取り扱うほとんどの値が`Object`・・・`Go`で言うと`map[string]any`のようなもの・・・ですので、フィールドがない(`undefined`)のと`null`(`Go`でいうと`nil`)が含まれていることは自然と表現できますし、そもそも値として、型として`undefined`と`null`がどちらも存在するため、「フィールドがない」だけでなく「フィールドに`undefined`がセットされている」というさらに別の状態も存在します。
-[JSON の定義](https://datatracker.ietf.org/doc/html/rfc8259)上`undefined`は存在しないのでシリアライズされるときにキーが消える挙動となります。
+[RFC8259]によれば`JSON`は`JavaScript Object Notation`(javascriptのobjectの記法)の略語であり、ほとんどのケースで`JSON`は有効なjavascriptです。
+そのため`javascript`の事情を多分に含んでいます。
+
+`javascript`には「データがない状態」の表現が`null`と`undefined`という二通り存在します。
+`javascript`を書いているとき、取り扱うほとんどの値が`Object`・・・`Go`で言うと`map[string]any`のようなもの・・・ですので、フィールドがない(`undefined`)のと`null`(`Go`でいうと`nil`)が含まれていることは自然と表現できます。
+
+実は`undefined`という値や型が存在するため「フィールドがない」だけでなく「フィールドに`undefined`がセットされている」というさらに別の状態も存在します。
+[RFC8259]上`undefined`は存在しないのでシリアライズされるときに`JSON value`のオブジェクト上からフィールドが出現しない挙動となります。
 
 筆者の知る限りこのような状態を自然に表現できるようにしてあるプログラミング言語はあまりないため、大抵の場合`undefined`と`null`を同一扱いするか、`optional`あるいは`nullable`と言われるようなdata containerを入れ子にした`optional<optional<T>>`にして対応していることがほとんどだと思います。
+
+`Go`は普通に書くと`undefined`と`null`を同一扱いするような形になると思います(後述)。
 
 ### Goのzero valueとデータ相互変換
 
@@ -223,7 +231,14 @@ func main() {
 そのため、普通はそういった`""`や`0`がデータとしてありうるケースでは代わりに`*string`などをフィールドの型として指定します。
 
 ただし、この場合でも`JSON`のデコードではUnmarshal後の`Go` structのフィールドの値が`nil`だったことから、入力が`null`だったのか、`undefined`だったのか(フィールドが存在しなかった)のかは判別がつきません。
-`xml`には`null`にあたる値の表現がないはずなのでこちらの場合は`*T`なフィールドを指定するだけで十分なはずです。
+
+`encoding/xml`は`nil`なフィールドは単にオミットする挙動なので、とりあえず`encoding/xml`の範疇では`*T`としておくだけでフィールドが存在していなかったのか、していたのかが判別できます
+
+:::details xmlのnil
+
+[ここ](https://atmarkit.itmedia.co.jp/ait/articles/0405/26/news077_2.html)などを参照すると特定のnamespaceで[xsi:nil="true"というattributeをつけることでnilを表現可能](https://www.ibm.com/docs/ja/integration-bus/9.0.0?topic=parser-xmlnsc-empty-elements-null-values)なようですが、`encoding/xml`はとりあえずそれらの存在ありきの実装にはなっていませんのでユーザーが特別に`xsi:nil`を見分けるような`UnmarshalXML`を実装する必要があります。
+
+:::
 
 [playground](https://go.dev/play/p/YM8wrDe-WsD)
 
@@ -368,38 +383,33 @@ https://github.com/getkin/kin-openapi/blob/2692f43ba21c89366b2a221a86be520b87539
 
 この挙動より、wacky valueを用いればPartial `JSON`の受け側には十分なれます。
 
-[playground](https://go.dev/play/p/1eB1P3Oj7lm)
+[playground](https://go.dev/play/p/891ZZL8Yehq)
 
 ```go
+
 type Sample struct {
 	Foo *string
 	Bar *int
 }
 
-func (s Sample) GoString() string {
-	foo := "<nil>"
-	if s.Foo != nil {
-		foo = *s.Foo
+func same[T comparable](a T, b *T) bool {
+	if b == nil {
+		return false
 	}
-	var bar any = "<nil>"
-	if s.Bar != nil {
-		bar = *s.Bar
-	}
-
-	return fmt.Sprintf("{Foo:%q,Bar:%v}", foo, bar)
+	return a == (*b)
 }
 
 func main() {
-	var (
-		wackyStr = "wacky"
-		wackyInt = -9999999
-	)
 	for _, input := range []string{
 		`{}`,
 		`{"Bar": null}`,
 		`{"Foo": ""}`,
 		`{"Foo": "wacky", "Bar": -9999999}`,
 	} {
+		var (
+			wackyStr = "wacky"
+			wackyInt = -9999999
+		)
 		s := Sample{
 			Foo: &wackyStr,
 			Bar: &wackyInt,
@@ -410,7 +420,7 @@ func main() {
 		}
 		fmt.Printf("input = %s,\n", input)
 		fmt.Printf("unmarshaled = %#v\n", s)
-		fmt.Printf("foo was present = %t, bar was present = %t\n", s.Foo != &wackyStr, s.Bar != &wackyInt)
+		fmt.Printf("foo was present = %t, bar was present = %t\n", !same("wacky", s.Foo), !same(-9999999, s.Bar))
 		fmt.Println()
 		/*
 			input = {},
@@ -423,7 +433,7 @@ func main() {
 
 			input = {"Foo": ""},
 			unmarshaled = {Foo:"",Bar:-9999999}
-			foo was present = false, bar was present = false
+			foo was present = true, bar was present = false
 
 			input = {"Foo": "wacky", "Bar": -9999999},
 			unmarshaled = {Foo:"wacky",Bar:-9999999}
@@ -433,7 +443,8 @@ func main() {
 }
 ```
 
-ただし上記の通り、wacky valueと同値の入力を判別できないので`map[string]any`にいったんデコードする方法より筋がいいとはいい難い面があります。
+`json.Unmarshal`は挙動上、引数のフィールドが[`nil`の場合新しい値をallocateし](https://github.com/golang/go/blob/go1.22.5/src/encoding/json/decode.go#L475-L477)、[ポインターに入力JSONの値を代入する](https://github.com/golang/go/blob/go1.22.5/src/encoding/json/decode.go#L949)挙動となっています。
+そのため上記の通り、wacky valueと同値の入力を判別できないので`map[string]any`にいったんデコードする方法より筋がいいとはいい難い面があります。
 
 こういう設計をやるとドキュメント上に「`"wacky"`ならば暗黙的に無視される」と載ることになり、すさまじくわかりにくいうえにコードジェネレーターその他と相性が悪くなるのでやらないほうがいいでしょうね。
 
@@ -607,7 +618,8 @@ func (u *Und[T]) UnmarshalJSON(data []byte) error {
 stdで`JSON`とバイト列(`[]byte`)の相互変換を行うには`encoding/json`を利用します。
 
 `encoding/json`は`Unmarshal`時、`JSON`フィールドに値がない(`undefined`)時に何も代入をおこなわず、`null`だった場合、`*T`相手には`nil`を代入し、non-pointer type `T`のフィールドには何も代入しません。
-また、`json.Unmarshal`は`UnmarshalJSON`を型が実装する場合、それを呼び出すことで型レベルで挙動の変更をサポートしますが、`JSON`フィールドの値が`null`だった場合は、`UnmarshalJSON`を`[]byte("null")`を引数に呼び出します。`Unmarshal`に関しては、型が`UnmarshalJSON`さえ実装しており、`json.Unmarshal`に渡すポインタを毎回zero valueに初期化することで`T | null | undefined`を判別することが可能です。
+また、`json.Unmarshal`は`UnmarshalJSON`を型が実装する場合、それを呼び出すことで型レベルで挙動の変更をサポートします。`JSON`フィールドの値が`null`だった場合は、`UnmarshalJSON`を`[]byte("null")`を引数に呼び出します。
+`Unmarshal`に関しては、型が`UnmarshalJSON`さえ実装しており、`json.Unmarshal`に渡す引数structのフィールドを毎回zero valueに初期化することで`T | null | undefined`を判別することが可能です。
 
 `Marshal`時には`encoding/json`はstruct tagを参照し、`json`タグに`omitempty`オプションが設定されていると`zero value`(厳密にはempty valueであってzeroではない)であるフィールドをオミット(=出力先データにフィールドが出現しない)する挙動がありますが、これはフィールドの型がstructであるときには起きません。
 
@@ -1192,6 +1204,8 @@ PASS
 ok      github.com/ngicks/und/internal/bench    30.814s
 ```
 
+`Marshal`, `Unmarshal`は言葉のとおりそれをします。`Serde`はrustの[serde crate](https://docs.rs/serde/latest/serde/)からとった語で、SERialize DEserializeの略語です。`[]byte`を`Unmarshal`して`Marshal`する１回のラウンドトリップのパフォーマンスをとります。
+
 各テストのprefixはそれぞれ以下を意味します
 
 - Nullable: [github.com/oapi-codegen/nullable]の`Nullable[T]`型
@@ -1219,6 +1233,8 @@ ok      github.com/ngicks/und/internal/bench    30.814s
 その後、可能だがとらなかった方法について述べ、`[]Option[T]`をベースとする実装のしかたについて説明し、
 最後にベンチマークをとって`[]Option[T]`が`map[bool]T`に比べて若干パフォーマントであることを示しました。
 
+まあパフォーマンスのいかんは些細な問題で、今回こういう風に実装したのは`Option[T]`に実装を寄せたかったからなので筆者はこの実装を使っていくと思います。
+
 筆者が`Node.js`で書いていた`Elasticsearch`の前に立つサーバーアプリケーションをどうやって`Go`に移植すればよいのだろうか疑問からから始まった探索でしたが、
 現実的で扱える方法が見つかったことで、一旦終わりということになります。
 記事中では特に触れていなかったですが、`Elasticsearch`に格納する`JSON`向けの`undefined | null | T | [](null | T)`を表現できる型も[作成済み](https://github.com/ngicks/und/blob/v1.0.0-alpha3/sliceund/elastic/elastic.go)です。
@@ -1229,3 +1245,4 @@ ok      github.com/ngicks/und/internal/bench    30.814s
 [Elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/current/elasticsearch-intro.html
 [github.com/oapi-codegen/nullable]: https://github.com/oapi-codegen/nullable
 [github.com/go-json-experiment/json]: https://github.com/go-json-experiment/json
+[RFC8259]: https://datatracker.ietf.org/doc/html/rfc8259
