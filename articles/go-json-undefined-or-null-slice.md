@@ -1089,7 +1089,7 @@ https://github.com/ngicks/und/tree/main
 
 `Option[T]`型を実装します。と言ってもこれは前述したものと全く一緒です。
 
-https://github.com/ngicks/und/blob/a63886fe856b790120d5c01b0e2a0613786fb3f7/option/opt.go#L40-L55
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/option/opt.go#L40-L55
 
 `MarshalJSON`, `UnmarshalJSON`,`MarshalJSONV2`, `UnmarshalJSONV2`が実装してあり、`None`は`null`に変換されます。
 
@@ -1099,15 +1099,15 @@ https://github.com/ngicks/und/blob/v1.0.0-alpha3/option/opt.go#L171-L223
 
 `MarshalJSONV2`向けに`IsZero`が実装してあります
 
-https://github.com/ngicks/und/blob/a63886fe856b790120d5c01b0e2a0613786fb3f7/option/opt.go#L64-L66
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/option/opt.go#L64-L66
 
 この`Option[T]`実装は`Rust`の`std::Option<T>`をミミックしていますが、`Go`には借用など概念がなく、値はすべて`zero value`で初期化されるわけですから、内部の値を取り出すのはもっと単純な仕組みでよいことになります。
 
-https://github.com/ngicks/und/blob/a63886fe856b790120d5c01b0e2a0613786fb3f7/option/opt.go#L85-L89
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/option/opt.go#L85-L89
 
 `T`がcomparableなら`Option[T]`もcomparableですが、`time.Time`のような一部の型は`Equal`メソッドによる比較を必要としますから、`Equal`も実装しておきます。
 
-https://github.com/ngicks/und/blob/a63886fe856b790120d5c01b0e2a0613786fb3f7/option/opt.go#L122-L146
+https://github.com/ngicks/und/blob/v1.0.0-alpha3/option/opt.go#L122-L146
 
 記事の主題とは全く関係ないですが、`Option[T]`には`Rust`の`std::Option<T>`をまねたメソッド群が実装されます
 
