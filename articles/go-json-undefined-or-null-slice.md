@@ -28,7 +28,7 @@ published: false
 
 - [Elasticsearch](のupdate API)のような`JSON`における`null`と`undefined`(`JSON`にフィールドがない)状態をうまく使い分けるシステムに送る`JSON`を structをmarshalするだけでいい感じに作りたい。
 - `encoding/json`の挙動を利用し、`map[K]V`もしくは`[]T`をベースとする型を工夫することで可能なことが分かった。
-- some/noneを表現できる型として`Option[T]`を定義して、`[]Option[T]`を`T | null | undefined`を表現する型とした。
+- some(present)/none(absent)を表現できる型として`Option[T]`を定義して、`[]Option[T]`を`T | null | undefined`を表現する型とした。
   - [github.com/oapi-codegen/nullable](https://github.com/oapi-codegen/nullable)は`map[bool]T`として利用するが、`[]T`のほうが動作が速いんじゃないかという仮説があった
 
 ## やること
