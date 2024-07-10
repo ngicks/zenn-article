@@ -316,9 +316,9 @@ func main() {
 
 ```go
 type Example struct {
-	Kwd             []string                               `json:"kwd"`
-	Long            []int64                                `json:"long"`
-	Text            []string                               `json:"text"`
+	Kwd  []string `json:"kwd"`
+	Long []int64  `json:"long"`
+	Text []string `json:"text"`
 }
 ```
 
