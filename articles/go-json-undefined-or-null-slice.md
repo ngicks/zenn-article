@@ -347,7 +347,7 @@ curl -X POST "localhost:9200/test/_update/1?pretty"\
 https://github.com/omissis/go-jsonschema/blob/main/tests/data/core/object/object.go
 
 見てのとおり、`map[string]any`と`Plain`それぞれに対して`json.Unmarshal`を呼び出します。
-`map[string]any`のほうを使ってフィールドのあるなしをチェックし、`Plain`のほうを結果としてreceiverに代入します。
+`map[string]any`のほうを使ってフィールドのあるなしと`null`であるかをチェックし、`Plain`の各フィールド型の`UnmarshalJSON`実装の中で値のバリデーションを行って、結果としてreceiverに代入します。
 `type Plain ObjectMyObject`は[`method set`を引き継がない](https://go.dev/ref/spec#Type_definitions)がデータ構造は同じな型を定義するためにこうしています。
 
 他の例を挙げると、[OpenAPI spec](https://github.com/OAI/OpenAPI-Specification)を用いてJSONのvalidationを行うライブラリの[github.com/getkin/kin-openapi](https://github.com/getkin/kin-openapi/blob/2692f43ba21c89366b2a221a86be520b87539352/openapi3filter/validate_request.go#L275)も同様に、`JSON`を`any`にデコードし、これを利用してvalidationを行います。
