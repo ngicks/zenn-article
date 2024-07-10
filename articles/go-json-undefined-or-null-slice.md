@@ -383,13 +383,25 @@ https://github.com/getkin/kin-openapi/blob/2692f43ba21c89366b2a221a86be520b87539
 
 この挙動より、wacky valueを用いればPartial `JSON`の受け側には十分なれます。
 
-[playground](https://go.dev/play/p/891ZZL8Yehq)
+[playground](https://go.dev/play/p/v7ZHNPkd5sl)
 
 ```go
 
 type Sample struct {
 	Foo *string
 	Bar *int
+}
+
+func (s Sample) GoString() string {
+	foo := "<nil>"
+	if s.Foo != nil {
+		foo = fmt.Sprintf("%q", *s.Foo)
+	}
+	var bar any
+	if s.Bar != nil {
+		bar = *s.Bar
+	}
+	return fmt.Sprintf(`{Foo:%s,Bar:%v}`, foo, bar)
 }
 
 func same[T comparable](a T, b *T) bool {
