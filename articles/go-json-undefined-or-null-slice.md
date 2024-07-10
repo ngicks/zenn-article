@@ -3,7 +3,7 @@ title: "GoのT | null | undefinedは[]Option[T]でよかった"
 emoji: "📦"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## GoのT | null | undefinedは[]Option[T]でよかった
@@ -696,7 +696,7 @@ https://github.com/golang/go/blob/go1.22.5/src/encoding/json/encode.go#L430-L450
 
 - https://github.com/golang/go/discussions/63397
 
-`encoding/json`にもコミット履歴がある[dsnet](https://github.com/dsnet)氏(今(2024/07)はTailscale所属と書かれています)の立てたdiscussionで、`encoding/json`のもろもろの欠点と、互換性を保ったままそれらを修正するのが難しい(`JSON`に関するRFCが時間とともに厳密になっていったのに追従してデフォルトの挙動をより厳密にしたほうが良いだろう)という経緯の説明、さらに`v2`のAPIの提案とexperimental実装([github.com/go-json-experiment/json])の紹介がなされています。
+`encoding/json`にもコミット履歴がある[dsnet](https://github.com/dsnet)氏(今(2024/07)は[github.com/tailscale/tailscale](https://github.com/tailscale/tailscale)にコミットとPRレビューをたくさんしているのでTailscale所属なんでしょうか？)の立てたdiscussionで、`encoding/json`のもろもろの欠点と、互換性を保ったままそれらを修正するのが難しい(`JSON`に関するRFCが時間とともに厳密になっていったのに追従してデフォルトの挙動をより厳密にしたほうが良いだろう)という経緯の説明、さらに`v2`のAPIの提案とexperimental実装([github.com/go-json-experiment/json])の紹介がなされています。
 
 この中で`time.Time`のような`IsZero`を実装する型に対してはこれが`true`を返す時オミットする`,omitzero`オプションを含むように提案されています。
 
@@ -981,7 +981,7 @@ type undefinedableSlice []T
 
 ### map[bool]Tを使う実装: [github.com/oapi-codegen/nullable](https://github.com/oapi-codegen/nullable)
 
-`OpenAPI spec`から`Go`のserver/clientを生成するライブラリのソースを管理するoapi-codegenオーがないゼーション以下で、
+`OpenAPI spec`から`Go`のserver/clientを生成するライブラリのソースを管理するoapi-codegenオーガナイゼーション以下で、
 `map[bool]T`をベースとした`T | null | undefined`を表現できる型が実装されています。
 
 以下がそれぞれの状態に対応します
