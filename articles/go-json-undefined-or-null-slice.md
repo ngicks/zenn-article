@@ -1020,7 +1020,7 @@ type Option[T any] struct {
 	v    T
 }
 
-type Undefinedable[T any] []Option[T any]
+type Undefinedable[T any] []Option[T]
 ```
 
 とします。
