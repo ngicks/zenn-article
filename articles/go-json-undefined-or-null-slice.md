@@ -1,5 +1,5 @@
 ---
-title: "GoのT | null | undefinedは[]Option[T]でよかった"
+title: "GoのJSONのT | null | undefinedは[]Option[T]で表現できる"
 emoji: "📦"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
