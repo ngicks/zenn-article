@@ -6,6 +6,14 @@ topics: ["go"]
 published: true
 ---
 
+# EDIT: 2024-07-12
+
+もっと簡単な方法を見つけた(というか教えられた？)ので、新しい記事に書き直しました。
+
+https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
+
+「`Go json undefined`」でググるとトップにこの記事が来るので、更新したほうがいいかな～って思ったんですが、自分で自分の記事は何度も開いているのでターゲットされているだけかも
+
 # TL;DR
 
 - Elasticsearch (の update API)のような JSON における`null`と`undefined`(JSON に key がない)状態をうまく使い分けるシステムに送る JSON を struct を marshal するだけでいい感じに作りたい。
