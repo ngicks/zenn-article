@@ -1,5 +1,5 @@
 ---
-title: "Goのcode generation: text/template,github.com/dave/jennifer,ast(dst)-rewrite"
+title: "Goのcode generation: text/template,jennifer,ast(dst)-rewrite"
 emoji: "🧰"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
