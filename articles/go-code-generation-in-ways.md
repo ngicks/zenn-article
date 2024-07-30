@@ -10,7 +10,7 @@ published: false
 
 `Go`のcode generationについてまとめようと思います。
 
-- `*bytes.Buffer`に書き出すシンプルな方法
+- `io.Writer`に書き出すシンプルな方法
 - `text/template`を使う方法
 - [github.com/dave/jennifer]を使う方法
 - `ast`をrewriteする方法
@@ -18,6 +18,8 @@ published: false
   - 実際には[github.com/dave/dst]を使う方法について述べます。
 
 についてそれぞれ述べます。
+
+それぞれに対してそれなりに詳しく書こうと思っています。
 
 ## 前提知識
 
@@ -57,7 +59,7 @@ https://github.com/search?q=repo%3Agolang%2Fgo%20%2F%2Fgo%3Agenerate&type=code
 
 例えば、以下のようなサンプルを定義します。
 
-サンプルでは、あるstructに対して、フィールド名が一致するが、型が`Patcher[T]`で置き換えられたstructを用意することで、部分的なフィールドの変更をできる挙動を示します。
+サンプルでは、あるstructに対して、フィールド名と定義順が一致するが、型が`Patcher[T]`で置き換えられたstructを用意することで、部分的なフィールドの変更をできる挙動を示します。
 
 [playground](https://go.dev/play/p/epTC5qebFzZ)
 
@@ -144,7 +146,28 @@ func main() {
 ただし、
 
 - `reflect`を使って動的に処理を行う場合、静的に型を当てた関数で包んでtype assertionを行わない限り型安全性を失います。
+
+つまりこういうことです。
+
+```go
+func patchSample(s *Sample, patcher SamplePatch) {
+	patch(s, patcher)
+}
+```
+
+このケースでは返り値がないのでピンときにくいかもしれませんが、`reflect.Value`から値を取り出そうと思うと`Interface()`メソッドで`any`型の値を取り出すしかありませんので、
+`type assertion`を関数内で行うことで返り値の型を具体的なものにするのが普通だと思います。
+
 - `generics`では[#49085](https://github.com/golang/go/issues/49085)がないためにmethodにtype paramを与えることができません。
+
+つまり以下のようなことはできないということです。
+
+```go
+// compilation error
+func (p Patch[T]) Convert[U any](converter func(t T) U) U {
+	// ...
+}
+```
 
 また、双方ともに型情報に含まれないような情報を用いた動的な処理を行えません。
 
@@ -162,7 +185,7 @@ https://github.com/golang/go/blob/go1.22.5/src/html/template/state_string.go
 
 大雑把に言って4つの方法が代表的なのではないかと思います
 
-- テキストを書くだけ
+- `io.Writer`テキストを書くだけ
   - プログラムによってgo source fileとなるテキストを書きだすだけの方法です
 - [text/template]を用いる方法
   - templateを用いることで、パラメータとテキストを切り分けます。
@@ -208,12 +231,70 @@ Go1.21より[ast.IsGenerated](https://pkg.go.dev/go/ast@go1.22.5#IsGenerated)と
 >
 > The iteration order over maps is not specified and is not guaranteed to be the same from one iteration to the next.
 
-言語仕様によりfor-range-mapの順序は未定義であるので、code generatorが好み定義の順序によって実行のたびに異なった順序でコードを出力しないように気を付けたほうがよいでしょう。
+言語仕様によりfor-range-mapの順序は未定義であるので、code generatorが実行のたびに異なった順序でコードを出力しないように気を付けたほうがよいでしょう。
 さもなければ、不要なdiffを生じさせてしまいます。
+
+代わりに
+
+```go
+// https://go.dev/play/p/s5K782-FhKo
+var m map[K]V
+keys := make([]K, 0, len(m))
+for k := range m {
+	keys = append(keys, k)
+}
+slices.Sort(keys)
+for _, k := range keys {
+	_ = m[k]
+	// ...
+}
+```
+
+とすることで、stableな順序でmapをiterateできます。
+Go1.23以降ならもっと簡単に
+
+```go
+// https://go.dev/play/p/2yRGLquakg8?v=gotip
+var m map[K]V
+keys := slices.Collect(maps.Keys(m))
+slices.Sort(keys)
+for _, k := range keys {
+	_ = m[k]
+	// ...
+}
+```
+
+とできます。
 
 ## テキストを書くだけ
 
+という風にタイトルをつけていますが特にこれと言って述べるべきことはこれにはありません。
+
+例えば、`Go`の`runtime`では以下のような単にテキストを書くだけのcode generatorを見つけることができます。
+
 https://github.com/golang/go/blob/go1.22.5/src/runtime/wincallback.go
+
+生成対象は`.s`の[Go assembly](https://go.dev/doc/asm)ファイルですが、まあ少し文法が違うだけなので例として全く不適ということもないでしょう。
+
+このコードによって以下のがファイルが生成されます。
+
+https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows_arm.s
+https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows_arm64.s
+https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows.s
+
+これらのファイルは以下のような、ほぼ同じパターンを2000回繰り返すだけの単純なものです。
+
+```
+	MOVD	$i, R12
+	B	runtime·callbackasm1(SB)
+```
+
+このように、本当に単純なコード断片を、同じパラメータを何度も使いまわすとかそういうことがない場合はこういう風に、
+単なる`io.Writer`への書き出しで十分機能します。
+
+逆にエディターの機能でこういったテキストを一気に生成することもできると思います。
+ただ、ここで行っているようにcode generatorによって書きだしたことを明記しておけばどういったパターンでコードが生成されるのか、
+一目でわかるため、注意深く長いファイルを読まなくてもいいという利点があります。
 
 ## text/template
 
