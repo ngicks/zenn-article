@@ -61,22 +61,19 @@ https://github.com/search?q=repo%3Agolang%2Fgo%20%2F%2Fgo%3Agenerate&type=code
 
 サンプルでは、あるstructに対して、フィールド名と定義順が一致するが、型が`Patcher[T]`で置き換えられたstructを用意することで、部分的なフィールドの変更をできる挙動を示します。
 
-[playground](https://go.dev/play/p/epTC5qebFzZ)
+[playground](https://go.dev/play/p/_a85DOAZV7H)
 
 ```go
-// You can edit this code!
-// Click here and start typing.
-package main
-
-import (
-	"fmt"
-	"reflect"
-)
-
 type Sample struct {
 	Foo string
 	Bar int
 	Baz bool
+}
+
+type SamplePatch struct {
+	Foo Patcher[string]
+	Bar Patcher[int]
+	Baz Patcher[bool]
 }
 
 type Patcher[T any] struct {
@@ -86,16 +83,6 @@ type Patcher[T any] struct {
 
 func (p Patcher[T]) IsPresent() bool {
 	return p.Present
-}
-
-func (p Patcher[T]) Value() any {
-	return p.V
-}
-
-type SamplePatch struct {
-	Foo Patcher[string]
-	Bar Patcher[int]
-	Baz Patcher[bool]
 }
 
 func patch(target, patch any) {
@@ -109,8 +96,8 @@ func patch(target, patch any) {
 		if !fp.Interface().(interface{ IsPresent() bool }).IsPresent() {
 			continue
 		}
-		val := fp.Interface().(interface{ Value() any }).Value()
-		ft.Set(reflect.ValueOf(val))
+
+		ft.Set(fp.Field(1))
 	}
 }
 
@@ -155,6 +142,9 @@ func patchSample(s *Sample, patcher SamplePatch) {
 }
 ```
 
+`patch`の引数はどちらも`any`でしたが、実際には第一引数は`foobar`へのポインターで、第二引数は`foobarPatch`のnon-pointer型でないと想定通りの動作をしませんから、
+こうやって具体的な型の書かれた関数を定義したほうが利用しやすいことになります。
+
 このケースでは返り値がないのでピンときにくいかもしれませんが、`reflect.Value`から値を取り出そうと思うと`Interface()`メソッドで`any`型の値を取り出すしかありませんので、
 `type assertion`を関数内で行うことで返り値の型を具体的なものにするのが普通だと思います。
 
@@ -185,35 +175,39 @@ https://github.com/golang/go/blob/go1.22.5/src/html/template/state_string.go
 
 大雑把に言って4つの方法が代表的なのではないかと思います
 
-- `io.Writer`テキストを書くだけ
+- `io.Writer`にテキストを書くだけ
   - プログラムによってgo source fileとなるテキストを書きだすだけの方法です
 - [text/template]を用いる方法
-  - templateを用いることで、パラメータとテキストを切り分けます。
+  - stdに組み込まれたtemplateパッケージを用いる方法です
+  - `io.Writer`を用いる方法に比べると、名前付きでパラメータを定義できるのでより複雑なケースに対応できます。
 - [github.com/dave/jennifer]を用いる方法
-  - `text/template`と違い、`Go`の関数呼び出しを重ねることでコードが生成できますので、読みやすくなります
-  - `text/template`はテキストなら何でも生成できるのに比べて、`jennifer`はgo source code生成のためにしつらえられているので、この用途ではこちら方が使いやすいです。
+  - code generatorを記述するためのライブラリを用いる方法です
+  - goのトークンや構文に対応した各種関数をメソッドチェーンで記述していく方式です。
+    - `text/template`と違い、`Go`の関数呼び出しの羅列なのでsyntax highlightがしっかりかかる分読みやすいです。
+  - go source code生成に特化しているため、この用途では`text/template`より使いやすいです。
   - ただし、`text/template`に比べてテンプレートをユーザーから入力として受け取るのが困難になります。
+    - テンプレートをシリアライズする方法に関しては別段定義されていない。
 - `ast`(dst)-rewriteを行う方法
-  - go source fileをcode generationの元となるデータとして用いたい場合に用いることができます
-  - 入力
-  - [go/ast]を用いて一からコードをくみ上げることも当然可能ですが、これには困難が伴います(後述)
+  - astをもとにコードを生成する方法です。
+  - `go/ast`, `go/parser`, `go/printer`などのstd libraryを用います。
+  - `ast`で1からコードをくみ上げることも当然可能ですが、前述のいずれかの方法をとったほうが簡単なので、rewriteする方法についてのみ述べます
 
 上記を整理しなおすを以下のような関係図になります
 
 ![code-generation-data-flow](/images/go-code-generation-in-ways-data-flow.drawio.png)
 
-`ast`をrewriteする方法以外は基本的に何かしらのソースからcode generationに有利な`MetaData`を作成し、これをもとにループを回すなりして生成を行うことになると思います。
-実際上はgo source codeを解析したうえで得られる`ast`を走査して、`MetaData`を作成してもよいですし、これらの方法はすべて組み合わせて使うこともあるでしょう。
+おおむねコード生成のためのメタデータ取得部と、コード生成部と、コードの書き出し部分、最後のポストプロセスとしてフォーマットやタイプチェックぐらいに分かれると思います。タイプチェックは図では省略されています。
 
-`ast`は、さらに`type checker`によって型情報を得て、それをもとにコード生成をすることもできます。(e.g. [skeleton](https://github.com/golang/example/blob/39e772fc26705bb170db248e5372a81ed5ffd67f/gotypes/skeleton/main.go))
+メタデータ取得部分は`ast`を用いる場合はgo source codeを入力とし、`go/parser`を用いて`ast`の解析します。`ast`は、さらに`type checker`で解析すること型情報を得ることもできます(e.g. [skeleton](https://github.com/golang/example/blob/39e772fc26705bb170db248e5372a81ed5ffd67f/gotypes/skeleton/main.go))。
+他の方法では`JSON`, `YAML`のようなフォーマットで書かれたデータ構造(ここにcli引数も含む)を`json.Unmarshal`や`yaml.Unmarshal`してデータ構造にbindしたり、[text/template]向けのテキストを読み込んだりします。
 
-コマンドの入力などで受け付けられるユーザーの入力は、go source code、`JSON`,`YAML`などの設定ファイル、`text/template`向けのtemplate textのいずれか、もしくはすべての組み合わせとなります。
+コード生成部では、えられたメタデータを`io.Writer`に書き出したり、[text/template]を用いるなど前述の方法の一部または全部を組み合わせて行います。`ast`をrewriteする方法では`go/printer`の機能を利用することで、あるast nodeのみを出力するようなことができるので、これも他の方法と組み合わせて1つのテキストファイルを形成することができます。
 
-template textをユーザーから受け取りたい場合、`text/template`がほぼ一択となると思います(e.g. [dockerは特定のフラグでgoのtext/template文法で書かれたテンプレートを受け取って出力を変える](https://docs.docker.com/config/formatting/))
+コード生成部によってテキストを出力します。このテキストは有効なgo source codeの文法を満たしてさえいれば(i.e. `package pkgname`から始まるgo code)この時点でファイルとして書きだされている必要はありません。
 
-[gofmt](https://pkg.go.dev/cmd/gofmt), [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports), [gofumpt](https://github.com/mvdan/gofumpt)などを用いると、テキストデータのフォーマットができます。`goimports`のみ不要なimportの削除など行ってくれるので、筆者は基本的にはこれを用います。`jennifer`はファイルを書きだす前に`gofmt`をかける挙動があるほか、`ast`をプリントする際にも`format.Node`を用いた場合には`gofmt`を実行済みであるかのように出力がされるため、必要ない場合もあります。
+go source codeのテキスト、またはテキストのストリームは[gofmt](https://pkg.go.dev/cmd/gofmt), [github.com/mvdan/gofumpt](https://github.com/mvdan/gofumpt), [golang.org/x/tools/cmd/goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports)などのフォーマッターを用いることでフォーマットをできます。`goimports`は`gofmt`と同じルールでフォーマットを行ったうえで、import declが正しくなかった場合修正をこころみます。`ast`を書き換える形でコードを生成する場合、使わなくなったimportが出てくることがあります。`Go`では、使用していないimport declが存在しているとコンパイルエラーになりますが、`goimports`でそれらを消してもらうと書き換え部の実装が楽になります。
 
-[gopls](https://github.com/golang/tools/tree/master/gopls)を用いてソースコードのフォーマットを行うこともできますが、helpを見たところ、ファイルシステムにファイルとして書きださずにフォーマットを行うことができないように見えるため、基本的にはこの方法を用いません。ユーザーの`gopls`設定を元にフォーマットを行いたい場合は有利な方法かもしれません。
+最後に、ファイルとして書きだされたgo source codeは[gopls](https://github.com/golang/tools/tree/master/gopls)の機能を用いてフォーマットをかけることができます。ユーザーの`gopls`設定を元にフォーマットを行いたい場合は便利かもしれませんが基本的にはしません。理由はよくわかっていませんが、`goimports`などを直接呼び出す方法に比べてずいぶん動作速度が遅い(0.1秒オーダーに比べて数秒オーダー)ためです。
 
 ## codeを生成する際の注意点
 
@@ -233,6 +227,8 @@ Go1.21より[ast.IsGenerated](https://pkg.go.dev/go/ast@go1.22.5#IsGenerated)と
 
 言語仕様によりfor-range-mapの順序は未定義であるので、code generatorが実行のたびに異なった順序でコードを出力しないように気を付けたほうがよいでしょう。
 さもなければ、不要なdiffを生じさせてしまいます。
+筆者が利用するサードパーティのcode generatorの中にも、生成する度に順序の入れ替わるものがありますが、生成対象が多くなるにつれて出てくるdiffの量が多くなってセルフレビューが大変になっています。
+基本的にそうならないように作ったほうが利用者とっては便利です。
 
 代わりに
 
@@ -266,7 +262,26 @@ for _, k := range keys {
 
 とできます。
 
-## テキストを書くだけ
+### go:generate go run --mod=mod
+
+code generatorがruntime(生成されたコードがimportして利用するヘルパー関数を定義したパッケージ)に依存し、code generator自身と同じGo moduleで管理される場合、
+
+```
+# 架空のURLを取り扱うのでexample.comのサブドメインとして書いていますが単なる例示で文字列そのものには意味はありません。
+//go:generate go run -mod=mod fully-qualified.example.com/package/path/cmd/path/to/main/pkg@version
+```
+
+という風にcode generatorを動作させるようにあなたの各READMEの中で指示したほうが親切でしょう
+
+> https://go.dev/ref/mod#build-commands
+>
+> -mod=mod tells the go command to ignore the vendor directory and to [automatically update](https://go.dev/ref/mod#go-mod-file-updates) go.mod, for example, when an imported package is not provided by any known module.
+
+とある通り、code generatorのバージョンが、生成物の配置先となるgo moduleの`go.mod`に追加されるなり更新されるなりするらしいです。
+
+ちなみに`Go 1.19`以降`flag`パッケージは`-x`でも`--x`でもオプションを受け付けるようになったので、`-mod=mod`でも`--mod=mod`でも同じ意味です。そういう意味でタイトルはわざとです。
+
+## io.Writerに書くだけ
 
 という風にタイトルをつけていますが特にこれと言って述べるべきことはこれにはありません。
 
@@ -274,7 +289,7 @@ for _, k := range keys {
 
 https://github.com/golang/go/blob/go1.22.5/src/runtime/wincallback.go
 
-生成対象は`.s`の[Go assembly](https://go.dev/doc/asm)ファイルですが、まあ少し文法が違うだけなので例として全く不適ということもないでしょう。
+生成対象は`.s`の[Go assembly](https://go.dev/doc/asm)ファイルですが、まあ言いたいことはかわらないのでいいとしましょう。
 
 このコードによって以下のがファイルが生成されます。
 
@@ -292,11 +307,189 @@ https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows.s
 このように、本当に単純なコード断片を、同じパラメータを何度も使いまわすとかそういうことがない場合はこういう風に、
 単なる`io.Writer`への書き出しで十分機能します。
 
-逆にエディターの機能でこういったテキストを一気に生成することもできると思います。
-ただ、ここで行っているようにcode generatorによって書きだしたことを明記しておけばどういったパターンでコードが生成されるのか、
-一目でわかるため、注意深く長いファイルを読まなくてもいいという利点があります。
-
 ## text/template
+
+https://pkg.go.dev/text/template@go1.22.5
+
+stdライブラリに組み込まれたテンプレート機能です。
+
+`html/template`も存在しますが、こちらは`html`を出力するための各種サニタイズを実装した`text/template`のラッパーみたいなものですので、テキストの出力に関しては`text/template`を使用します。
+エディターの自動補完に任せると`html/template`のほうが読み込まれていて気付かず出力結果のテキストが思った通りにならずに首をかしげることが何度かありました。その辺も注意してみておいたほうが良いです(さすがに今はもうそんなミスはしませんが)。
+
+詳細な使い方の説明は上記の`text/template`のdoc comment、ないしは実装そのものに当たってほしいと思いますが、筆者は初めて読んだときあまりにピンときませんでした。
+なのでcode generatorとして使うときにかかわりそうなところはここで説明しておきます。
+
+### 利点と欠点
+
+利点:
+
+- stdのみで終始できる
+- 十分柔軟で便利
+- 何ならtemplateそのものをユーザーに入力させて、code generatorの挙動をカスタマイズさせるようなことができる
+  - 当然テキストなので、cliやネットワーク経由でも容易に受け取ることができます。
+
+欠点:
+
+- code generationのためのものではない
+  - [github.com/dave/jennifer]に比べると大分書きにくい
+  - `gopls`(言語サーバー)による支援はあるが、syntax highlightはまだ未実装
+  - `for`がネストしだすと劇的に視認性が落ちる
+  - 空白の取り扱いが難しい。
+    - 筆者は無駄な改行を甘んじて受け入れている
+  - `goimports`によってフォーマットをかけることでいくらか改善する
+
+### 基本的な使用法
+
+パラメータ、関数その他の呼び出しは`{{`と`}}`で囲まれたブロックの中で行います。
+
+```tmpl
+An example template.
+Hello {{.Gopher}}.
+Yay Yay.
+```
+
+というtemplateでは`{{.Gopher}}`の部分が入力のパラメータによって動的に変更されることになります。
+
+このdelimiter(`{{`,`}}`)は[(\*Template).Delims](https://pkg.go.dev/text/template@go1.22.5#Template.Delims)設定変更できますが基本的に変更することは想定しません。
+
+`template.New()`で新しい`*Template`をallocateし、`Parse`によってtemplateテキストを解析して`*Template`オブジェクトを得ます。
+
+```go
+var example = template.Must(template.New("").Parse(
+	`An example template.
+Hello {{.Gopher}}.
+Yay Yay.
+`,
+))
+```
+
+`template.Must`は`(*Template, error)`を引数にとって、第二引数のエラーがnon-nilだった場合panicするヘルパー関数です。
+
+```go
+type sample struct {
+	Gopher string
+}
+
+err := example.Execute(os.Stdout, sample{Gopher: "me"})
+```
+
+で、を渡した`io.Writer`に書き出します。`os.Stdout`を渡しているのでstdoutに書き出されます。
+
+```
+An example template.
+Hello me.
+Yay Yay.
+```
+
+上記がstdoutに出力されます。
+
+### パラメータへのアクセス
+
+`Execute`の第二引数にはパラメータを詰め込んだデータ構造を渡します。
+`{{.}}`の`.`はcontextualな値で、トップレベルでは`Execute`に渡したデータそのものをさしています。
+`.Gopher`のようにdot selectorで**_reflectでアクセスできるフィールドを指定する_**とそのフィールドのデータを取り出せます。
+
+メソッドでもよいです。
+
+```go
+type sample struct {
+	Gopher string
+}
+
+type sampleMethod1 struct {
+}
+
+func (s sampleMethod1) Gopher() string {
+	return "method"
+}
+
+err := example.Execute(os.Stdout, sampleMethod1{})
+/*
+An example template.
+Hello method.
+Yay Yay.
+*/
+```
+
+メソッドは第二返り値でエラーを返してもよいです。
+
+```go
+type sampleMethod2 struct {
+	err error
+}
+
+func (s sampleMethod2) Gopher() (string, error) {
+	return "method2", s.err
+}
+
+
+_ = example.Execute(os.Stdout, sampleMethod2{})
+/*
+An example template.
+Hello method2.
+Yay Yay.
+*/
+fmt.Println("---")
+err := example.Execute(os.Stdout, sampleMethod2{err: errors.New("sample")})
+fmt.Println("---")
+fmt.Printf("template execution error:  %#v\n", err)
+/*
+---
+An example template.
+Hello ---
+template execution error:  template: :2:8: executing "" at <.Gopher>: error calling Gopher: sample
+*/
+```
+
+同様に、`map[K]V`でもいいです。
+
+```go
+err := example.Execute(os.Stdout, map[string]string{"Gopher": "map[string]string"})
+/*
+An example template.
+Hello map[string]string.
+Yay Yay.
+*/
+```
+
+さらに、このdot selectorはchainさせることもできます。
+
+```go
+chained = template.Must(template.New("").Parse(`**chained**{{.Chain.Gopher}}
+`))
+
+type chainedData struct {
+	v   any
+	err error
+}
+
+func (c chainedData) Chain() (any, error) {
+	return c.v, c.err
+}
+
+
+_ = chained.Execute(os.Stdout, chainedData{v: sampleMethod2{}})
+/*
+**chained**method2
+*/
+
+_ = chained.Execute(os.Stdout, chainedData{v: map[string]string{"Gopher": "map"}})
+/*
+**chained**map
+*/
+```
+
+### 制御構文: range, if
+
+### sub-template
+
+### .tmpl / .gotmpl拡張子で保存する
+
+ソースコード中にstring literalとしてtemplateを記述することもできますが、個別のファイルに保存すると`gopls`(言語サーバー)の支援が受けられます。
+
+https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/gopls/doc/features/templates.md
+
+### embed.FS, ParseFS
 
 ## github.com/dave/jennifer
 
