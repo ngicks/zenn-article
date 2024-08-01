@@ -262,7 +262,7 @@ for _, k := range keys {
 
 とできます。
 
-### go:generate go run --mod=mod
+### go:generate go run -mod=mod
 
 code generatorがruntime(生成されたコードがimportして利用するヘルパー関数を定義したパッケージ)に依存し、code generator自身と同じGo moduleで管理される場合、
 
@@ -278,8 +278,6 @@ code generatorがruntime(生成されたコードがimportして利用するヘ�
 > -mod=mod tells the go command to ignore the vendor directory and to [automatically update](https://go.dev/ref/mod#go-mod-file-updates) go.mod, for example, when an imported package is not provided by any known module.
 
 とある通り、code generatorのバージョンが、生成物の配置先となるgo moduleの`go.mod`に追加されるなり更新されるなりするらしいです。
-
-ちなみに`Go 1.19`以降`flag`パッケージは`-x`でも`--x`でもオプションを受け付けるようになったので、`-mod=mod`でも`--mod=mod`でも同じ意味です。そういう意味でタイトルはわざとです。
 
 ## io.Writerに書くだけ
 
@@ -297,15 +295,14 @@ https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows_arm.s
 https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows_arm64.s
 https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows.s
 
-これらのファイルは以下のような、ほぼ同じパターンを2000回繰り返すだけの単純なものです。
+これらのファイルは以下のような、ほぼ同じパターンを2000(=`maxCallback`)回繰り返すだけの単純なものです。
 
 ```
 	MOVD	$i, R12
 	B	runtime·callbackasm1(SB)
 ```
 
-このように、本当に単純なコード断片を、同じパラメータを何度も使いまわすとかそういうことがない場合はこういう風に、
-単なる`io.Writer`への書き出しで十分機能します。
+このように、単純なコード断片を何度も書きだすだけのようなケースでは、単なる`io.Writer`への書き出しで十分機能します。
 
 ## text/template
 
@@ -332,15 +329,16 @@ stdライブラリに組み込まれたテンプレート機能です。
 
 - code generationのためのものではない
   - [github.com/dave/jennifer]に比べると大分書きにくい
-  - `gopls`(言語サーバー)による支援はあるが、syntax highlightはまだ未実装
   - `for`がネストしだすと劇的に視認性が落ちる
   - 空白の取り扱いが難しい。
     - 筆者は無駄な改行を甘んじて受け入れている
-  - `goimports`によってフォーマットをかけることでいくらか改善する
+    - 生成後のコードを`goimports`によってフォーマットをかけることでいくらか改善する
 
 ### 基本的な使用法
 
-パラメータ、関数その他の呼び出しは`{{`と`}}`で囲まれたブロックの中で行います。
+#### 構文
+
+パラメータ、関数その他の呼び出しはdelimiter(`{{`と`}}`)で囲まれたブロックの中で行います。
 
 ```tmpl
 An example template.
@@ -349,8 +347,13 @@ Yay Yay.
 ```
 
 というtemplateでは`{{.Gopher}}`の部分が入力のパラメータによって動的に変更されることになります。
+上記は、パラメータとして渡された任意のGo structの、`Gopher`というexported fieldの値でここを置き換えるという意味になります。
 
-このdelimiter(`{{`,`}}`)は[(\*Template).Delims](https://pkg.go.dev/text/template@go1.22.5#Template.Delims)設定変更できますが基本的に変更することは想定しません。
+このdelimiter(`{{`,`}}`)は[(\*Template).Delims](https://pkg.go.dev/text/template@go1.22.5#Template.Delims)で任意の文字列に変更できます。
+基本的には変えないほうが良いです: `gopls`のドキュメントにも、delimiterは変えられるが変えたら構文解析が機能しないようなことが書いてあります。
+筆者はこの記事を書くまで変更できることすら知りませんでした。
+
+#### 初期化、解析
 
 `template.New()`で新しい`*Template`をallocateし、`Parse`によってtemplateテキストを解析して`*Template`オブジェクトを得ます。
 
@@ -363,7 +366,12 @@ Yay Yay.
 ))
 ```
 
+`template.New`には`name`を渡せますが、今回のように単一のtemplateしか解析しない場合は特に名づける必要はありません。
 `template.Must`は`(*Template, error)`を引数にとって、第二引数のエラーがnon-nilだった場合panicするヘルパー関数です。
+
+#### 実行(Execute)
+
+上記で`Parse`から返された`*Template`オブジェクトのメソッドを呼び出すことでこのtemplateを実行できます。
 
 ```go
 type sample struct {
@@ -373,7 +381,8 @@ type sample struct {
 err := example.Execute(os.Stdout, sample{Gopher: "me"})
 ```
 
-で、を渡した`io.Writer`に書き出します。`os.Stdout`を渡しているのでstdoutに書き出されます。
+で、渡された`io.Writer`にtemplate実行結果を書き出します。
+`os.Stdout`を渡しているのでstdoutに書き出されます。
 
 ```
 An example template.
@@ -387,15 +396,34 @@ Yay Yay.
 
 `Execute`の第二引数にはパラメータを詰め込んだデータ構造を渡します。
 `{{.}}`の`.`はcontextualな値で、トップレベルでは`Execute`に渡したデータそのものをさしています。
-`.Gopher`のようにdot selectorで**_reflectでアクセスできるフィールドを指定する_**とそのフィールドのデータを取り出せます。
 
-メソッドでもよいです。
+渡すパラメータは任意の`Go struct`か`map[K]V`であれば、dot selectorでフィールドの値か、keyに収められている値がそれぞれ取り出されることが書かれています。
+structを指定する場合は`reflect`パッケージを使って値にアクセスしますので、**reflectでアクセスできるフィールドを指定する**必要があります。
+
+つまり、embedされたunexported structのexported fieldにはアクセスできます。
+
+https://github.com/ngicks/go-example-code-generation/blob/main/template/basic/main.go
 
 ```go
 type sample struct {
 	Gopher string
 }
 
+type embedded struct {
+	sample
+}
+
+_ = example.Execute(os.Stdout, embedded{sample{Gopher: "embedded"}})
+/*
+An example template.
+Hello embedded.
+Yay Yay.
+*/
+```
+
+メソッドでもよいとドキュメントされています。
+
+```go
 type sampleMethod1 struct {
 }
 
@@ -403,7 +431,7 @@ func (s sampleMethod1) Gopher() string {
 	return "method"
 }
 
-err := example.Execute(os.Stdout, sampleMethod1{})
+_ = example.Execute(os.Stdout, sampleMethod1{})
 /*
 An example template.
 Hello method.
@@ -411,7 +439,8 @@ Yay Yay.
 */
 ```
 
-メソッドは第二返り値でエラーを返してもよいです。
+関数は全般的に第二返り値でエラーを返してもよいということがドキュメントされています。
+関数から返されるエラーがnon-nilであるとその時点でtemplateの実行が止まって、そのエラーが`Execute`から返ってきます
 
 ```go
 type sampleMethod2 struct {
@@ -422,7 +451,6 @@ func (s sampleMethod2) Gopher() (string, error) {
 	return "method2", s.err
 }
 
-
 _ = example.Execute(os.Stdout, sampleMethod2{})
 /*
 An example template.
@@ -432,24 +460,50 @@ Yay Yay.
 fmt.Println("---")
 err := example.Execute(os.Stdout, sampleMethod2{err: errors.New("sample")})
 fmt.Println("---")
-fmt.Printf("template execution error:  %#v\n", err)
+fmt.Printf("error: %v\n", err)
 /*
 ---
 An example template.
 Hello ---
-template execution error:  template: :2:8: executing "" at <.Gopher>: error calling Gopher: sample
+error: template: :2:8: executing "" at <.Gopher>: error calling Gopher: sample
 */
 ```
 
-同様に、`map[K]V`でもいいです。
+同様に、`map[K]V`でもいいです。`map[K]V`の場合は先頭が小文字な(_unexported_)フィールドにもアクセスできます。
+template textが小文字なフィールドにアクセスしていたら`map[K]V`を使うしかないので基本的にはそうなってることはないと思います。
 
 ```go
-err := example.Execute(os.Stdout, map[string]string{"Gopher": "map[string]string"})
+_ = example.Execute(os.Stdout, map[string]string{"Gopher": "from map[string]string"})
 /*
 An example template.
-Hello map[string]string.
+Hello from map[string]string.
 Yay Yay.
 */
+
+var accessingUnexported = template.Must(template.New("").Parse(
+	`accessing unexported field: {{.unexportedField}}
+`,
+))
+
+_ = accessingUnexported.Execute(os.Stdout, map[string]string{"unexportedField": "unexported field"})
+/*
+accessing unexported field: unexported field
+*/
+
+type unexported struct {
+	unexportedField string
+}
+
+fmt.Println("---")
+err := accessingUnexported.Execute(os.Stdout, unexported{})
+fmt.Println("---")
+fmt.Printf("error: %v\n", err)
+/*
+---
+accessing unexported field: ---
+error: template: :1:30: executing "" at <.unexportedField>: unexportedField is an unexported field of struct type main.unexported
+*/
+// reflectはこのフィールドにアクセスできないのでエラーが返される。
 ```
 
 さらに、このdot selectorはchainさせることもできます。
@@ -481,6 +535,104 @@ _ = chained.Execute(os.Stdout, chainedData{v: map[string]string{"Gopher": "map"}
 
 ### 制御構文: range, if
 
+#### range
+
+`range`で`Go`の`for-range`のようにデータをiterateできます。
+
+> {{range pipeline}} T1 {{end}}
+> The value of the pipeline must be an array, slice, map, or channel.
+> If the value of the pipeline has length zero, nothing is output;
+> otherwise, dot is set to the successive elements of the array,
+> slice, or map and T1 is executed. If the value is a map and the
+> keys are of basic type with a defined order, the elements will be
+> visited in sorted key order.
+
+とる通り、`range`が引数に取れるのは`array`, `slice`, `map`, `channel`のいずれかであり、`Go 1.23`リリース時点ではrange-over-funcはできないようです([#66107](https://github.com/golang/go/issues/66107)が未実装であるので)。
+`map[K]V`に関しては`K`の型がbasicなordered typeである場合はソートしてからiterateを行うと書かれています。range-over-mapみたいに順序が未定義でないことに逆に注意が必要ですかね？
+
+`range`は`{{end}}`までスコープを作り、個のスコープ内では`{{.}}`は、iterateされているデータの各項目をさします。`[]T`なら`T`, `map[K]V`なら`V`になります。
+
+> When execution begins, $ is set to the data argument passed to Execute, that is, to the starting value of dot.
+
+とある通り、このスコープ内では`$`が`Execute`関数に渡されたデータになります。
+
+#### if
+
+`if`で、`Go`の`if`のように条件による分岐ができます
+
+> {{if pipeline}} T1 {{end}}
+> If the value of the pipeline is empty, no output is generated;
+> otherwise, T1 is executed. The empty values are false, 0, any
+> nil pointer or interface value, and any array, slice, map, or
+> string of length zero.
+> Dot is unaffected.
+
+とある通り、emptyの条件は`false`, `0`, `nil`, `len(a)==0`であるとのことなので、falsyな値の判定の関数を作りこむ必要がない場面も多いでしょう。
+
+#### example
+
+以下で`range`と`if`を使ったexampleを示します。
+
+```go
+var (
+	example = template.Must(template.New("").Parse(
+		`Hi {{.Gopher}}.
+{{range $idx, $el := .Iter}}    {{if not .}}Hey {{$.Gopher}} this is empty
+	{{- if not $.Continue}}{{break}}{{end -}}
+{{else}}Iterating at {{$idx}}: {{.Field}} {{end}}
+{{end}}
+`,
+	))
+)
+
+func main() {
+	decoratingExecute := func(data any) {
+		fmt.Println("---")
+		err := example.Execute(os.Stdout, data)
+		fmt.Println("---")
+		fmt.Printf("error: %v\n", err)
+		fmt.Println()
+	}
+
+	decoratingExecute(map[string]any{
+		"Gopher": "you",
+		"Iter":   []map[string]string{{"Field": "foo"}, {"Field": "bar"}, {}, {"Field": "baz"}},
+	})
+
+	decoratingExecute(map[string]any{
+		"Gopher":   "you",
+		"Continue": "ok",
+		"Iter":     []map[string]string{{"Field": "foo"}, {"Field": "bar"}, {}, {"Field": "baz"}},
+	})
+}
+/*
+---
+Hi you.
+    Iterating at 0: foo
+    Iterating at 1: bar
+    Hey you this is empty
+---
+error: <nil>
+
+---
+Hi you.
+    Iterating at 0: foo
+    Iterating at 1: bar
+    Hey you this is empty
+    Iterating at 3: baz
+
+---
+error: <nil>
+
+*/
+```
+
+何気なく使っていますが、`{{- pipeline}}`, `{{pipeline -}}`で前の/後ろの空白を削除する機能があります。
+
+> For this trimming, the definition of white space characters is the same as in Go: space, horizontal tab, carriage return, and newline.
+
+この「空白」の条件はGo source codeのそれと一致します。
+
 ### sub-template
 
 ### .tmpl / .gotmpl拡張子で保存する
@@ -490,6 +642,8 @@ _ = chained.Execute(os.Stdout, chainedData{v: map[string]string{"Gopher": "map"}
 https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/gopls/doc/features/templates.md
 
 ### embed.FS, ParseFS
+
+### Goのソースをコードを生成する
 
 ## github.com/dave/jennifer
 
@@ -504,6 +658,15 @@ https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/go
 
 https://stackoverflow.com/questions/31628613/comments-out-of-order-after-adding-item-to-go-ast
 
+#### dstからastへの逆変換、特定NodeのPrint
+
+#### リスク
+
+astは非常にstableであるので今後も問題は出にくいはず・・・
+
+- astトークンが追加されたのはGo1.18のtype paramまわりのみ([IndexListExpr](https://pkg.go.dev/go/ast@go1.23rc2#IndexListExpr))
+- Go1.23では追加はない
+
 ## post process: goimports
 
 生成したコードは`goimports`によってフォーマットをかけてから書き出すとよいでしょう。
@@ -512,9 +675,7 @@ https://stackoverflow.com/questions/31628613/comments-out-of-order-after-adding-
 以下のコードでは`go run golang.org/x/tools/cmd/goimports@latest`するのではなく、システムにインストール済みの`goimports`を利用します。
 なので、`checkGoimports`を他の生成ロジックより前に呼び出して、このプロセスが見ることができる位置に`goimports`が存在するかを確認しておくほうが無難です。
 
-別に`go run`で`goimports`を呼び出しても問題ないことのほうが多いと思いますが、万一呼び出し側の環境に`goimports`がなく、モジュールのダウンロード/ビルドでエラーを起こした場合、よくわからないエラーメッセージを吐いてしまう可能性があります。
-そういったエラーを切り分けたほうが面倒がないかと思って今回は`go run`を使わないサンプルになっています。
-また、[VscodeのGo extensionがgoimportsをダウンロードする](https://github.com/golang/vscode-go/blob/0099728ac6e476c0dc016a03501e79d096fe918b/extension/tools/installtools/main.go)のでそもそも`goimports`がない環境をあまり想定していません。
+別に`go run`で`goimports`を呼び出しても問題ないことのほうが多いと思いますが、`goimports`は入れてる環境のほうが多いだろうし、ダウンロード周りのエラーを置壊れても困るのでこうしています。`go run`はモジュールが`$GOPATH`以下にキャッシュされていない場合などにダウンロードをします。
 
 ```go
 func checkGoimports() error {

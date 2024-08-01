@@ -23,6 +23,7 @@
     "omitempty",
     "struct",
     "typeparamcommon",
+    "unexported",
     "Unmarshal",
     "Unmarshaler"
   ]
