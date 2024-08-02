@@ -334,6 +334,32 @@ stdライブラリに組み込まれたテンプレート機能です。
     - 筆者は無駄な改行を甘んじて受け入れている
     - 生成後のコードを`goimports`によってフォーマットをかけることでいくらか改善する
 
+### エディターのサポート(syntax highlight, Go to definition, etc...)
+
+`gopls`の設定をしたうえでtemplateを`gotmpl`か`tmpl`でテキストとして保存すると`gopls`によるsyntax highlightなどのサポートを得られます(experimental)。
+
+vscodeの場合、`settings.json`に以下を追加します。
+
+```json
+{
+  // ...other settings...
+  "gopls": {
+    // ...other settings...
+    "ui.semanticTokens": true,
+    "build.templateExtensions": ["gotmpl", "tmpl"]
+    // ...other settings...
+  }
+  // ...other settings...
+}
+```
+
+他のエディターの場合、`gopls`の設定を似たような感じで設定します。
+
+syntax highlight以外の機能は現状でも機能しているように見えるので、そこが不要なら設定は不要です。
+`"ui.semanticTokens"`を有効にするとGo source codeのエディター上のトークンの色がかなり変わりますのでびっくりするかもしれません。
+
+現状`gopls`の`semanticTokens`はexperimentalですがもうすぐenable by defaultになるかもしれません([#45313](https://github.com/golang/go/issues/45313#issuecomment-2161267130))。
+
 ### 基本的な使用法
 
 #### 構文
@@ -550,7 +576,12 @@ _ = chained.Execute(os.Stdout, chainedData{v: map[string]string{"Gopher": "map"}
 とる通り、`range`が引数に取れるのは`array`, `slice`, `map`, `channel`のいずれかであり、`Go 1.23`リリース時点ではrange-over-funcはできないようです([#66107](https://github.com/golang/go/issues/66107)が未実装であるので)。
 `map[K]V`に関しては`K`の型がbasicなordered typeである場合はソートしてからiterateを行うと書かれています。range-over-mapみたいに順序が未定義でないことに逆に注意が必要ですかね？
 
-`range`は`{{end}}`までスコープを作り、個のスコープ内では`{{.}}`は、iterateされているデータの各項目をさします。`[]T`なら`T`, `map[K]V`なら`V`になります。
+> {{range $index, $element := pipeline}}
+
+という構文で、`Go`の`range`構文のように`index`と`element`を変数にセットします。
+
+`range`は`{{end}}`までスコープを作り、このスコープ内では`{{.}}`は、iterateされているデータの各項目をさします。`[]T`なら`T`, `map[K]V`なら`V`になります。
+上記の`$index`,`$element`ももちろんこのスコープ内でのみ有効です。
 
 > When execution begins, $ is set to the data argument passed to Execute, that is, to the starting value of dot.
 
@@ -604,6 +635,11 @@ func main() {
 		"Continue": "ok",
 		"Iter":     []map[string]string{{"Field": "foo"}, {"Field": "bar"}, {}, {"Field": "baz"}},
 	})
+
+	decoratingExecute(map[string]any{
+		"Gopher": "you",
+		"Iter":   map[string]map[string]string{"0": {"Field": "foo"}, "1": {"Field": "bar"}, "2": {"Field": "baz"}},
+	})
 }
 /*
 ---
@@ -624,6 +660,15 @@ Hi you.
 ---
 error: <nil>
 
+---
+Hi you.
+    Iterating at 0: foo
+    Iterating at 1: bar
+    Iterating at 2: baz
+
+---
+error: <nil>
+
 */
 ```
 
@@ -631,11 +676,223 @@ error: <nil>
 
 > For this trimming, the definition of white space characters is the same as in Go: space, horizontal tab, carriage return, and newline.
 
-この「空白」の条件はGo source codeのそれと一致します。
+この「空白」の条件はGo source codeのそれと一致します。割とこの挙動が難しいので筆者は使いどころを選んでいます。
 
 ### 関数の追加
 
+template actionの中で実行できる関数は以下で定義される通りいろいろありますが
+
+https://pkg.go.dev/text/template@go1.22.5#hdr-Functions
+
+それ以外にも、[(\*Template).Funcs](https://pkg.go.dev/text/template@go1.22.5#Template.Funcs)で任意に追加できます。
+
+関数はtemplate内で参照される前に追加されている必要がありますが、あとから上書きすることもできます。
+
+以下でいろいろ試してみます。
+
+```go
+var (
+	example = template.Must(
+		template.
+			New("").
+			Funcs(template.FuncMap{"customFunc": func() string { return "" }}).
+			Parse(
+				`{{customFunc .}}
+`,
+			),
+	)
+)
+
+func main() {
+	decoratingExecute := func(funcs template.FuncMap, data any) {
+		fmt.Println("---")
+		err := example.Funcs(funcs).Execute(os.Stdout, data)
+		fmt.Println("---")
+		fmt.Printf("error: %v\n", err)
+		fmt.Println()
+	}
+
+	decoratingExecute(nil, "foo")
+	/*
+		---
+		---
+		error: template: :1:2: executing "" at <customFunc>: wrong number of args for customFunc: want 0 got 1
+	*/
+	decoratingExecute(
+		template.FuncMap{"customFunc": func(v any) string { return fmt.Sprintf("%s", v) }},
+		"foo",
+	)
+	/*
+		---
+		foo
+		---
+		error: <nil>
+	*/
+	decoratingExecute(
+		template.FuncMap{"customFunc": func(v ...any) string {
+			fmt.Printf("customFunc: %#v\n", v)
+			return "ah"
+		}},
+		"bar",
+	)
+	/*
+		---
+		customFunc: []interface {}{"bar"}
+		ah
+		---
+		error: <nil>
+	*/
+	decoratingExecute(
+		template.FuncMap{"customFunc": func(v string) string {
+			fmt.Printf("customFunc: %#v\n", v)
+			return "ah"
+		}},
+		"baz",
+	)
+	/*
+		---
+		customFunc: "baz"
+		ah
+		---
+		error: <nil>
+	*/
+	decoratingExecute(
+		template.FuncMap{"customFunc": func(v int) string {
+			return "ah"
+		}},
+		"qux",
+	)
+	/*
+		---
+		---
+		error: template: :1:13: executing "" at <.>: wrong type for value; expected int; got string
+	*/
+	type sample struct {
+		Foo string
+		Bar int
+	}
+	decoratingExecute(
+		template.FuncMap{"customFunc": func(v any) int {
+			fmt.Printf("customFunc: %#v\n", v)
+			return v.(sample).Bar
+		}},
+		sample{Foo: "foo", Bar: 123},
+	)
+	/*
+	   ---
+	   customFunc: main.sample{Foo:"foo", Bar:123}
+	   123
+	   ---
+	   error: <nil>
+	*/
+		decoratingExecute(
+		template.FuncMap{"customFunc": func(v sample) string {
+			return v.Foo
+		}},
+		sample{Foo: "foo", Bar: 123},
+	)
+	/*
+		---
+		foo
+		---
+		error: <nil>
+	*/
+}
+```
+
+関数の引数の型は何でもいいですが、入力パラメータと一致しなければエラーになるようです・・・と言ってる間に気になったのでソースを見ました。[(reflect.Type).AssignableToによる判定です。](https://github.com/golang/go/blob/go1.22.5/src/text/template/exec.go#L852-L862)
+
 ### sub-template
+
+> {{template "name"}}
+> The template with the specified name is executed with nil data.
+>
+> {{template "name" pipeline}}
+> The template with the specified name is executed with dot set
+> to the value of the pipeline.
+
+とる通り、`template`で、別の名付けられた
+
+```go
+var (
+	root = template.Must(template.New("root").Parse(
+		`sub1: {{template "sub1" .Sub1}}
+sub2: {{template "sub2" .Sub2}}
+sub3: {{template "sub3" .Sub3}}
+{{block "additional" .}}{{end}}
+`))
+	sub1 = template.Must(root.New("sub1").Parse(`{{.Yay}}`))
+	_    = template.Must(root.New("sub2").Parse(`{{.Yay}}`))
+	sub3 = template.Must(root.New("sub3").Parse(`{{.Yay}}`))
+)
+
+type param struct {
+	Sub1, Sub2, Sub3 sub
+}
+type sub struct {
+	Yay string
+	Nay string
+}
+
+func main() {
+	decoratingExecute := func(data any) {
+		fmt.Println("---")
+		err := root.Execute(os.Stdout, data)
+		fmt.Println("---")
+		fmt.Printf("error: %v\n", err)
+		fmt.Println()
+	}
+
+	data := param{
+		Sub1: sub{
+			Yay: "yay1",
+			Nay: "nay1",
+		},
+		Sub2: sub{
+			Yay: "yay2",
+			Nay: "nay2",
+		},
+		Sub3: sub{
+			Yay: "yay3",
+			Nay: "nay3",
+		},
+	}
+
+	decoratingExecute(data)
+	/*
+		---
+		sub1: yay1
+		sub2: yay2
+		sub3: yay3
+
+		---
+		error: <nil>
+	*/
+	_, _ = sub1.Parse(`{{.Nay}}`)
+	decoratingExecute(data)
+	/*
+		---
+		sub1: nay1
+		sub2: yay2
+		sub3: yay3
+
+		---
+		error: <nil>
+	*/
+
+	_, _ = sub3.New("additional").Parse(`{{.Sub1.Yay}} and {{.Sub2.Nay}}`)
+	decoratingExecute(data)
+	/*
+		---
+		sub1: nay1
+		sub2: yay2
+		sub3: yay3
+		yay1 and nay2
+		---
+		error: <nil>
+	*/
+}
+```
 
 ### .tmpl / .gotmpl拡張子で保存する
 
@@ -643,7 +900,89 @@ error: <nil>
 
 https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/gopls/doc/features/templates.md
 
+強調したくて前述しましたが、`gopls`を以下のように設定するとsyntax highlightがかかります。それ以外の機能は設定なしでも機能しているようです。
+
+```json
+{
+  // ...other settings...
+  "gopls": {
+    // ...other settings...
+    "ui.semanticTokens": true,
+    "build.templateExtensions": ["gotmpl", "tmpl"]
+    // ...other settings...
+  }
+  // ...other settings...
+}
+```
+
+`"ui.semanticTokens": true`を有効にすると全体的にトークンの色の付け方が変わるので、びっくりするかもしれません。
+
 ### embed.FS, ParseFS
+
+`embed.FS`と`template.ParseFS`を組み合わせると
+
+```go
+//go:embed template
+var templates embed.FS
+
+var root = template.Must(template.ParseFS(templates, "template/*"))
+
+type param struct {
+	Sub1, Sub2, Sub3 sub
+}
+type sub struct {
+	Yay string
+	Nay string
+}
+
+func main() {
+	root = root.Lookup("root.tmpl")
+	data := param{
+		Sub1: sub{
+			Yay: "yay1",
+			Nay: "nay1",
+		},
+		Sub2: sub{
+			Yay: "yay2",
+			Nay: "nay2",
+		},
+		Sub3: sub{
+			Yay: "yay3",
+			Nay: "nay3",
+		},
+	}
+	fmt.Println("---")
+	err := root.Execute(os.Stdout, data)
+	fmt.Println("---")
+	fmt.Printf("err: %v\n", err)
+	/*
+		---
+		sub1: yay1
+		sub2: yay2
+		sub3: yay3
+
+		---
+		err: <nil>
+	*/
+
+	_, _ = root.New("additional").Parse(`{{.Sub1.Yay}} and {{.Sub2.Nay}}`)
+
+	fmt.Println()
+	fmt.Println("---")
+	err = root.Execute(os.Stdout, data)
+	fmt.Println("---")
+	fmt.Printf("err: %v\n", err)
+	/*
+		---
+		sub1: yay1
+		sub2: yay2
+		sub3: yay3
+		yay1 and nay2
+		---
+		err: <nil>
+	*/
+}
+```
 
 ### Goのソースをコードを生成する
 
