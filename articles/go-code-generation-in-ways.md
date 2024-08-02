@@ -633,6 +633,8 @@ error: <nil>
 
 この「空白」の条件はGo source codeのそれと一致します。
 
+### 関数の追加
+
 ### sub-template
 
 ### .tmpl / .gotmpl拡張子で保存する
