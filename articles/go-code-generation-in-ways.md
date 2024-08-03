@@ -583,6 +583,8 @@ _ = chained.Execute(os.Stdout, chainedData{v: map[string]string{"Gopher": "map"}
 `range`は`{{end}}`までスコープを作り、このスコープ内では`{{.}}`は、iterateされているデータの各項目をさします。`[]T`なら`T`, `map[K]V`なら`V`になります。
 上記の`$index`,`$element`ももちろんこのスコープ内でのみ有効です。
 
+このスコープ内では`{{break}}`と`{{continue}}`を使用して`Go`の`break`と`continue`と同等の制御をできます。どちらにも`label`を指定できるという記載はありません。
+
 > When execution begins, $ is set to the data argument passed to Execute, that is, to the starting value of dot.
 
 とある通り、このスコープ内では`$`が`Execute`関数に渡されたデータになります。
@@ -811,7 +813,22 @@ func main() {
 > The template with the specified name is executed with dot set
 > to the value of the pipeline.
 
-とる通り、`template`で、別の名付けられた
+とる通り、`template`で、別の名付けられたtemplateを、pipelineの評価結果を引数に実行できます。
+
+別の名付けられたtemplateは`(*Template).New(name)`で作成し、返り値の`(*Template).Parse`を呼び出すか、
+`{{define "name"}}_template definition_{{end}}`で定義することで作成することができます。
+
+`{{block}}`は`{{define}}`して`{{template}}`するショートハンドです。
+
+筆者もこの記事を書くまで全くわかっていなかったのですが、`*Template`は`*common`という構造体で解析されたtemplateを保持し、この`*common`を`(*Template).New`で作成されたすべての`(*Template)`で共有しているのです。
+この`*common`を上書きしあうことでtemplate definitionを共有しています。
+なので同名のtemplateを複数定義している場合などに`Parse`する順序に意味があることになりますね。
+
+https://github.com/golang/go/blob/go1.22.5/src/text/template/template.go#L13-L35
+
+以下で複数のtemplateを使用するサンプルを示します。
+
+`sub1.Parse`などを呼び出すことで、ユーザーから渡されたtemplate definitionによって元のtemplate構造を上書きしてカスタマイズが行えることを示します。
 
 ```go
 var (
@@ -919,7 +936,43 @@ https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/go
 
 ### embed.FS, ParseFS
 
-`embed.FS`と`template.ParseFS`を組み合わせると
+`//go:embed`によりtemplateを収めたディレクトリを丸ごとソースに埋め込み、`template.ParseFS`によって`fs.FS`をwalkしてそれぞれのファイルを`Parse`できます。
+
+例としてファイルを以下のように配置します。
+前述の`gopls`の支援を受けるために拡張子は`.tmpl`にしてあります。
+
+```
+.template/
+|-- root.tmpl
+|-- sub1.tmpl
+|-- sub2.tmpl
+`-- sub3.tmpl
+```
+
+各templateの中身のは[sub-template](#sub-template)の同名ものとそれぞれ変わりませんが、以下のように名前だけ若干変わります。
+
+```tmpl
+sub1: {{template "sub1.tmpl" .Sub1}}
+sub2: {{template "sub2.tmpl" .Sub2}}
+sub3: {{template "sub3.tmpl" .Sub3}}
+{{block "additional" .}}{{end}}
+```
+
+`ParseFS`でファイルを読み込むと以下の行の挙動により`Base`が名前になってしまうためです。
+
+https://github.com/golang/go/blob/go1.22.5/src/text/template/helper.go#L172-L178
+
+`gopls`の支援により以下ようなsyntax highlightがかかります。
+
+![tmpl-syntax-highlighting-by-gopls](/images/go-code-generation-in-ways-tmpl-syntax-highlighting-by-gopls.png)
+
+`main.go`と同階層にこのtemplateディレクトリがあるものとして、以下のようなコードで読み込んで実行します。
+事項結果自体は[sub-template](#sub-template)のものと変わりません。
+
+ポイントとしては`//go:embed`でディレクトリを指定すると、そのディレクトリまでのパス構造がそのまま保たれるため、今回の場合、この`templates` FSの直下に`template`ディレクトリがあってその中に各ファイルがある状態となります。
+また、`fs.FS`のルールにより、`./template`は適切なパスではないので`template`を指定します([fs.ValidPath](https://pkg.go.dev/io/fs@go1.22.5#ValidPath))。
+
+`template.ParseFS`の第二引数にvariadicな`patterns ...string`を渡すことができますが、それぞれが[fs.Glob](https://pkg.go.dev/io/fs@go1.22.5#Glob)に渡されるのため、[path.Match](https://pkg.go.dev/path@go1.22.5#Match)の条件を満たす必要があります。
 
 ```go
 //go:embed template
@@ -984,7 +1037,212 @@ func main() {
 }
 ```
 
+各templateの名前から拡張子を取り除きたい場合は以下のように手動で挙動を作るしかないかと思います。
+
+```go
+//go:embed template
+var templates embed.FS
+
+var (
+	extTrimmed *template.Template
+)
+
+func init() {
+	tmpls, err := templates.ReadDir("template")
+	if err != nil {
+		panic(err)
+	}
+	cutExt := func(p string) string {
+		p, _ = strings.CutSuffix(path.Base(p), path.Ext(p))
+		return p
+	}
+	for _, tmpl := range tmpls {
+		if tmpl.IsDir() {
+			continue
+		}
+		if extTrimmed == nil {
+			extTrimmed = template.New(cutExt(tmpl.Name()))
+		}
+		bin, err := templates.ReadFile(path.Join("template", tmpl.Name()))
+		if err != nil {
+			panic(err)
+		}
+		_ = template.Must(extTrimmed.New(cutExt(tmpl.Name())).Parse(string(bin)))
+	}
+}
+```
+
 ### Goのソースをコードを生成する
+
+code generatorとしてかかわりそうな機能は一通り説明したと思います。このまま終わってもいいんですが、code generatorという立て付けで記事を作っているのですから最後にcode generatorのサンプルを示します。
+
+- `type Foo string`な、string-base typeのみを生成します。
+- `const (...)`でvariantsを列挙し、
+- `IsFoo`で入力がvariantsかどうかを判定します。
+- これだけだとつまらないので「特定のvariantsではない」という判定も作れるようにします(`IsFooExceptBar`)
+
+このExceptの生成部分はサンプルにするために無理くり別のtemplateにくくりだしていますが、このぐらいのサイズなら1つのままにしておいたほうが読みやすいと思います。
+
+ポイント的には`{{{pipeline}}`という感じで`{`の後にactionを実行したい場合`{{"{"}}{{pipeline}}`としないといけない、ということですかね。
+
+このサイズでも結構読むのはしんどいと思います。機能が豊富で何でもできるのは便利ですね。
+
+```go
+type EnumParam struct {
+	PackageName string
+	Name        string
+	Variants    []string
+	Excepts     []EnumExceptParam
+}
+
+type EnumExceptParam struct {
+	Name             string
+	ExceptName       string
+	ExcludedValiants []string
+}
+
+var funcs = template.FuncMap{
+	"capitalize": func(s string) string {
+		if len(s) == 0 {
+			return s
+		}
+		if len(s) == 1 {
+			return strings.ToUpper(s)
+		}
+		return strings.ToUpper(s[:1]) + s[1:]
+	},
+	"quote": func(s string) string {
+		return strconv.Quote(s)
+	},
+	"fillName": func(p EnumExceptParam, name string) EnumExceptParam {
+		p.Name = name
+		return p
+	},
+}
+
+var (
+	pkg = template.Must(template.New("package").Funcs(funcs).Parse(
+		`// Code generated. DO NOT EDIT.
+package {{.PackageName}}
+
+import (
+	"slices"
+)
+
+type {{.Name}} string
+
+const (
+{{range .Variants}}	{{$.Name}}{{capitalize .}} {{$.Name}} = {{quote .}}
+{{end -}}
+)
+
+var _{{.Name}}All = [...]{{.Name}}{{"{"}}{{range .Variants}}
+	{{$.Name}}{{capitalize .}},{{end}}
+}
+
+func Is{{.Name}}(v {{.Name}}) bool {
+	return slices.Contains(_{{.Name}}All[:], v)
+}
+
+{{range .Excepts}}
+{{template "except" (fillName . $.Name)}}{{end}}`))
+	_ = template.Must(pkg.New("except").Parse(
+		`func Is{{.Name}}Except{{capitalize .ExceptName}}(v {{.Name}}) bool {
+	return !slices.Contains(
+		[]{{.Name}}{{"{"}}{{range .ExcludedValiants}}
+			{{$.Name}}{{capitalize .}},{{end}}
+		},
+		v,
+	)
+}
+`))
+)
+
+func main() {
+	pkgPath := filepath.Join("template", "go-enum", "example")
+	err := os.MkdirAll(pkgPath, fs.ModePerm)
+	if err != nil {
+		panic(err)
+	}
+
+	f, err := os.Create(filepath.Join(pkgPath, "enum.go"))
+	if err != nil {
+		panic(err)
+	}
+
+	err = pkg.Execute(
+		f,
+		EnumParam{
+			PackageName: "example",
+			Name:        "Enum",
+			Variants:    []string{"foo", "bar", "baz"},
+			Excepts: []EnumExceptParam{
+				{
+					ExceptName:       "foo",
+					ExcludedValiants: []string{"foo"},
+				},
+				{
+					ExceptName:       "Muh",
+					ExcludedValiants: []string{"foo", "bar"},
+				},
+			},
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+}
+```
+
+これを実行すると以下を出力します
+
+```go
+// Code generated. DO NOT EDIT.
+package example
+
+import (
+	"slices"
+)
+
+type Enum string
+
+const (
+	EnumFoo Enum = "foo"
+	EnumBar Enum = "bar"
+	EnumBaz Enum = "baz"
+)
+
+var _EnumAll = [...]Enum{
+	EnumFoo,
+	EnumBar,
+	EnumBaz,
+}
+
+func IsEnum(v Enum) bool {
+	return slices.Contains(_EnumAll[:], v)
+}
+
+
+func IsEnumExceptFoo(v Enum) bool {
+	return !slices.Contains(
+		[]Enum{
+			EnumFoo,
+		},
+		v,
+	)
+}
+
+func IsEnumExceptMuh(v Enum) bool {
+	return !slices.Contains(
+		[]Enum{
+			EnumFoo,
+			EnumBar,
+		},
+		v,
+	)
+}
+
+```
 
 ## github.com/dave/jennifer
 
