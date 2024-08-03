@@ -1090,7 +1090,7 @@ func init() {
 }
 ```
 
-### (text/template)example: enum
+### text/template example: enum
 
 例示されるコードは以下でもホストされます。
 
@@ -1300,7 +1300,7 @@ func IsEnumExceptMuh(v Enum) bool {
     - 筆者は無駄な改行を甘んじて受け入れている
     - 生成後のコードを`goimports`によってフォーマットをかけることでいくらか改善する
 
-### (jennifer)example: enum
+### jennifer example: enum
 
 生成されるコードは[(text/template)example: enum](<#(text%2Ftemplate)example%3A-enum>)のものと同じです。少々改行が違う程度の違いしかありません。
 
