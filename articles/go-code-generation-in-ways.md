@@ -362,6 +362,10 @@ syntax highlight以外の機能は現状でも機能しているように見え�
 
 ### 基本的な使用法
 
+例示されるコードは以下でもホストされます。
+
+https://github.com/ngicks/go-example-code-generation/blob/main/template/basic
+
 #### 構文
 
 パラメータ、関数その他の呼び出しはdelimiter(`{{`と`}}`)で囲まれたブロックの中で行います。
@@ -427,8 +431,6 @@ Yay Yay.
 structを指定する場合は`reflect`パッケージを使って値にアクセスしますので、**reflectでアクセスできるフィールドを指定する**必要があります。
 
 つまり、embedされたunexported structのexported fieldにはアクセスできます。
-
-https://github.com/ngicks/go-example-code-generation/blob/main/template/basic/main.go
 
 ```go
 type sample struct {
@@ -561,6 +563,10 @@ _ = chained.Execute(os.Stdout, chainedData{v: map[string]string{"Gopher": "map"}
 
 ### 制御構文: range, if
 
+例示されるコードは以下でもホストされます。
+
+https://github.com/ngicks/go-example-code-generation/blob/main/template/control-flow
+
 #### range
 
 `range`で`Go`の`for-range`のようにデータをiterateできます。
@@ -681,6 +687,10 @@ error: <nil>
 この「空白」の条件はGo source codeのそれと一致します。割とこの挙動が難しいので筆者は使いどころを選んでいます。
 
 ### 関数の追加
+
+例示されるコードは以下でもホストされます。
+
+https://github.com/ngicks/go-example-code-generation/blob/main/template/funcmap
 
 template actionの中で実行できる関数は以下で定義される通りいろいろありますが
 
@@ -805,6 +815,10 @@ func main() {
 関数の引数の型は何でもいいですが、入力パラメータと一致しなければエラーになるようです・・・と言ってる間に気になったのでソースを見ました。[(reflect.Type).AssignableToによる判定です。](https://github.com/golang/go/blob/go1.22.5/src/text/template/exec.go#L852-L862)
 
 ### sub-template
+
+例示されるコードは以下でもホストされます。
+
+https://github.com/ngicks/go-example-code-generation/blob/main/template/subtemplate
 
 > {{template "name"}}
 > The template with the specified name is executed with nil data.
@@ -935,6 +949,10 @@ https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/go
 `"ui.semanticTokens": true`を有効にすると全体的にトークンの色の付け方が変わるので、びっくりするかもしれません。
 
 ### embed.FS, ParseFS
+
+例示されるコードは以下でもホストされます。
+
+https://github.com/ngicks/go-example-code-generation/tree/main/template/parse-fs
 
 `//go:embed`によりtemplateを収めたディレクトリを丸ごとソースに埋め込み、`template.ParseFS`によって`fs.FS`をwalkしてそれぞれのファイルを`Parse`できます。
 
@@ -1073,6 +1091,10 @@ func init() {
 ```
 
 ### Goのソースをコードを生成する
+
+例示されるコードは以下でもホストされます。
+
+https://github.com/ngicks/go-example-code-generation/tree/main/template/go-enum
 
 code generatorとしてかかわりそうな機能は一通り説明したと思います。このまま終わってもいいんですが、code generatorという立て付けで記事を作っているのですから最後にcode generatorのサンプルを示します。
 
