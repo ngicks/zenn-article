@@ -834,7 +834,7 @@ https://github.com/ngicks/go-example-code-generation/blob/main/template/subtempl
 
 `{{block}}`は`{{define}}`して`{{template}}`するショートハンドです。
 
-筆者もこの記事を書くまで全くわかっていなかったのですが、`*Template`は`*common`という構造体で解析されたtemplateを保持し、この`*common`を`(*Template).New`で作成されたすべての`(*Template)`で共有しているのです。
+筆者もこの記事を書くまで全くわかっていなかったのですが、`*Template`は`*common`という構造体で解析されたtemplateを保持し、この`*common`は`(*Template).New`で作成されたすべての`(*Template)`に共有されています。
 この`*common`を上書きしあうことでtemplate definitionを共有しています。
 なので同名のtemplateを複数定義している場合などに`Parse`する順序に意味があることになりますね。
 
