@@ -1302,7 +1302,7 @@ func IsEnumExceptMuh(v Enum) bool {
 
 ### jennifer example: enum
 
-生成されるコードは[(text/template)example: enum](<#(text%2Ftemplate)example%3A-enum>)のものと同じです。少々改行が違う程度の違いしかありません。
+生成されるコードは[(text/template)example: enum](#texttemplate-example-enum)のものと同じです。少々改行が違う程度の違いしかありません。
 
 ```go
 type EnumParam struct {
