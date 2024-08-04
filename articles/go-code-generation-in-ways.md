@@ -1107,7 +1107,11 @@ code generatorとしてかかわりそうな機能は一通り説明したと思
 
 このExceptの生成部分はサンプルにするために無理くり別のtemplateにくくりだしていますが、このぐらいのサイズなら1つのままにしておいたほうが読みやすいと思います。
 
-ポイント的には`{{{pipeline}}`という感じで`{`の後にactionを実行したい場合`{{"{"}}{{pipeline}}`としないといけない、ということですかね。
+ポイント的には
+
+- `{{{pipeline}}`という感じで`{`の後にactionを実行したい場合`{{"{"}}{{pipeline}}`としないといけない
+- ユーザーの入力文字列を`Go`の`ident`(identifier)として出力するには`Go` specを満たすようにエスケープが必要([identifier = letter { letter | unicode_digit }.](https://go.dev/ref/spec#Identifiers))
+  - 以下のサンプルでは`unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'`でないとき`_`に置き換えるという少々雑な処理でごまかしていますが、実際には`u1234`という感じでunicode番号に置き換えるとかそういうことをしたほうが良いのだと思います
 
 このサイズでも結構読むのはしんどいと思います。機能が豊富で何でもできるのは便利ですね。
 
@@ -1626,17 +1630,18 @@ func main() {
 
 	f.Type().Id(param.Name).String() // type Enum string
 
+	// const (
 	f.Const().DefsFunc(func(g *jen.Group) {
 		for _, variant := range param.Variants {
 			g.
 				Id(param.Name + replaceInvalidChar(capitalize(variant))). // EnumFoo
 				Id(param.Name).                                           // Enum
 				Op("=").                                                  // =
-				Lit(variant)                                              // "foo"
+				Lit(variant)                                              // "foo"\n
 		}
-	})
+	}) // )
 
-	// _EnumAll = [...]Enum
+	// var _EnumAll = [...]Enum
 	f.Var().Id("_" + param.Name + "All").Op("=").Index(jen.Op("...")).Id(param.Name).
 		ValuesFunc(func(g *jen.Group) { // {
 			for _, variant := range param.Variants {
@@ -1688,6 +1693,76 @@ func main() {
 
 １からastをくみ上げることでコードを生成することもできますが、それをやるならば上記の`text/template`か`github.com/dave/jennifer`を用いるほうが楽なはずなので、ここでは深く紹介しません。
 その代わり、astや型情報
+
+### astの解析
+
+#### go/parser
+
+astは`go/token`, `go/parser`を用いて解析します。
+
+`Go`のastはastと言いながら各Exprの位置情報が記録されています。これは`go/printer`による逆変換ができるようにするためかもしれません。
+
+1ファイルのみを読み込むには以下のようにします。
+
+[playground](https://go.dev/play/p/QZ7x7sFeNWB)
+
+```go
+package main
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+)
+
+const src = `package target
+
+import "fmt"
+
+type Foo string
+
+const (
+	FooFoo Foo = "foo"
+	FooBar Foo = "bar"
+	FooBaz Foo = "baz"
+)
+
+func Bar(x, y string) string {
+	if len(x) == 0 {
+		return y + y
+	}
+	return fmt.Sprintf("%q%q", x, y)
+}
+
+type Some[T, U any] struct {
+	Foo string
+	Bar T
+	Baz U
+}
+
+func (s Some[T, U]) Method1() {
+	// ...nothing...
+}
+
+`
+
+func main() {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "./target/foo.go", src, parser.AllErrors|parser.ParseComments)
+	if err != nil {
+		panic(err)
+	}
+	_ = ast.Print(fset, f)
+}
+```
+
+`ast.Print`によって解析されたast構造が`Go`プログラム的にどう見えるかをstdoutに表示します。これは要するに`reflect`によってast構造をwalkする関数です。
+`Go`には`Rust`のenumのような便利な「複数タイプのうちどれか」を表現する方法がありませんので、`interface`が代わりに使われます。`interface`にunexported method(メソッド名の先頭が小文字)を定義すると、`Go`の型解決ルールによってそのパッケージ内でしか実装が行えない`interface`を定義できますから、これと適切なドキュメントを書いておけば変わりが果たせるということになります。
+実際上、`interface`ではそのフィールドに何が入るのかがわかりませんから、この`ast.Print`によって構造を把握しておくと`ast.Node`を受けとるプログラムが書きやすくなります。
+
+#### golang.org/x/tools/go/packages
+
+[golang.org/x/tools/go/packages]
 
 ### astutilを使った書き換え
 
@@ -1756,3 +1831,4 @@ func applyGoimports(ctx context.Context, r io.Reader) (*bytes.Buffer, error) {
 [github.com/dave/dst]: https://github.com/dave/dst
 [text/template]: https://pkg.go.dev/text/template@go1.22.5
 [go/ast]: https://pkg.go.dev/go/ast@go1.22.5
+[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages
