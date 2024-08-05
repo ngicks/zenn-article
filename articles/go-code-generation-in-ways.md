@@ -1704,6 +1704,8 @@ astは`go/token`, `go/parser`を用いて解析します。
 
 1ファイルのみを読み込むには以下のようにします。
 
+出力は少々長くなるので省略しました。なので、以下のplaygroundで実行するか、[ソース](https://github.com/ngicks/go-example-code-generation/ast/print/ast.go)をコピーしてローカルで実行してみてください。
+
 [playground](https://go.dev/play/p/QZ7x7sFeNWB)
 
 ```go
@@ -1756,13 +1758,74 @@ func main() {
 }
 ```
 
-`ast.Print`によって解析されたast構造が`Go`プログラム的にどう見えるかをstdoutに表示します。これは要するに`reflect`によってast構造をwalkする関数です。
-`Go`には`Rust`のenumのような便利な「複数タイプのうちどれか」を表現する方法がありませんので、`interface`が代わりに使われます。`interface`にunexported method(メソッド名の先頭が小文字)を定義すると、`Go`の型解決ルールによってそのパッケージ内でしか実装が行えない`interface`を定義できますから、これと適切なドキュメントを書いておけば変わりが果たせるということになります。
-実際上、`interface`ではそのフィールドに何が入るのかがわかりませんから、この`ast.Print`によって構造を把握しておくと`ast.Node`を受けとるプログラムが書きやすくなります。
+`token.NewFileSet`で[\*token.FileSet](https://pkg.go.dev/go/token@go1.22.5#FileSet)をallocateして、[parser.ParseFile](https://pkg.go.dev/go/parser@go1.22.5#ParseFile)で第３引数を解析します。ドキュメントにある通り、[nil, []byte, string, io.Readerのいずれかを受け付け, nilの場合第二引数のfilenameを読み込みます](https://github.com/golang/go/blob/go1.22.5/src/go/parser/interface.go#L24-L42)。
+
+#### ast.Print
+
+解析された[*ast.File]を[ast.Print](https://pkg.go.dev/go/ast@go1.22.5#Print)もしくは[ast.Fprint](https://pkg.go.dev/go/ast@go1.22.5#Fprint)することで内部の構造をプリントすることができます。
+これは要するに`reflect`によってast構造をwalkする関数です。ですので、`Go`のコードからどのようにastを扱えばいいのかがわかります。
+
+前述通り上記サンプルコードの出力結果は長いので省略しますが、抜粋して一部を以下に例示します。
+
+```go
+type Some[T, U any] struct {
+	//...
+}
+```
+
+は以下のようなastになります。
+
+```
+// ...
+   287  .  .  4: *ast.GenDecl {
+   288  .  .  .  TokPos: ./target/foo.go:20:1
+   289  .  .  .  Tok: type
+   290  .  .  .  Lparen: -
+   291  .  .  .  Specs: []ast.Spec (len = 1) {
+   292  .  .  .  .  0: *ast.TypeSpec {
+   293  .  .  .  .  .  Name: *ast.Ident {
+   294  .  .  .  .  .  .  NamePos: ./target/foo.go:20:6
+   295  .  .  .  .  .  .  Name: "Some"
+   296  .  .  .  .  .  .  Obj: *ast.Object {
+   297  .  .  .  .  .  .  .  Kind: type
+   298  .  .  .  .  .  .  .  Name: "Some"
+   299  .  .  .  .  .  .  .  Decl: *(obj @ 292)
+   300  .  .  .  .  .  .  }
+   301  .  .  .  .  .  }
+   302  .  .  .  .  .  TypeParams: *ast.FieldList {
+   303  .  .  .  .  .  .  Opening: ./target/foo.go:20:10
+   304  .  .  .  .  .  .  List: []*ast.Field (len = 1) {
+   305  .  .  .  .  .  .  .  0: *ast.Field {
+   306  .  .  .  .  .  .  .  .  Names: []*ast.Ident (len = 2) {
+   307  .  .  .  .  .  .  .  .  .  0: *ast.Ident {
+   308  .  .  .  .  .  .  .  .  .  .  NamePos: ./target/foo.go:20:11
+   309  .  .  .  .  .  .  .  .  .  .  Name: "T"
+   310  .  .  .  .  .  .  .  .  .  .  Obj: *ast.Object {
+   311  .  .  .  .  .  .  .  .  .  .  .  Kind: type
+   312  .  .  .  .  .  .  .  .  .  .  .  Name: "T"
+   313  .  .  .  .  .  .  .  .  .  .  .  Decl: *(obj @ 305)
+   314  .  .  .  .  .  .  .  .  .  .  }
+   315  .  .  .  .  .  .  .  .  .  }
+// ...
+```
+
+[\*ast.GenDecl](https://pkg.go.dev/go/ast@go1.22.5#GenDecl)は
+
+> A GenDecl node (generic declaration node) represents an import, constant, type or variable declaration. A valid Lparen position (Lparen.IsValid()) indicates a parenthesized declaration.
+
+であるので、`*ast.File`のトップレベルにあるものは関数宣言以外はすべてこれになります。`var`や`type`は`var()`でグループを持てるため、`Spec`フィールドは`[]ast.Spec`というsliceになっています。`()`によるグルーピングがかかっていない場合はparenthesis(`(`)がないわけですからこのast nodeには`Lparen`と`Rparen`(省略されて表示されていないが)にはemptyな値が収められています。
+
+`TypeParam`のindex(`[]`)の中身はstructの１つのfieldと同じ構文ルールが適用できるので`ast.FieldList`が使われていますね。ここはちょっと筆者的には驚きでした。
+
+とまあそういった感じです。
 
 #### golang.org/x/tools/go/packages
 
-[golang.org/x/tools/go/packages]
+[ast.ParseDir](https://pkg.go.dev/go/parser@go1.22.5#ParseDir)が返す[\*ast.Package](https://pkg.go.dev/go/ast@go1.22.5#Package)が[Go1.22からdeprecatedになっている](https://tip.golang.org/doc/go1.22#minor_library_changes)ため、ディレクトリの中身を一気にパーズしたいとき何使えばいいんだよってなりますよね。
+
+困ったので[github.com/golang/example](https://github.com/golang/example)を見ていると、[このコミット](https://github.com/golang/example/commit/1d6d2400d4027025cb8edc86a139c9c581d672f7)で[golang.org/x/tools/go/packages]を勧める文章に変わっていました。
+
+ということで複数パッケージを一気にパーズするには[golang.org/x/tools/go/packages]を使いましょう。
 
 ### astutilを使った書き換え
 
