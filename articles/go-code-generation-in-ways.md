@@ -1825,7 +1825,145 @@ type Some[T, U any] struct {
 
 困ったので[github.com/golang/example](https://github.com/golang/example)を見ていると、[このコミット](https://github.com/golang/example/commit/1d6d2400d4027025cb8edc86a139c9c581d672f7)で[golang.org/x/tools/go/packages]を勧める文章に変わっていました。
 
-ということで複数パッケージを一気にパーズするには[golang.org/x/tools/go/packages]を使いましょう。
+ということで複数パッケージを一気にパーズするには[golang.org/x/tools/go/packages]を使えばよさそうですね。
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"golang.org/x/tools/go/packages"
+)
+
+func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	cfg := &packages.Config{
+		Mode: packages.NeedName |
+			packages.NeedFiles |
+			packages.NeedCompiledGoFiles |
+			packages.NeedImports |
+			packages.NeedDeps |
+			packages.NeedExportFile |
+			packages.NeedTypes |
+			packages.NeedSyntax |
+			packages.NeedTypesInfo |
+			packages.NeedTypesSizes |
+			packages.NeedModule |
+			packages.NeedEmbedFiles |
+			packages.NeedEmbedPatterns,
+		Context: ctx,
+		Logf: func(format string, args ...interface{}) {
+			fmt.Printf("log: "+format, args...)
+			fmt.Println()
+		},
+	}
+	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
+	if err != nil {
+		panic(err)
+	}
+}
+```
+
+こんな感じでモジュールをロードします。
+
+[\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Config)をいろいろ設定し、[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Load)の第一引数として渡します。第二引数はvariadicなパターンで、`go`コマンドに渡すようなpackage patternを渡して読み込みたいパッケージを指定できます。
+
+内部的にはデフォルトで[go list](https://pkg.go.dev/cmd/go#hdr-List_packages_or_modules)を呼び出します。`*packages.Config`の`Dir`フィールドがこれらのコマンドを実行する際に`cwd`として渡されます。ですので、`Dir`が指定するパッケージの`go.mod`に、`Load`に渡すパターンに一致するモジュールがないと以下のようなエラーを吐きます。
+
+```
+github.com/hack-pad/hackpadfs: packages.Error{Pos:"", Msg:"no required module provides package github.com/hack-pad/hackpadfs; to add it:\n\tgo get github.com/hack-pad/hackpadfs", Kind:1}
+```
+
+`Dir`とpatternの関係を把握したうえで設定しましょう(筆者はよくわかっていない)。
+
+[\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Config)の`Mode`フィールドで何をどこまでパーズするかを指定できます。このexampleではとりあえず設定できるものはすべてオンにしています。必要に応じて減らしてください。code generatorという観点だけで言うと、そう頻繁に実行されないのでとりあえず全部有効にされていても問題ないとは思います。それぞれで調節していただくのがよいでしょう。
+
+[packages.Visit](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Visit)で、ロードされたパッケージをインポートグラフ順にvisitできます。
+
+```go
+	packages.Visit(
+		pkgs,
+		func(p *packages.Package) bool {
+			for _, err := range p.Errors {
+				fmt.Printf("pkg %s: %#v\n", p.PkgPath, err)
+			}
+			if len(p.Errors) > 0 {
+				return true
+			}
+
+			fmt.Printf("package path: %s\n", p.PkgPath)
+
+			return true
+		},
+		nil,
+	)
+	/*
+package path: io
+package path: errors
+package path: internal/reflectlite
+package path: internal/abi
+package path: internal/goarch
+package path: unsafe
+package path: internal/unsafeheader
+// 中略
+package path: internal/race
+package path: sync/atomic
+package path: github.com/ngicks/go-example-code-generation/ast/parse-by-packages/target
+package path: fmt
+package path: internal/fmtsort
+package path: reflect
+package path: internal/itoa
+// 中略
+package path: internal/testlog
+package path: io/fs
+package path: path
+*/
+```
+
+[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Package)には`*types.Package`や`*token.FileSet`, `*ast.File`など、configの`Mode`でした指定に合わせて様々な情報が読み込まれているので、`ast.Print`もできますし、
+
+```go
+	targetPkg := pkgs[1]
+
+	for _, f := range targetPkg.Syntax {
+		ast.Print(targetPkg.Fset, f)
+		fmt.Printf("\n\n")
+	}
+```
+
+型情報を使って色々判定も行えます。
+
+```go
+	foo := targetPkg.Types.Scope().Lookup("Foo")
+	fmt.Printf("foo: %#v\n", foo)
+// foo: &types.TypeName{object:types.object{parent:(*types.Scope)(0xc004758660), pos:4034135, pkg:(*types.Package)(0xc0047586c0), name:"Foo", typ:(*types.Named)(0xc0067f0930), order_:0x2, color_:0x1, scopePos_:0}}
+
+	r := ioPkg.Types.Scope().Lookup("Reader")
+
+	pfoo := types.NewPointer(foo.Type())
+
+	if types.AssignableTo(pfoo, r.Type()) {
+		fmt.Printf("%s satisfies %s\n", pfoo, r)
+		// *github.com/ngicks/go-example-code-generation/ast/parse-by-packages/target.Foo satisfies type io.Reader interface{Read(p []byte) (n int, err error)}
+	}
+
+	mset := types.NewMethodSet(pfoo)
+	for i := 0; i < mset.Len(); i++ {
+		meth := mset.At(i).Obj()
+		sig := meth.Type().Underlying().(*types.Signature)
+		fmt.Printf(
+			"%d: func (receiver=%s name=%s)(params=%s) (results=%s)\n",
+			i, sig.Recv().Name(), meth.Name(), sig.Params(), sig.Results(),
+		)
+		// 0: func (receiver=f name=Read)(params=(p []byte)) (results=(int, error))
+	}
+```
 
 ### astutilを使った書き換え
 
