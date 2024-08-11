@@ -1762,8 +1762,8 @@ func main() {
 
 #### ast.Print
 
-解析された[*ast.File]を[ast.Print](https://pkg.go.dev/go/ast@go1.22.5#Print)もしくは[ast.Fprint](https://pkg.go.dev/go/ast@go1.22.5#Fprint)することで内部の構造をプリントすることができます。
-これは要するに`reflect`によってast構造をwalkする関数です。ですので、`Go`のコードからどのようにastを扱えばいいのかがわかります。
+解析された[\*ast.File](https://pkg.go.dev/go/ast@go1.22.5#File)を[ast.Print](https://pkg.go.dev/go/ast@go1.22.5#Print)もしくは[ast.Fprint](https://pkg.go.dev/go/ast@go1.22.5#Fprint)に渡すことで内部の構造をプリントすることができます。
+これは要するに`reflect`によってgo structをwalkする関数です。ですので、`Go`のコードからどのようにastを扱えばいいのかがわかります。
 
 前述通り上記サンプルコードの出力結果は長いので省略しますが、抜粋して一部を以下に例示します。
 
@@ -1874,15 +1874,45 @@ func main() {
 
 [\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Config)をいろいろ設定し、[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Load)の第一引数として渡します。第二引数はvariadicなパターンで、`go`コマンドに渡すようなpackage patternを渡して読み込みたいパッケージを指定できます。
 
-内部的にはデフォルトで[go list](https://pkg.go.dev/cmd/go#hdr-List_packages_or_modules)を呼び出します。`*packages.Config`の`Dir`フィールドがこれらのコマンドを実行する際に`cwd`として渡されます。ですので、`Dir`が指定するパッケージの`go.mod`に、`Load`に渡すパターンに一致するモジュールがないと以下のようなエラーを吐きます。
+##### pattern
+
+[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Load)の第二引数にはvairadicなpatternを渡し、これによってロードするパッケージを指定します。
+
+> https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Package
+>
+> Load passes most patterns directly to the underlying build tool. The default build tool is the go command. Its supported patterns are described at https://pkg.go.dev/cmd/go#hdr-Package_lists_and_patterns. Other build systems may be supported by providing a "driver"; see [The driver protocol].
+>
+> All patterns with the prefix "query=", where query is a non-empty string of letters from [a-z], are reserved and may be interpreted as query operators.
+>
+> Two query operators are currently supported: "file" and "pattern".
+>
+> The query "file=path/to/file.go" matches the package or packages enclosing the Go source file path/to/file.go. For example "file=~/go/src/fmt/print.go" might return the packages "fmt" and "fmt [fmt.test]".
+>
+> The query "pattern=string" causes "string" to be passed directly to the underlying build tool. In most cases this is unnecessary, but an application can use Load("pattern=" + x) as an escaping mechanism to ensure that x is not interpreted as a query operator if it contains '='.
+
+デフォルトでこれらを引数に[go list](https://pkg.go.dev/cmd/go#hdr-List_packages_or_modules)を呼び出すので、それに渡すことができるパターンを指定することができます。具体的に言うと`./...`で`cwd`以下のすべてのパッケージにマッチさせることができます。
+
+##### \*package.Config
+
+[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Load)の第一引数には[\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Config)を渡します。
+
+ちょっとわかりにくいところがあるのでそこだけ説明します。
+
+- `Mode`: ビットフラグで何をロードするのか制御します。
+  - 前述のサンプルが現時点(`v0.24.0`)でexportされている全てです。
+  - [LoadMode](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#LoadMode)のdoc commentにある通り現時点ではバグがあるみたいです。
+- `Dir`: `go list`などの`cwd`を指定できます。
+  - `Dir`が指定するパッケージの`go.mod`に、`Load`に渡すパターンに一致するモジュールがないと以下のようなエラーを吐きます。
 
 ```
 github.com/hack-pad/hackpadfs: packages.Error{Pos:"", Msg:"no required module provides package github.com/hack-pad/hackpadfs; to add it:\n\tgo get github.com/hack-pad/hackpadfs", Kind:1}
 ```
 
-`Dir`とpatternの関係を把握したうえで設定しましょう(筆者はよくわかっていない)。
+- `Overlay`
+  - コードを追ってみる限り`json.Marshal`してファイルシステムに書き出された後`-overlay`オプションに渡されます。
+  - `-overlay`オプションそのものは今回の話題に対して重要ではないので、ここでは説明を避け[go Command Documentation](https://pkg.go.dev/cmd/go)を読むようにとだけ書いておきます。
 
-[\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Config)の`Mode`フィールドで何をどこまでパーズするかを指定できます。このexampleではとりあえず設定できるものはすべてオンにしています。必要に応じて減らしてください。code generatorという観点だけで言うと、そう頻繁に実行されないのでとりあえず全部有効にされていても問題ないとは思います。それぞれで調節していただくのがよいでしょう。
+##### packages.Visit
 
 [packages.Visit](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Visit)で、ロードされたパッケージをインポートグラフ順にvisitできます。
 
@@ -1926,7 +1956,9 @@ package path: path
 */
 ```
 
-[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Package)には`*types.Package`や`*token.FileSet`, `*ast.File`など、configの`Mode`でした指定に合わせて様々な情報が読み込まれているので、`ast.Print`もできますし、
+##### pkgs[i].Syntax: []\*ast.File
+
+[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Package)の`Fset`フィールドは`*token.FileSet`,`Syntax`フィールドは`[]*ast.File`なので、`ast.Print`などast情報を使った処理ができます。
 
 ```go
 	targetPkg := pkgs[1]
@@ -1937,12 +1969,14 @@ package path: path
 	}
 ```
 
-型情報を使って色々判定も行えます。
+#### pkgs[i].Types: \*types.Package
+
+[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Package)の.Typesフィールドは`*types.Package`なので、型情報を使って処理を行うことができます。
 
 ```go
 	foo := targetPkg.Types.Scope().Lookup("Foo")
 	fmt.Printf("foo: %#v\n", foo)
-// foo: &types.TypeName{object:types.object{parent:(*types.Scope)(0xc004758660), pos:4034135, pkg:(*types.Package)(0xc0047586c0), name:"Foo", typ:(*types.Named)(0xc0067f0930), order_:0x2, color_:0x1, scopePos_:0}}
+	// foo: &types.TypeName{object:types.object{parent:(*types.Scope)(0xc004758660), pos:4034135, pkg:(*types.Package)(0xc0047586c0), name:"Foo", typ:(*types.Named)(0xc0067f0930), order_:0x2, color_:0x1, scopePos_:0}}
 
 	r := ioPkg.Types.Scope().Lookup("Reader")
 
@@ -1958,10 +1992,10 @@ package path: path
 		meth := mset.At(i).Obj()
 		sig := meth.Type().Underlying().(*types.Signature)
 		fmt.Printf(
-			"%d: func (receiver=%s name=%s)(params=%s) (results=%s)\n",
-			i, sig.Recv().Name(), meth.Name(), sig.Params(), sig.Results(),
+			"%d: func (receiver=%s name=*%s)(func-name=%s)(params=%s) (results=%s)\n",
+			i, sig.Recv().Name(), foo.Name(), meth.Name(), sig.Params(), sig.Results(),
 		)
-		// 0: func (receiver=f name=Read)(params=(p []byte)) (results=(int, error))
+		// 0: func (receiver=f name=*Foo)(func-name=Read)(params=(p []byte)) (results=(int, error))
 	}
 ```
 
