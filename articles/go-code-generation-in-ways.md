@@ -27,7 +27,8 @@ published: false
 
 ## 環境
 
-`Go`のstdに関するドキュメントおよびソースコードはすべて`Go1.22.5`のものを参照します。
+`Go`のstdに関するドキュメントおよびソースコードはすべて`Go1.22.6`のものを参照します。
+[golang.org/x/tools](https://pkg.go.dev/golang.org/x/tools@v0.24.0)に関してはすべて`v0.24.0`を参照します。
 
 コードを実行する環境は`1.22.0`です。
 
@@ -35,6 +36,8 @@ published: false
 # go version
 go version go1.22.0 linux/amd64
 ```
+
+書いてる途中で`1.23.0`がリリースされちゃったんですがでたばっかりなんで`1.22.6`を参照したままです。ﾏﾆｱﾜﾅｶｯﾀ。。。
 
 ## Rationale: Goにおけるcode generation
 
@@ -1555,6 +1558,8 @@ import declの内容を追加するのは筆者が見たところ`Qual`のみで
 
 [text/template example: enum](#text%2Ftemplate-example%3A-enum)と同じものを[github.com/dave/jennifer]で再実装します。
 
+関数呼び出しがどういったコードと対応づいているのかをコメントしておいたので、これでおそらく呼び出し方の様式がわかるでしょう。
+
 ```go
 type EnumParam struct {
 	PackageName string
@@ -1694,7 +1699,7 @@ func main() {
 １からastをくみ上げることでコードを生成することもできますが、それをやるならば上記の`text/template`か`github.com/dave/jennifer`を用いるほうが楽なはずなので、ここでは深く紹介しません。
 その代わり、astや型情報
 
-### astの解析
+### ソースコードの解析
 
 #### go/parser
 
@@ -1917,6 +1922,10 @@ github.com/hack-pad/hackpadfs: packages.Error{Pos:"", Msg:"no required module pr
 [packages.Visit](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Visit)で、ロードされたパッケージをインポートグラフ順にvisitできます。
 
 ```go
+	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
+	if err != nil {
+		panic(err)
+	}
 	packages.Visit(
 		pkgs,
 		func(p *packages.Package) bool {
@@ -1961,6 +1970,11 @@ package path: path
 [\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Package)の`Fset`フィールドは`*token.FileSet`,`Syntax`フィールドは`[]*ast.File`なので、`ast.Print`などast情報を使った処理ができます。
 
 ```go
+	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
+	if err != nil {
+		panic(err)
+	}
+
 	targetPkg := pkgs[1]
 
 	for _, f := range targetPkg.Syntax {
@@ -1969,11 +1983,19 @@ package path: path
 	}
 ```
 
-#### pkgs[i].Types: \*types.Package
+##### pkgs[i].Types: \*types.Package
 
 [\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Package)の.Typesフィールドは`*types.Package`なので、型情報を使って処理を行うことができます。
 
 ```go
+	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
+	if err != nil {
+		panic(err)
+	}
+
+	ioPkg := pkgs[0]
+	targetPkg := pkgs[1]
+
 	foo := targetPkg.Types.Scope().Lookup("Foo")
 	fmt.Printf("foo: %#v\n", foo)
 	// foo: &types.TypeName{object:types.object{parent:(*types.Scope)(0xc004758660), pos:4034135, pkg:(*types.Package)(0xc0047586c0), name:"Foo", typ:(*types.Named)(0xc0067f0930), order_:0x2, color_:0x1, scopePos_:0}}
@@ -1999,20 +2021,1168 @@ package path: path
 	}
 ```
 
-### astutilを使った書き換え
+### directive commentとその解析方法
 
-### dstを使った書き換え
+`Go`には[Compiler directiveをコメントとして書くことができます。](https://pkg.go.dev/cmd/compile#hdr-Compiler_Directives)
+このdirective commentはdoc commentに出現しないようです。なので、directive commentでcode generatorに対して指示を出せるとdoc commentを邪魔せず、メタデータを別ファイルに分けることなく`Go`のsource codeに追加できるため便利かもしれません。
+ただし、directive commentの解析をastから行うには若干の工夫がいるので以下でその方法を述べます。
+
+#### directive comment
+
+通常のコメントは下記のように、コメントの開始に半角スペースなどを１つ以上入れますが、directive commentは半角などを入れません。
+
+```go
+// non-directive comment
+/* non-directive comment */
+
+//directive comment
+```
+
+[compiler directive](https://pkg.go.dev/cmd/compile#hdr-Compiler_Directives)の項目では説明されていませんが、`//go:embed`のように色々なマジックコメントがwildに存在します。
+
+[staticcheckの//lint:ignore directive](https://staticcheck.dev/docs/configuration/#line-based-linter-directives)や、[golangci-lintのnolint directive](https://golangci-lint.run/usage/false-positives/#nolint-directive)などサードパーティのツール、特にlinterなどがこのdirective commentを利用して挙動の調節が行えるようになっています。
+
+#### \*ast.CommentGroupの解析方法
+
+directive commentは[\*ast.CommentGroup](https://pkg.go.dev/go/ast@go1.22.6#CommentGroup)の[Textメソッド](https://pkg.go.dev/go/ast@go1.22.6#CommentGroup.Text)から除外される挙動があるため、これを解析したい場合は`List`を直接走査する必要があります。
+
+[playground](https://go.dev/play/p/ELsSS2X18bl)
+
+```go
+package main
+
+import (
+	"fmt"
+	"go/parser"
+	"go/token"
+)
+
+const src = `package target
+
+// non-directive:comment
+
+/*non-directive:comment*/
+
+//directive:comment
+
+/*line foo: 10 */
+
+`
+
+func main() {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "./target/foo.go", src, parser.AllErrors|parser.ParseComments)
+	if err != nil {
+		panic(err)
+	}
+	for _, cg := range f.Comments {
+		fmt.Println(fset.Position(cg.Pos()), cg.Text())
+	}
+	/*
+		./target/foo.go:3:1 non-directive:comment
+
+		./target/foo.go:5:1 non-directive:comment
+
+		./target/foo.go:7:1
+
+	*/
+
+	fmt.Println("---")
+
+	for _, cg := range f.Comments {
+		fmt.Print(fset.Position(cg.Pos()))
+		for _, comment := range cg.List {
+			fmt.Println(comment.Text)
+		}
+	}
+	// ./target/foo.go:3:1// non-directive:comment
+	// ./target/foo.go:5:1/*non-directive:comment*/
+	// ./target/foo.go:7:1//directive:comment
+}
+```
+
+[この行でdirective commentが除外されますが](https://github.com/golang/go/blob/go1.22.6/src/go/ast/ast.go#L110-L130)、`/**/`スタイルのコメントには全く機能しないので、上記のCompiler directiveのドキュメントにも反した挙動のように思えます。なるだけ`/**/`スタイルのコメントは使わないほうが混乱が少なくていいのかもしれません。
+
+### astのtraverse方法
+
+astをトラバースするには以下などの関数を用います。どれもdepth-first orderです。
+
+- [ast.Inspect](https://pkg.go.dev/go/ast@go1.22.6#Inspect)
+  - astをwalkします
+- [ast.Walk](https://pkg.go.dev/go/ast@go1.22.6#Walk)
+  - astをwalkしますがこちらは[Visitor interface](https://pkg.go.dev/go/ast@go1.22.6#Visitor)を受けるため、ステートマシン的に状態を切り替えられます。
+- [\*inspector.Inspector](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/inspector#Inspector)
+  - 型(`*ast.TypeSpec`など)によるフィルターをかけたnodeの探索を行います。
+  - [WithStack](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/inspector#Inspector.WithStack)でマッチしたnodeに到達するまでのrootからのast nodeのstackを取得できるので、上位エレメントの構造がこうなら、みたいな条件付けでマッチできるのだと思います。
+  - この記事を書くための調査で知った機能なので、あまり使ったことがありません。そのため詳しくはわかりません。
+- [astutil.Apply](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil#Apply)
+  - astをwalkしますが、あるast nodeにstep inする前に呼び出されるコールバック(`pre`)と、walkしきあったとに呼び出されるコールバック(`post`)を渡して処理を行えます。
+  - [ApplyFunc](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil#ApplyFunc)(`pre`と`post`)には[\*Cursor](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil#Cursor)が渡され、これによってast nodeを`Delete`, `Replace`などができます。
+    - また、[\*ast.File](https://pkg.go.dev/go/ast@go1.22.6#File)の`Decls`フィールドや、[\*ast.FieldList](https://pkg.go.dev/go/ast@go1.22.6#FieldList)の`List`フィールドのようなsliceにnodeを挿入する`InsertBefore`, `InsertAfter`があります。
+
+### astutil.Applyを使ったrewrite
+
+コードサンプルは以下でホストされます
+
+https://github.com/ngicks/go-example-code-generation/blob/main/ast/rewrite/astutil
+
+[astutil.Apply](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil#Apply)を使ったrewriteのサンプルを示します。
+今までのサンプルと違い、新しいファイルに書き出すよりも既存のsource codeをrewriteするものを想定します。
+この理由は
+
+- そのほうが後述の問題が噴出しやすい
+- 記事の目的から微妙にそれるが、editorのcode actionでコードを書き換える物を作りたいのでその前段として
+
+です。
+
+#### 仕様
+
+ざっくり以下のような仕様で作ります。
+
+- string-based typeのみを生成対象とする
+- `//enum:variants=`から始まるコメントでcomma separatedなvariantsを記述できる
+  - これはdirective commentでもよい
+- このvariantsを元に、変数名を`型名+variant`、値がvariantのstring literalを`const ()`で列挙する
+- すでに生成済みのconstの`*ast.GenDecl`がある場合はそれを`Replace`し、ない場合は追加します。
+  - 生成された`*ast.GenDecl`ブロックに`//enum:generated_for=型名`をつけることで識別可能にします。
+
+#### ターゲット
+
+生成のターゲットを以下とします。
+
+```go
+package target
+
+//enum:variants=foo,bar,baz
+type Enum string
+
+//enum:variants=foo,bar,baz
+type Enum2 string
+
+//enum:generated_for=Enum2
+const (
+	Enum2Foo = "foo"
+)
+```
+
+#### parse
+
+前述の[golang.org/x/tools/go/packages]を使ってロードするものとします。
+
+```go
+	cfg := &packages.Config{
+		Mode: packages.NeedName |
+			packages.NeedImports |
+			packages.NeedTypes |
+			packages.NeedSyntax,
+	}
+	pkgs, err := packages.Load(cfg, "./ast/rewrite/target")
+	if err != nil {
+		panic(err)
+	}
+
+	pkg := pkgs[0]
+```
+
+#### astutil.Apply
+
+astをrewriteするのでSyntaxをfor-rangeします。
+
+今回は`pre`のみを使っていきます。
+
+今回は`*ast.GenDecl`を探索するので
+`ast.Apply`に`*ast.File`を渡すと、[package comment, package name, Declsの順](https://github.com/golang/tools/blob/v0.24.0/go/ast/astutil/rewrite.go#L429-L436)でwalkしていくのでdefault branchで`return true`しないとうまいこと進んでくれません。
+
+コメントを書き換えるのでnodeとコメントの関連付けを保つために[\*ast.CommentMap](https://pkg.go.dev/go/ast@go1.22.6#CommentMap)を先に作成します。
+
+```go
+	for _, f := range pkg.Syntax {
+		astutil.Apply(
+			f,
+			func(c *astutil.Cursor) bool {
+				n := c.Node()
+				switch x := n.(type) {
+				default:
+					return true
+				case *ast.FuncDecl:
+				case *ast.GenDecl:
+					// ...
+				}
+				return false
+			},
+			nil,
+		)
+	}
+```
+
+#### 対象タイプの探索
+
+ますこの`Apply`の中で`//enum:variants=`のマジックコメントがついたtype specを探します。
+
+今回は~~めんどくさいので~~簡易化のため、`type ()`で複数のtype specを書くパターンを禁止し、`type Foo string`な単体の`GenDecl`のみを対象とします。
+
+```go
+	astutil.Apply(
+		f,
+		func(c *astutil.Cursor) bool {
+			n := c.Node()
+			switch x := n.(type) {
+			default:
+				return true
+			case *ast.FuncDecl:
+			case *ast.GenDecl:
+				if x.Tok != token.TYPE {
+					break
+				}
+
+				if len(x.Specs) == 1 {
+					name, ok := isStringBasedType(x.Specs[0])
+					if !ok {
+						break
+					}
+					param, ok := parseDirective(x.Doc)
+					if !ok {
+						break
+					}
+					param.Name = name
+					addOrReplaceEnum(c, param)
+				}
+			}
+			return false
+		},
+		nil,
+	)
+```
+
+時々忘れちゃいますが、defaultでfallthroughが起きないだけで`Go`のswitch-case文はbreakが使えます。
+
+`type Foo string`なstring-based typeかどうかは以下のように判定します。
+これは単に`type Foo string`をparseした結果を`ast.Print`して確かめた通りに記述しているだけです。
+
+```go
+func isStringBasedType(spec ast.Spec) (string, bool) {
+	typ, ok := spec.(*ast.TypeSpec)
+	if !ok {
+		return "", false
+	}
+	id, ok := typ.Type.(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	return typ.Name.Name, id.Name == "string"
+}
+```
+
+前述のとおり、`*ast.CommentGroup`の`Text`ではdirective commentが除外されてしまうので`List`を走査します。
+
+```go
+type EnumParam struct {
+	Name     string
+	Variants []string
+}
+
+func parseDirective(cg *ast.CommentGroup) (EnumParam, bool) {
+	for _, comment := range cg.List {
+		c := strings.TrimLeftFunc(stripMarker(comment.Text), unicode.IsSpace)
+		c, isDirection := strings.CutPrefix(c, "enum:variants=")
+		if !isDirection {
+			continue
+		}
+		return EnumParam{Variants: strings.Split(c, ",")}, true
+	}
+	return EnumParam{}, false
+}
+
+func stripMarker(text string) string {
+	if len(text) < 2 {
+		return text
+	}
+	switch text[1] {
+	case '/':
+		return text[2:]
+	case '*':
+		return text[2 : len(text)-2]
+	}
+	return text
+}
+```
+
+#### Replace or Insert
+
+replaceする部分です。
+
+`*astutil.Cursor`をそのまま受け取ります。呼び出し側でcursorは`*ast.GenDecl`をさしているので、Parent=`*ast.File`を`astutil.Apply`でwalkします。
+仕様で説明した通り、特定のコメントがついた`const ()`を探して、あれば置き換え、なければ追加します。
+
+```go
+func addOrReplaceEnum(c *astutil.Cursor, param EnumParam) {
+	found := false
+	astutil.Apply(
+		c.Parent(),
+		func(c *astutil.Cursor) bool {
+			node := c.Node()
+			switch x := node.(type) {
+			default:
+				return true
+			case *ast.FuncDecl:
+			case *ast.GenDecl:
+				if x.Tok != token.CONST {
+					break
+				}
+				if !isGeneratedFor(x.Doc, param.Name) {
+					break
+				}
+				found = true
+				newDecl := astVariants(param, x.TokPos)
+				c.Replace(newDecl)
+			}
+			return false
+		},
+		nil,
+	)
+	if !found {
+		newDecl := astVariants(param, c.Node().(*ast.GenDecl).Specs[0].Pos()+30)
+		c.InsertAfter(newDecl)
+	}
+}
+
+func isGeneratedFor(cg *ast.CommentGroup, fotTy string) bool {
+	for _, comment := range cg.List {
+		c := strings.TrimLeftFunc(stripMarker(comment.Text), unicode.IsSpace)
+		s, ok := strings.CutPrefix(c, "enum:generated_for=")
+		if !ok {
+			return false
+		}
+		if s == fotTy {
+			return true
+		}
+	}
+	return false
+}
+```
+
+以下のようなブロックは
+
+```go
+const (
+	EnumFoo = "foo"
+	EnumBar = "bar"
+)
+```
+
+astでは以下のように構成できます。
+
+```go
+func astVariants(param EnumParam, pos token.Pos) *ast.GenDecl {
+	return &ast.GenDecl{
+		Doc: &ast.CommentGroup{
+			List: []*ast.Comment{
+				{
+					Slash: pos,
+					Text:  "//enum:generated_for=" + param.Name,
+				},
+			},
+		},
+		TokPos: token.Pos(int(pos) + len("//enum:generated_for="+param.Name) + 1),
+		Tok:    token.CONST,
+		Lparen: 1,
+		Specs:  mapParamToSpec(param),
+		Rparen: 2,
+	}
+}
+
+func mapParamToSpec(param EnumParam) []ast.Spec {
+	specs := make([]ast.Spec, len(param.Variants))
+	for i, variant := range param.Variants {
+		specs[i] = &ast.ValueSpec{
+			Names:  []*ast.Ident{{Name: param.Name + capitalize(variant)}},
+			Type:   &ast.Ident{Name: param.Name},
+			Values: []ast.Expr{&ast.BasicLit{Kind: token.STRING, Value: strconv.Quote(variant)}},
+		}
+	}
+	return specs
+}
+
+func capitalize(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	if len(s) == 1 {
+		return strings.ToUpper(s)
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+```
+
+#### \*ast.CommentMap
+
+> https://pkg.go.dev/go/ast@go1.22.6#File
+>
+> For correct printing of source code containing comments (using packages go/format and go/printer), special care must be taken to update comments when a File's syntax tree is modified: For printing, comments are interspersed between tokens based on their position. If syntax tree nodes are removed or moved, relevant comments in their vicinity must also be removed (from the [File.Comments] list) or moved accordingly (by updating their positions). A CommentMap may be used to facilitate some of these operations.
+
+とある通り、nodeの移動や削除を行う場合`*ast.CommentMap`を使います。
+上記にはnodeの追加に対しては何も言及がありません。おそらく、追加はこれを使ってもうまく動きません(後述)。
+うまくいかないのであんまり紹介する意義がないかもですが、お作法として`*ast.CommentMap`を使うようにこのサンプルを書き換えます。
+
+```diff go
+	for _, f := range pkg.Syntax {
++		cm := ast.NewCommentMap(pkg.Fset, f, f.Comments)
+		astutil.Apply(
+			f,
+			func(c *astutil.Cursor) bool {
+				n := c.Node()
+				switch x := n.(type) {
+				default:
+					return true
+				case *ast.FuncDecl:
+				case *ast.GenDecl:
+					if x.Tok != token.TYPE {
+						break
+					}
+
+					if len(x.Specs) == 1 {
+						name, ok := isStringBasedType(x.Specs[0])
+						if !ok {
+							break
+						}
+						param, ok := parseDirective(x.Doc)
+						if !ok {
+							break
+						}
+						param.Name = name
+-						addOrReplaceEnum(c, param)
++						addOrReplaceEnum(c, param, cm)
+					}
+				}
+				return false
+			},
+			nil,
+		)
++		f.Comments = cm.Comments()
+	}
+```
+
+```diff go
+-func addOrReplaceEnum(c *astutil.Cursor, param EnumParam) {
++func addOrReplaceEnum(c *astutil.Cursor, param EnumParam, cm ast.CommentMap) {
+	found := false
+	astutil.Apply(
+		c.Parent(),
+		func(c *astutil.Cursor) bool {
+			node := c.Node()
+			switch x := node.(type) {
+			default:
+				return true
+			case *ast.FuncDecl:
+			case *ast.GenDecl:
+				if x.Tok != token.CONST {
+					break
+				}
+				if !isGeneratedFor(x.Doc, param.Name) {
+					break
+				}
+				found = true
+				newDecl := astVariants(param, x.TokPos)
++				delete(cm, x)
++				cm[newDecl] = append(cm[newDecl], newDecl.Doc)
+				c.Replace(newDecl)
+			}
+			return false
+		},
+		nil,
+	)
+	if !found {
+		newDecl := astVariants(param, c.Node().(*ast.GenDecl).Specs[0].Pos()+30)
++		cm[newDecl] = append(cm[newDecl], newDecl.Doc)
+		c.InsertAfter(newDecl)
+	}
+}
+```
+
+#### 生成
+
+[printer.Fprint](https://pkg.go.dev/go/printer@go1.22.6#Fprint)で結果をプリントできます。
+
+```go
+	for _, f := range pkg.Syntax {
+		filename := filepath.Base(pkg.Fset.Position(f.FileStart).Filename)
+
+		astutil.Apply(
+			f,
+			func(c *astutil.Cursor) bool {
+				// ...
+			},
+			nil,
+		)
+
+		out, err := os.Create(filepath.Join(generatedDir, filename))
+		if err != nil {
+			panic(err)
+		}
+
+		err = printer.Fprint(out, pkg.Fset, f)
+		if err != nil {
+			panic(err)
+		}
+	}
+```
+
+#### 結果
+
+以下の入力をもとに
+
+```go
+package target
+
+//enum:variants=foo,bar,baz
+type Enum string
+
+//enum:variants=foo,bar,baz
+type Enum2 string
+
+//enum:generated_for=Enum2
+const (
+	Enum2Foo = "foo"
+)
+```
+
+以下を出力します。
+
+```go
+package target
+
+//enum:variants=foo,bar,baz
+type Enum string
+
+//enum:variants=foo,bar,baz
+//enum:generated_for=Enum
+const (
+	EnumFoo	Enum	= "foo"
+	EnumBar	Enum	= "bar"
+	EnumBaz	Enum	= "baz"
+)
+
+type Enum2 string
+
+//enum:generated_for=Enum2
+const (
+	Enum2Foo	Enum2	= "foo"
+	Enum2Bar	Enum2	= "bar"
+	Enum2Baz	Enum2	= "baz"
+)
+```
+
+なんかおかしいですね。
+
+### astutil.Applyの問題点
+
+`astutil.Apply`はdoc commentに特に触れられていないですが、うまくいかないパターンがあります。
+
+#### 問題のあるパターン
+
+例えば、下記のサンプルを前節のcode replacerにかけてみます。
+
+```go
+package target
+
+// free floating comment 1
+
+func Foo() {
+	// nothing
+}
+
+//enum:variants=foo,bar,baz,qux,quux,corge
+type EnumWithComments string
+
+// free floating comment 2
+
+func Bar() {
+	// nothing
+}
+
+//enum:variants=foo,bar,baz
+type EnumWithComments2 string
+
+// free floating comment 3
+
+//enum:generated_for=EnumWithComments2
+const (
+	EnumWithComments2Foo EnumWithComments2 = "foo"
+)
+
+/* free floating comment 4
+
+
+ */
+```
+
+以下を出力します。コメントの位置関係が破綻しています！
+
+```go
+package target
+
+// free floating comment 1
+
+func Foo() {
+	// nothing
+}
+
+//enum:variants=foo,bar,baz,qux,quux,corge
+type EnumWithComments string
+
+// free floating comment 2
+//enum:generated_for=EnumWithComments
+
+// nothing
+const (
+	EnumWithCommentsFoo	EnumWithComments	= "foo"
+	EnumWithCommentsBar	EnumWithComments	= "bar"
+	EnumWithCommentsBaz	EnumWithComments	= "baz"
+	EnumWithCommentsQux	EnumWithComments	= "qux"
+	EnumWithCommentsQuux	EnumWithComments	=
+
+	//enum:variants=foo,bar,baz
+	"quux"
+	EnumWithCommentsCorge	EnumWithComments	= "corge"
+)
+
+func Bar() {
+
+}
+
+type EnumWithComments2 string
+
+//enum:generated_for=EnumWithComments2
+const (
+	EnumWithComments2Foo	EnumWithComments2	= "foo"
+	EnumWithComments2Bar	EnumWithComments2	= "bar"
+	EnumWithComments2Baz	EnumWithComments2	= "baz"
+)
+
+/* free floating comment 4
+
+
+ */
+```
+
+#### Commentはバイトオフセットで管理され、nodeの追加は想定されていない
+
+実は`ast`パッケージにおけるコメントの表現はすべてバイトオフセットでしかなく、別段、前後のnodeに対する関連性が定義されていません。
+
+`parser.ParseFile`や`printer.Fprint`が`token.FileSet`を引数にとることかわかる通り、ファイルのオフセット関係は`FileSet`の中に記録されます。この中で、パッケージ内のファイルをパッケージ内での絶対値オフセットに変更しています。
+
+そのため、nodeを追加してしまうとオフセットの関係が狂って容易におかしな結果を出力してしまいます。
+
+`*ast.GenDecl`などについているdoc commentとしてのコメントがついて回りますが、これは単に解析時にコメントのオフセットとトークン(`var`や`type`)のオフセットを比較して間に改行がない場合に関連しているとしてフィールドにセットしているだけのようです。
+
+下記のstackoverflowでworkaround方法が述べられていますが、
 
 https://stackoverflow.com/questions/31628613/comments-out-of-order-after-adding-item-to-go-ast
 
-#### dstからastへの逆変換、特定NodeのPrint
+`parser.ParseFile`で解析する前に追加する分のバイトサイズだけをソース末尾をover-allocateしておき、nodeを追加するときに追加分だけ[AddLine](https://pkg.go.dev/go/token@go1.22.6#File.AddLine)で行を追加するとうまくいくようです。
+あらかじめutf-8で何バイト追加するか判明していないと成立しないため、この方法でうまくやっていくビジョンが見えませんね。
 
-#### リスク
+しかしこのstackoverflowのaccepted answerにある通り、質問者自身がこの問題を解決するためのパッケージを作っており、これがうまく動作するので以降でその紹介をします。(よく見るとこの質問者は`jennifer`の作者のdaveです！)
 
-astは非常にstableであるので今後も問題は出にくいはず・・・
+### github.com/dave/dst
 
-- astトークンが追加されたのはGo1.18のtype paramまわりのみ([IndexListExpr](https://pkg.go.dev/go/ast@go1.23rc2#IndexListExpr))
-- Go1.23では追加はない
+[github.com/dave/dst]は[github.com/dave/jennifer]と同作者が作ったコメントのオフセットを正しくキープしながらastの操作ができるライブラリです。
+
+`ast`から変更が加わっており、コメントは前後のNodeに関連づくようになり、free floating commentの概念がなくなっています。
+
+#### astからdstへの変換
+
+https://github.com/ngicks/go-example-code-generation/blob/main/ast/print/dst
+
+dstを利用するためには`*ast.File`をまず用意します。これは今まで通り`parser.ParseFile`を呼び出したり、[golang.org/x/tools/go/packages]を利用します。
+以下のように`decorator`パッケージを利用して`*dst.File`
+
+```go
+package main
+
+import (
+	"go/parser"
+	"go/token"
+
+	"github.com/dave/dst"
+	"github.com/dave/dst/decorator"
+)
+
+const src = `package target
+
+import "fmt"
+
+type Foo string
+
+const (
+	FooFoo Foo = "foo"
+	FooBar Foo = "bar"
+	FooBaz Foo = "baz"
+)
+
+func Bar(x, y string) string {
+	if len(x) == 0 {
+		return y + y
+	}
+	return fmt.Sprintf("%q%q", x, y)
+}
+
+type Some[T, U any] struct {
+	Foo string
+	Bar T
+	Baz U
+}
+
+func (s Some[T, U]) Method1() {
+	// ...nothing...
+}
+
+// comment slash slash
+
+
+/*
+
+comment slash star
+
+*/
+`
+
+func main() {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "./target/foo.go", src, parser.AllErrors|parser.ParseComments)
+	if err != nil {
+		panic(err)
+	}
+	dec := decorator.NewDecorator(fset)
+	df, err := dec.DecorateFile(f)
+	if err != nil {
+		panic(err)
+	}
+	_ = dst.Print(df)
+}
+```
+
+#### ast.Nodeとdst.Nodeの相互変換
+
+[\*decorator.Decorator](https://pkg.go.dev/github.com/dave/dst/decorator#Decorator)および[\*decorator.Restorer](https://pkg.go.dev/github.com/dave/dst/decorator#Restorer)には[Map](https://pkg.go.dev/github.com/dave/dst/decorator#Map)フィールドがあり、`DecorateFile`や`RestoreFile`を呼び出し後にnodeの対応関係がマップに記録されるため、これによって相互変換ができます。
+
+```go
+	dec := decorator.NewDecorator(fset)
+	_, err = dec.DecorateFile(f)
+	if err != nil {
+		panic(err)
+	}
+
+	// ast.Nodeと対応するdst.Nodeを取り出す。
+	dn := dec.Dst.Nodes[f.Decls[0]]
+
+	restorer := decorator.NewRestorer()
+	_, err = restorer.RestoreFile(df)
+	if err != nil {
+		panic(err)
+	}
+
+	// dst.Nodeと対応するast.Nodeを取り出す。
+	an := restorer.Ast.Nodes[dn]
+
+	fmt.Println()
+	err = printer.Fprint(os.Stdout, restorer.Fset, an) // import "fmt"
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println()
+```
+
+### dstutil.Applyを使った書き換え
+
+https://github.com/ngicks/go-example-code-generation/blob/main/ast/rewrite/dstutil
+
+[github.com/dave/dst]には`astutil`に対応する`dstutil`パッケージがあり、ほぼ同じ使用感で実装されています。
+前述の`astutil.Apply`のcode rewriterを`dstutil.Apply`を使って実装しなおします。
+
+#### dstutil.Apply
+
+[golang.org/x/tools/go/packages]を用いたロードまでは全く一緒です。
+dstutil.Applyの前に`decorator.DecorateFile`
+
+```diff go
+	for _, f := range pkg.Syntax {
++		df, err := decorator.DecorateFile(pkg.Fset, f)
++		if err != nil {
++			panic(err)
++		}
+-		astutil.Apply(
++		dstutil.Apply(
+-			f,
++			df,
+-			func(c *astutil.Cursor) bool {
++			func(c *dstutil.Cursor) bool {
+				n := c.Node()
+				switch x := n.(type) {
+				default:
+					return true
+-				case *ast.FuncDecl:
++				case *dst.FuncDecl:
+-				case *ast.GenDecl:
++				case *dst.GenDecl:
+					// ...
+				}
+				return false
+			},
+			nil,
+		)
+	}
+```
+
+#### 対象タイプの探索
+
+`isStringBasedType`は引数の型を`dst.Spec`に変えただけで、他は`astutil`版と全く変わりありません。
+
+```go
+func isStringBasedType(spec dst.Spec) (string, bool) {
+	typ, ok := spec.(*dst.TypeSpec)
+	if !ok {
+		return "", false
+	}
+	id, ok := typ.Type.(*dst.Ident)
+	if !ok {
+		return "", false
+	}
+	return typ.Name.Name, id.Name == "string"
+}
+```
+
+コメントのパーズ部分(`parseDirective`)はけっこうな変更になります。
+
+```go
+type EnumParam struct {
+	Name     string
+	Variants []string
+}
+
+func parseDirective(decorations dst.GenDeclDecorations) (EnumParam, bool) {
+	for i := len(decorations.Start) - 1; i >= 0; i-- {
+		line := decorations.Start[i]
+		if len(strings.TrimSpace(line)) == 0 {
+			// start of comments groups that is not associated to gen decl.
+			break
+		}
+		c := stripMarker(line)
+		c, isDirection := strings.CutPrefix(c, "enum:variants=")
+		if !isDirection {
+			continue
+		}
+		return EnumParam{Variants: strings.Split(c, ",")}, true
+	}
+	return EnumParam{}, false
+}
+```
+
+まず、コメントは[dst.GenDeclDecorations](https://pkg.go.dev/github.com/dave/dst@v0.27.3#GenDeclDecorations)のような構造体に変更されています。
+`dst`のdoc commentで述べられる通り、`Go`のコメントは思いのほか自由にかけるので、各部に対応したフィールドに単に`[]string`で格納する形になっています。
+
+```go
+/*Start*/
+const /*Tok*/ ( /*Lparen*/
+	a, b = 1, 2
+	c    = 3
+) /*End*/
+
+/*Start*/
+const /*Tok*/ d = 1 /*End*/
+```
+
+doc commentに当たるのは[dst.NodeDecs](https://pkg.go.dev/github.com/dave/dst@v0.27.3#NodeDecs)の`Start`ですのでこれだけを解析します。
+
+例えば以下のようなnodeと`dst.Print`すると以下のようになります。
+
+```go
+// free floating comment
+
+// doc comment
+func (s Some[T, U]) Method1() {
+	// ...nothing...
+}
+
+// comment slash slash
+
+
+/*
+
+comment slash star
+
+*/
+
+//   925  .  .  .  Decs: dst.FuncDeclDecorations {
+//   926  .  .  .  .  NodeDecs: dst.NodeDecs {
+//   927  .  .  .  .  .  Before: EmptyLine
+//   928  .  .  .  .  .  Start: dst.Decorations (len = 3) {
+//   929  .  .  .  .  .  .  0: "// free floating comment"
+//   930  .  .  .  .  .  .  1: "\n"
+//   931  .  .  .  .  .  .  2: "// doc comment"
+//   932  .  .  .  .  .  }
+//   933  .  .  .  .  .  End: dst.Decorations (len = 6) {
+//   934  .  .  .  .  .  .  0: "\n"
+//   935  .  .  .  .  .  .  1: "\n"
+//   936  .  .  .  .  .  .  2: "// comment slash slash"
+//   937  .  .  .  .  .  .  3: "\n"
+//   938  .  .  .  .  .  .  4: "\n"
+//   939  .  .  .  .  .  .  5: "/* \n\ncomment slash star\n\n*/"
+//   940  .  .  .  .  .  }
+//   941  .  .  .  .  .  After: None
+//   942  .  .  .  .  }
+//   943  .  .  .  }
+//   944  .  .  }
+//   945  .  }
+```
+
+free floating commentも`Start`にひとまとめに入れれらます。
+つまり、`Start`は末尾から操作して`\n`などの空白のみの行までをクリップして探索すると`ast`版と同等ということになります。
+
+上記の`parseDirective`実装では単に末尾から探索していますが、`ast`版は先頭から探索なので、挙動差が生じています。~~これは単なる手抜きですので~~実際にはこういった実装はしないほうがよいでしょう。
+ですので、doc commentに当たるindexの範囲を探索してからその範囲を先頭から走査したほうがよいでしょう。
+
+#### Replace or Insert
+
+この部分も`astutil`版の型表記を`dst`に変えただけでほとんど変更はありません。
+`CommentMap`やトークンオフセットは不要なので消えます。
+
+```diff go
+-func addOrReplaceEnum(c *astutil.Cursor, param EnumParam, cm ast.CommentMap) {
++func addOrReplaceEnum(c *dstutil.Cursor, param EnumParam) {
+	found := false
+-	astutil.Apply(
++	dstutil.Apply(
+		c.Parent(),
+-		func(c *astutil.Cursor) bool {
++		func(c *dstutil.Cursor) bool {
+			node := c.Node()
+			switch x := node.(type) {
+			default:
+				return true
+-			case *ast.FuncDecl:
++			case *dst.FuncDecl:
+-			case *ast.GenDecl:
++			case *dst.GenDecl:
+				if x.Tok != token.CONST {
+					break
+				}
+				if !isGeneratedFor(x.Doc, param.Name) {
+					break
+				}
+				found = true
+-				newDecl := astVariants(param, x.TokPos)
+-				delete(cm, x)
+-				cm[newDecl] = append(cm[newDecl], newDecl.Doc)
+-				c.Replace(newDecl)
++				c.Replace(astVariants(param, x.Decs))
+			}
+			return false
+		},
+		nil,
+	)
+	if !found {
+-		newDecl := astVariants(param, c.Node().(*ast.GenDecl).Specs[0].Pos()+30)
+-		cm[newDecl] = append(cm[newDecl], newDecl.Doc)
+-		c.InsertAfter(newDecl)
++		c.InsertAfter(astVariants(param, dst.GenDeclDecorations{}))
+	}
+}
+
+-func isGeneratedFor(cg *ast.CommentGroup, fotTy string) bool {
++func isGeneratedFor(decorations dst.GenDeclDecorations, fotTy string) bool {
+-	for _, comment := range cg.List {
++	for i := len(decorations.Start) - 1; i >= 0; i-- {
++		line := decorations.Start[i]
++		if len(strings.TrimSpace(line)) == 0 {
++			break
++		}
+-		c := strings.TrimLeftFunc(stripMarker(comment.Text), unicode.IsSpace)
++		c := stripMarker(line)
+		s, ok := strings.CutPrefix(c, "enum:generated_for=")
+		if !ok {
+			return false
+		}
+		if s == fotTy {
+			return true
+		}
+	}
+	return false
+}
+```
+
+`const ()`ブロックを生成する部分は丸っと変わります。
+前述のとおり、`dst.GenDeclDecorations`の`Start`がdoc commentに当たりますが、nodeのdoc commentの直前にfree floating commnetがあった場合は`Start`に一緒くたに入ってしまうため、末尾から探索して`\n`が見つかる場合にはそのindex以降にdoc commentを追記する形にします。こうすることで書き換えたいコメント以外を保つことができます。
+
+他の部分は型名の`ast`の部分を`dst`に変える以外の変更はありません。
+
+```go
+func astVariants(param EnumParam, targetDecoration dst.GenDeclDecorations) *dst.GenDecl {
+	if len(targetDecoration.Start) > 0 {
+		var i int
+		for i = len(targetDecoration.Start) - 1; i >= 0; i-- {
+			if targetDecoration.Start[i] == "\n" {
+				break
+			}
+		}
+		if i < 0 {
+			i = len(targetDecoration.Start) - 1
+		}
+		targetDecoration.Start = append(slices.Clone(targetDecoration.Start[:i]), "\n", "//enum:generated_for="+param.Name)
+	} else {
+		targetDecoration.Start = []string{"//enum:generated_for=" + param.Name}
+	}
+	return &dst.GenDecl{
+		Decs:   targetDecoration,
+		Tok:    token.CONST,
+		Lparen: true,
+		Specs:  mapParamToSpec(param),
+		Rparen: true,
+	}
+}
+```
+
+#### 生成
+
+[\*decorator.Restorer](https://pkg.go.dev/github.com/dave/dst/decorator#Restorer)で書き換えた`*dst.File`を`*ast.File`に逆変換し、[printer.Fprint](https://pkg.go.dev/go/printer@go1.22.6#Fprint)で結果をプリントできます。
+
+```diff go
+	for _, f := range pkg.Syntax {
+		filename := filepath.Base(pkg.Fset.Position(f.FileStart).Filename)
++		df, err := decorator.DecorateFile(pkg.Fset, f)
++		if err != nil {
++			panic(err)
++		}
+-		astutil.Apply(
++		dstutil.Apply(
+-			f,
++			df,
+-			func(c *astutil.Cursor) bool {
++			func(c *dstutil.Cursor) bool {
+				// ...
+			},
+			nil,
+		)
+
+		out, err := os.Create(filepath.Join(generatedDir, filename))
+		if err != nil {
+			panic(err)
+		}
+
++		restorer := decorator.NewRestorer()
++		af, err := restorer.RestoreFile(df)
++		if err != nil {
++			panic(err)
++		}
++
+		err = printer.Fprint(out, pkg.Fset, f)
+		if err != nil {
+			panic(err)
+		}
+	}
+```
+
+#### 結果
+
+https://github.com/ngicks/go-example-code-generation/blob/main/ast/rewrite/dstutil
+
+`ast`版ではうまくいかなかったに対し、
+
+```go
+package target
+
+// free floating comment 1
+
+func Foo() {
+	// nothing
+}
+
+//enum:variants=foo,bar,baz,qux,quux,corge
+type EnumWithComments string
+
+// free floating comment 2
+
+func Bar() {
+	// nothing
+}
+
+//enum:variants=foo,bar,baz
+type EnumWithComments2 string
+
+// free floating comment 3
+
+//enum:generated_for=EnumWithComments2
+const (
+	EnumWithComments2Foo EnumWithComments2 = "foo"
+)
+
+/* free floating comment 4
+
+
+ */
+```
+
+以下を生成します。コメントの位置関係が完全に保たれていることがわかります。
+
+```go
+package target
+
+// free floating comment 1
+
+func Foo() {
+	// nothing
+}
+
+//enum:variants=foo,bar,baz,qux,quux,corge
+type EnumWithComments string
+
+//enum:generated_for=EnumWithComments
+const (
+	EnumWithCommentsFoo	EnumWithComments	= "foo"
+	EnumWithCommentsBar	EnumWithComments	= "bar"
+	EnumWithCommentsBaz	EnumWithComments	= "baz"
+	EnumWithCommentsQux	EnumWithComments	= "qux"
+	EnumWithCommentsQuux	EnumWithComments	= "quux"
+	EnumWithCommentsCorge	EnumWithComments	= "corge"
+)
+
+// free floating comment 2
+
+func Bar() {
+	// nothing
+}
+
+//enum:variants=foo,bar,baz
+type EnumWithComments2 string
+
+// free floating comment 3
+
+//enum:generated_for=EnumWithComments2
+const (
+	EnumWithComments2Foo	EnumWithComments2	= "foo"
+	EnumWithComments2Bar	EnumWithComments2	= "bar"
+	EnumWithComments2Baz	EnumWithComments2	= "baz"
+)
+
+/* free floating comment 4
+
+
+ */
+```
+
+### dstを使用し続けるリスク
+
+`ast`と違い、[github.com/dave/dst]はサードパーティ、かつ個人メンテのライブラリですから`Go`の進化についていけないリスクは常に抱えています。
+
+例えばGo1.18で[IndexListExpr](https://pkg.go.dev/go/ast@go1.23rc2#IndexListExpr)が追加されました。`1.18`と言えばgenericsが追加されたアップデートです。genericsのために構文が拡張されたので(instantiation時に複数の型がある場合の表記, e.g. `[int, string, *bytes.Buffer]`が今までの構文上存在しなかった)、このexprが追加されたわけです。
+
+現状の`dst`は上記には対応済みであるので現状のあらゆるコードにうまく機能するはずです。今後構文の追加があれば、同様にexprが追加されてそれについていけなくなるという可能性があるわけです。
+
+Go1.23ではexprの追加はありません。逆に言って`1.0.0`から追加されたast nodeは上記のみです。
+`ast`は非常にstableであり、おそらく`Go` teamもなるだけtokenもexprも追加したくはないでしょうから今後の追加の可能性も少ないでしょう。
+
+ですのでおそらく今後数年はまずもって使い続けられると筆者は見積もっています。
+exprが追加されてなおかつモジュールオーナーが非活発的な場合、筆者も頑張って貢献して直します。
 
 ## post process: goimports
 
@@ -2022,7 +3192,7 @@ astは非常にstableであるので今後も問題は出にくいはず・・�
 以下のコードでは`go run golang.org/x/tools/cmd/goimports@latest`するのではなく、システムにインストール済みの`goimports`を利用します。
 なので、`checkGoimports`を他の生成ロジックより前に呼び出して、このプロセスが見ることができる位置に`goimports`が存在するかを確認しておくほうが無難です。
 
-別に`go run`で`goimports`を呼び出しても問題ないことのほうが多いと思いますが、`goimports`は入れてる環境のほうが多いだろうし、ダウンロード周りのエラーを置壊れても困るのでこうしています。`go run`はモジュールが`$GOPATH`以下にキャッシュされていない場合などにダウンロードをします。
+別に`go run`で`goimports`を呼び出しても問題ないことのほうが多いと思います。ただ、`go run`はモジュールが`$GOPATH`以下にキャッシュされていない場合などにダウンロードをしますから、ダウンロード関連のエラーも起きうるわけです。ここでダウンロード周りのエラーを起されても困るのでこうしています。
 
 ```go
 func checkGoimports() error {
