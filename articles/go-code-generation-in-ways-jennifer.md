@@ -322,7 +322,7 @@ import declの内容を追加するのは筆者が見たところ`Qual`のみで
 
 ### jennifer example: enum
 
-[text/template example: enum](#text%2Ftemplate-example%3A-enum)と同じものを[github.com/dave/jennifer]で再実装します。
+[text/template example: enum](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template#text%2Ftemplate-example%3A-enum)と同じものを[github.com/dave/jennifer]で再実装します。
 
 関数呼び出しがどういったコードと対応づいているのかをコメントしておいたので、これでおそらく呼び出し方の様式がわかるでしょう。
 
