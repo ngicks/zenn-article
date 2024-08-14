@@ -760,7 +760,7 @@ func main() {
 
 この「空白」の条件はGo source codeのそれと一致します。割とこの挙動が難しいので筆者は場合により無駄な空白や改行を甘んじて受け入れています。
 
-### 関数の追加
+### Funcs: 関数の追加
 
 例示されるコードは以下でもホストされます。
 
@@ -888,11 +888,11 @@ func main() {
 
 関数の引数の型は何でもいいですが、入力パラメータと一致しなければエラーになるようです。見たところ[(reflect.Type).AssignableToがfalseの場合エラー](https://github.com/golang/go/blob/go1.22.5/src/text/template/exec.go#L852-L862)です。
 
-### sub-template
+### multiple-template
 
 例示されるコードは以下でもホストされます。
 
-https://github.com/ngicks/go-example-code-generation/blob/main/template/subtemplate
+https://github.com/ngicks/go-example-code-generation/blob/main/template/multiple
 
 > {{template "name"}}
 > The template with the specified name is executed with nil data.
@@ -909,31 +909,34 @@ https://github.com/ngicks/go-example-code-generation/blob/main/template/subtempl
 `{{block}}`は`{{define}}`して`{{template}}`するショートハンドです。
 
 筆者もこの記事を書くまで全くわかっていなかったのですが、`*Template`は以下の通り`*common`という構造体で解析されたtemplateを保持し、この`*common`は`(*Template).New`で作成されたすべての`(*Template)`に共有されています。
-この`*common`を上書きしあうことでtemplate definitionを共有しています。
-しかるに、template同士はヒエラルキーのないフラットな構造でお互い名前で参照しあうことができます。
-同名のtemplateを複数定義している場合などに`Parse`する順序によって結果が変わることになります。
 
 https://github.com/golang/go/blob/go1.22.5/src/text/template/template.go#L13-L35
 
+`Parse`はこの`*common`を上書きします。そのため、`Parse`や`Funcs`は`*common`を共有するすべての`*Template`に影響します。
+同名のtemplateを複数定義している場合などに`Parse`する順序によって結果が変わることになります。
+しかるに、template同士はヒエラルキーのないフラットな構造で、お互い名前で参照しあうことができます。
+
 以下で複数のtemplateを使用するサンプルを示します。
 
-`sub1.Parse`などを呼び出すことで、ユーザーから渡されたtemplate definitionによって元のtemplate構造を上書きしてカスタマイズが行えることを示します。
+`tmp2.Parse`などを呼び出すことで、ユーザーから渡されたtemplate definitionによって元のtemplate構造を上書きしてカスタマイズが行えることを示します。
+
+複数のtemplateを用い、さらに`additional`というデフォルトでは何も出力しないtemplateを後から`Parse`によって追加することで、ユーザーからのtemplateの入力ができることを示します。
 
 ```go
 var (
-	root = template.Must(template.New("root").Parse(
-		`sub1: {{template "sub1" .Sub1}}
-sub2: {{template "sub2" .Sub2}}
-sub3: {{template "sub3" .Sub3}}
+	tmp1 = template.Must(template.New("tmp1").Parse(
+		`tmp2: {{template "tmp2" .Tmp2}}
+tmp3: {{template "tmp3" .Tmp3}}
+tmp4: {{template "tmp4" .Tmp4}}
 {{block "additional" .}}{{end}}
 `))
-	sub1 = template.Must(root.New("sub1").Parse(`{{.Yay}}`))
-	_    = template.Must(root.New("sub2").Parse(`{{.Yay}}`))
-	sub3 = template.Must(root.New("sub3").Parse(`{{.Yay}}`))
+	tmp2 = template.Must(tmp1.New("tmp2").Parse(`{{.Yay}}`))
+	_    = template.Must(tmp1.New("tmp3").Parse(`{{.Yay}}`))
+	tmp4 = template.Must(tmp1.New("tmp4").Parse(`{{.Yay}}`))
 )
 
 type param struct {
-	Sub1, Sub2, Sub3 sub
+	Tmp2, Tmp3, Tmp4 sub
 }
 type sub struct {
 	Yay string
@@ -943,57 +946,56 @@ type sub struct {
 func main() {
 	decoratingExecute := func(data any) {
 		fmt.Println("---")
-		err := root.Execute(os.Stdout, data)
+		err := tmp1.Execute(os.Stdout, data)
 		fmt.Println("---")
 		fmt.Printf("error: %v\n", err)
 		fmt.Println()
 	}
-
 	data := param{
-		Sub1: sub{
-			Yay: "yay1",
-			Nay: "nay1",
-		},
-		Sub2: sub{
+		Tmp2: sub{
 			Yay: "yay2",
 			Nay: "nay2",
 		},
-		Sub3: sub{
+		Tmp3: sub{
 			Yay: "yay3",
 			Nay: "nay3",
+		},
+		Tmp4: sub{
+			Yay: "yay4",
+			Nay: "nay4",
 		},
 	}
 
 	decoratingExecute(data)
 	/*
 		---
-		sub1: yay1
-		sub2: yay2
-		sub3: yay3
+		tmp2: yay2
+		tmp3: yay3
+		tmp4: yay4
 
 		---
 		error: <nil>
 	*/
-	_, _ = sub1.Parse(`{{.Nay}}`)
+	_, _ = tmp2.Parse(`{{.Nay}}`)
 	decoratingExecute(data)
 	/*
 		---
-		sub1: nay1
-		sub2: yay2
-		sub3: yay3
+		tmp2: nay2
+		tmp3: yay3
+		tmp4: yay4
 
 		---
 		error: <nil>
 	*/
 
-	_, _ = sub3.New("additional").Parse(`{{.Sub1.Yay}} and {{.Sub2.Nay}}`)
+	_, _ = tmp4.New("additional").Parse(`{{.Tmp2.Yay}} and {{.Tmp3.Nay}}`)
 	decoratingExecute(data)
 	/*
 		---
-		sub1: nay1
-		sub2: yay2
-		sub3: yay3
-		yay1 and nay2
+		tmp2: nay2
+		tmp3: yay3
+		tmp4: yay4
+		yay2 and nay3
 		---
 		error: <nil>
 	*/
@@ -1014,6 +1016,9 @@ https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/go
   "gopls": {
     // ...other settings...
     "ui.semanticTokens": true,
+    // どうもGo vscode extensionが以下と同様の
+    // デフォルト値を入れているような振る舞いをするので、
+    // これでいいなら設定は不要と思われる
     "build.templateExtensions": ["gotmpl", "tmpl"]
     // ...other settings...
   }
@@ -1029,25 +1034,25 @@ https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/go
 
 https://github.com/ngicks/go-example-code-generation/tree/main/template/parse-fs
 
-`//go:embed`によりtemplateを収めたディレクトリを丸ごとソースに埋め込み、`template.ParseFS`によって`fs.FS`をwalkしてそれぞれのファイルを`Parse`できます。
+ディレクトリにtemplateを保存して丸ごとソースに埋め込みたいというケースはあると思いますが、`go:embed`と`template.ParseFS`によりそれが可能です。
 
 例としてファイルを以下のように配置します。
 前述の`gopls`の支援を受けるために拡張子は`.tmpl`にしてあります。
 
 ```
 .template/
-|-- root.tmpl
-|-- sub1.tmpl
-|-- sub2.tmpl
-`-- sub3.tmpl
+|-- tmp1.tmpl
+|-- tmp2.tmpl
+|-- tmp3.tmpl
+`-- tmp4.tmpl
 ```
 
 各templateの中身のは[sub-template](#sub-template)の同名ものとそれぞれ変わりませんが、以下のように名前だけ若干変わります。
 
 ```tmpl
-sub1: {{template "sub1.tmpl" .Sub1}}
-sub2: {{template "sub2.tmpl" .Sub2}}
-sub3: {{template "sub3.tmpl" .Sub3}}
+sub1: {{template "tmp2.tmpl" .Sub1}}
+sub2: {{template "tmp3.tmpl" .Sub2}}
+sub3: {{template "tmp4.tmpl" .Sub3}}
 {{block "additional" .}}{{end}}
 ```
 
@@ -1060,10 +1065,10 @@ https://github.com/golang/go/blob/go1.22.5/src/text/template/helper.go#L172-L178
 ![tmpl-syntax-highlighting-by-gopls](/images/go-code-generation-in-ways-tmpl-syntax-highlighting-by-gopls.png)
 
 `main.go`と同階層にこのtemplateディレクトリがあるものとして、以下のようなコードで読み込んで実行します。
-事項結果自体は[sub-template](#sub-template)のものと変わりません。
+事項結果自体は[multiple-template](#multiple-template)のものと変わりません。
 
-ポイントとしては`//go:embed`でディレクトリを指定すると、そのディレクトリまでのパス構造がそのまま保たれるため、今回の場合、この`templates` FSの直下に`template`ディレクトリがあってその中に各ファイルがある状態となります。
-また、`fs.FS`のルールにより、`./template`は適切なパスではないので`template`を指定します([fs.ValidPath](https://pkg.go.dev/io/fs@go1.22.5#ValidPath))。
+ポイントとしては`//go:embed`でディレクトリを指定すると、そのディレクトリまでのパス構造がそのまま保たれます。つまり`//go:embed foo/bar/baz`とすると、`embed.FS`は`foo/bar/baz`というディレクトリ構造を持ちます。今回の場合この`templates` FSの直下に`template`ディレクトリがあってその中に各ファイルがある状態となります。
+また、`fs.FS`のルールにより、`./template`は適切なパスではないので`template`で指定します([fs.ValidPath](https://pkg.go.dev/io/fs@go1.22.5#ValidPath))。
 
 `template.ParseFS`の第二引数にvariadicな`patterns ...string`を渡すことができますが、それぞれが[fs.Glob](https://pkg.go.dev/io/fs@go1.22.5#Glob)に渡されるのため、[path.Match](https://pkg.go.dev/path@go1.22.5#Match)の条件を満たす必要があります。
 
@@ -1071,10 +1076,12 @@ https://github.com/golang/go/blob/go1.22.5/src/text/template/helper.go#L172-L178
 //go:embed template
 var templates embed.FS
 
-var root = template.Must(template.ParseFS(templates, "template/*"))
+var (
+	root       = template.Must(template.ParseFS(templates, "template/*"))
+)
 
 type param struct {
-	Sub1, Sub2, Sub3 sub
+	Tmp2, Tmp3, Tmp4 sub
 }
 type sub struct {
 	Yay string
@@ -1082,19 +1089,19 @@ type sub struct {
 }
 
 func main() {
-	root = root.Lookup("root.tmpl")
+	root = root.Lookup("tmp1.tmpl")
 	data := param{
-		Sub1: sub{
-			Yay: "yay1",
-			Nay: "nay1",
-		},
-		Sub2: sub{
+		Tmp2: sub{
 			Yay: "yay2",
 			Nay: "nay2",
 		},
-		Sub3: sub{
+		Tmp3: sub{
 			Yay: "yay3",
 			Nay: "nay3",
+		},
+		Tmp4: sub{
+			Yay: "yay4",
+			Nay: "nay4",
 		},
 	}
 	fmt.Println("---")
@@ -1103,15 +1110,15 @@ func main() {
 	fmt.Printf("err: %v\n", err)
 	/*
 		---
-		sub1: yay1
-		sub2: yay2
-		sub3: yay3
+		tmp2: yay2
+		tmp3: yay3
+		tmp4: yay4
 
 		---
 		err: <nil>
 	*/
 
-	_, _ = root.New("additional").Parse(`{{.Sub1.Yay}} and {{.Sub2.Nay}}`)
+	_, _ = root.New("additional").Parse(`{{.Tmp2.Yay}} and {{.Tmp3.Nay}}`)
 
 	fmt.Println()
 	fmt.Println("---")
@@ -1120,10 +1127,10 @@ func main() {
 	fmt.Printf("err: %v\n", err)
 	/*
 		---
-		sub1: yay1
-		sub2: yay2
-		sub3: yay3
-		yay1 and nay2
+		tmp2: yay2
+		tmp3: yay3
+		tmp4: yay4
+		yay2 and nay3
 		---
 		err: <nil>
 	*/
@@ -1133,6 +1140,7 @@ func main() {
 各templateの名前から拡張子を取り除きたい場合は以下のように手動で挙動を作るしかないかと思います。
 
 ```go
+
 //go:embed template
 var templates embed.FS
 
@@ -1141,11 +1149,11 @@ var (
 )
 
 func init() {
-	tmpls, err := templates.ReadDir("template")
+		tmpls, err := templates.ReadDir("template")
 	if err != nil {
 		panic(err)
 	}
-	cutExt := func(p string) string {
+	baseNameCutExt := func(p string) string {
 		p, _ = strings.CutSuffix(path.Base(p), path.Ext(p))
 		return p
 	}
@@ -1154,13 +1162,13 @@ func init() {
 			continue
 		}
 		if extTrimmed == nil {
-			extTrimmed = template.New(cutExt(tmpl.Name()))
+			extTrimmed = template.New(baseNameCutExt(tmpl.Name()))
 		}
 		bin, err := templates.ReadFile(path.Join("template", tmpl.Name()))
 		if err != nil {
 			panic(err)
 		}
-		_ = template.Must(extTrimmed.New(cutExt(tmpl.Name())).Parse(string(bin)))
+		_ = template.Must(extTrimmed.New(baseNameCutExt(tmpl.Name())).Parse(string(bin)))
 	}
 }
 ```
@@ -1173,6 +1181,8 @@ https://github.com/ngicks/go-example-code-generation/tree/main/template/go-enum
 
 code generatorとしてかかわりそうな機能は一通り説明したと思います。このまま終わってもいいんですが、code generatorという立て付けで記事を作っているのですから最後にcode generatorのサンプルを示します。
 
+以下のざっくり仕様を満たすものを作ることとします
+
 - `type Foo string`な、string-base typeのみを生成します。
 - `const (...)`でvariantsを列挙し、
 - `IsFoo`で入力がvariantsかどうかを判定します。
@@ -1182,7 +1192,7 @@ code generatorとしてかかわりそうな機能は一通り説明したと思
 
 ポイント的には
 
-- `{{{pipeline}}`という感じで`{`の後にactionを実行したい場合`{{"{"}}{{pipeline}}`としないといけない
+- `{{{pipeline}}`という感じで`{`の後にaction(`{{pipeline}}`)を実行したい場合`{{"{"}}{{pipeline}}`としないといけない
 - ユーザーの入力文字列を`Go`の`ident`(identifier)として出力するには`Go` specを満たすようにエスケープが必要([identifier = letter { letter | unicode_digit }.](https://go.dev/ref/spec#Identifiers))
   - 以下のサンプルでは`unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'`でないとき`_`に置き換えるという少々雑な処理でごまかしていますが、実際には`u1234`という感じでunicode番号に置き換えるとかそういうことをしたほうが良いのだと思います
 
@@ -1355,6 +1365,10 @@ func IsEnumExceptMuh(v Enum) bool {
 }
 ```
 
+### ユーザーからtemplateを入力させるときのimportの取り扱い
+
+TODO: 書く
+
 ## おわりに
 
 この記事では
@@ -1372,6 +1386,10 @@ func IsEnumExceptMuh(v Enum) bool {
 
 - [Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
 - [Goのcode generation: ast(dst)-rewrite](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
+
+`text/template`は機能が豊富で柔軟にコード生成できますが、`Go`のsource codeを生成するための専用というわけではないので可読性を保値ながら記述するのに苦労します。
+ただし、この一連の記事が説明する方法はそれぞれ組み合わせてよいので、用途に合わせて使い分け、組み合わせるのがよいでしょう。
+`text/template`はtemplate textをutf-8のテキストとして持ち回るため、ユーザーからの入力を受け付けて挙動をカスタマイズさせたい場合に特に便利だと思います。
 
 [Go]: https://go.dev/
 [C++]: https://en.wikipedia.org/wiki/C%2B%2B
