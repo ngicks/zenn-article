@@ -16,8 +16,8 @@ published: false
 - code generatorを実装する際の注意点など
 - `io.Writer`に書き出すシンプルな方法
 - `text/template`を使う方法
-  - `text/template`のcode generationにかかわりそうな機能性について説明します。
-  - 実際に`text/template`を使ってcode generatorを実装します。
+  - `text/template`のcode generationにかかわりそうな機能性。
+  - 実際に`text/template`を使ったcode generatorのexample。
 
 について述べました。
 
@@ -31,7 +31,11 @@ published: false
 
 - [Goのcode generation: ast(dst)-rewrite](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
 
-についてそれぞれ述べます。
+について述べます。
+
+[github.com/dave/jennifer]は、code generatorを作るためのライブラリで、`Go`のトークンや構文に紐づいた関数をメソッドチェーンで順番に呼び出すことでcodeを生成することができます。
+`README.md`をしっかり読めば特に説明が必要なことはないのですが、いくらかコードサンプルを示すことで、READMEを読むための勘所をえられるような手助けをする記事となります。
+そのため前段、後段の記事に比べてこの記事はずいぶん文字数が少ないです。
 
 ## 前提知識
 
@@ -55,16 +59,20 @@ go version go1.22.0 linux/amd64
 
 [github.com/dave/jennifer]を利用する方法です。
 
-このライブラリは`Go`のトークンや構文に対応づいた関数群をメソッドチェインで呼び出すことでコードを生成していきます。
-対応づいているのですぐにすらすらかけるようになると思いますし、[Qual](https://github.com/dave/jennifer?tab=readme-ov-file#qual)によって自動的にimport declが追加されていくので超便利です。
-`foobarFunc`系のメソッドで関数を受けとることができるので容易にfor-loopを回した生成が可能です。
+このライブラリはcode generatorを作成するためのライブラリですので、前段の`text/template`を用いる方法よりもはるかに簡単に記述することが可能です。
+
+[github.com/dave/jennifer]を使うと、
+
+- `Go`のトークンや構文に対応づいた関数群をメソッドチェインで呼び出すことでコードを生成することができます。
+- [Qual](https://github.com/dave/jennifer?tab=readme-ov-file#qual)によって自動的にimport declが管理されるため、同名のパッケージをインポートする際の名前被りも自動的に回避されます。
+- `foobarFunc`系のメソッドや[Do](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#Do)で関数を受けとることができるので容易にfor-loopを回したパラメータに基づく生成が可能です。
 
 ### 利点と欠点
 
 利点:
 
 - 書きやすい
-  - import declを自動的に調節してくれるのでimportの名前かぶりに関して気を使う必要がない。
+  - `Qual`によってimport declを自動的に管理してくれるのでimportの名前かぶりに関して気を使う必要がない。
 - ごちゃごちゃしてるように見えてメンテしやすい(体感上)
 - 単なる`Go`コードであるので任意に分割して再利用できる
 
@@ -79,7 +87,7 @@ go version go1.22.0 linux/amd64
 
 #### 宣言、書き出し
 
-基本的には`jen.NewFile`,`jen.NewFilePath`,`jen.NewFilePathName`のいずれかでファイルを作り、そこからメソッドをいろいろ呼び出します。最後に`(*jen.File).Render`でファイルに生成したコードを書き出して終了します。
+`jen.NewFile`,`jen.NewFilePath`,`jen.NewFilePathName`のいずれかで`*jen.File`(=1つのGo source code fileに対応づくもの)をallocateし、そこからメソッドをいろいろ呼び出します。最後に`(*jen.File).Render`でファイルなどに生成したコードを書き出して終了します。
 
 ```go
 package main
@@ -104,13 +112,12 @@ func main() {
 }
 ```
 
-`Render`は[NoFormat](https://github.com/dave/jennifer/blob/3f94e7e1799d54504d53f8f56a079d2e2353a4cb/jen/file.go#L64)を`true`にしない限り[format.Sourceによってフォーマットをかける](https://github.com/dave/jennifer/blob/3f94e7e1799d54504d53f8f56a079d2e2353a4cb/jen/jen.go#L81-L89)挙動があります。
-一旦`*bytes.Buffer`に内容を受けると、`truncate(2)`によって書き出し先のファイルが0byteにtruncateされたのちフォーマットエラーによって何も書きだされないのを防ぐことができます。
-理屈上別ファイルに書き出して`rename(2)`しない限り電断などのabnormal exitで変更途中のファイル状態は観測しうるのであんまり気にしないでもいいといえばいいかも。
+`Render`は[NoFormat](https://github.com/dave/jennifer/blob/3f94e7e1799d54504d53f8f56a079d2e2353a4cb/jen/file.go#L64)を`true`にしない限り[format.Sourceによってフォーマットをかける](https://github.com/dave/jennifer/blob/3f94e7e1799d54504d53f8f56a079d2e2353a4cb/jen/jen.go#L81-L89)挙動があります。そのため、出力が`Go`のソースコードとして正しくない場合にformat部分でエラーを吐くことがあります。
+上記サンプルでは一旦`Render`の結果を`*bytes.Buffer`に受けてからファイルに書き出していますが、こうすることで、`format.Source`が成功まで`os.Create`による対象ファイルのtruncateを遅延しています。
 
 #### print
 
-デバッグ用途として`GoString`が実装されており、それによってコード断片状態の`*jen.Statement`を書き出すことができます。
+`*jen.Statement`などの各typeにはデバッグ用途として`GoString`メソッドが実装されており、それによってコード断片状態の`*jen.Statement`などを書き出すことができます。
 `fmt.Printf("%#v\n", v)`でprintするのが最も便利でしょう。
 
 ```go
@@ -273,6 +280,7 @@ decoratePrint(
 #### fooFunc
 
 `○○Func`や[Do](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#Do)を用いると関数を受けることができるので、ここでfor-loopを回すなりするとよいでしょう。
+また以下のスニペットで何気なく使っていますが`Add`で`*jen.Statement`などを追加できます。
 
 ```go
 fields := []struct {
@@ -315,10 +323,9 @@ decoratePrint(jen.Type().Id("Yay").String().Line().Id(`func foo() bool { return 
 */
 ```
 
-ただしこの方法で差し込まれたコード片はimport declを更新できないので新しいimportがここで追加される場合うまく機能しません。
+この方法で差し込まれたコード片はimport declを更新できないので新しいimportがここで追加される場合うまく機能しません。
 import declの内容を追加するのは筆者が見たところ`Qual`のみです。
-
-かなり邪道ですね。
+そのため何かしらのHACKをさらに重ねない限り、`text/template`の出力結果を`Id`で埋め込む・・・みたいなことはできません。
 
 ### jennifer example: enum
 

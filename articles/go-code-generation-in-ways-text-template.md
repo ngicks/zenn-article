@@ -66,12 +66,12 @@ https://github.com/search?q=repo%3Agolang%2Fgo%20%2F%2Fgo%3Agenerate&type=code
 
 ### goのgeneric function
 
-`Go`は[reflect](https://pkg.go.dev/reflect@go1.22.5)によって型情報を`any`な値から取り出すことができ、これを元に動的な挙動を行うことができます。
+`Go`では[reflect](https://pkg.go.dev/reflect@go1.22.5)を使うことで型情報を`any`な値から取り出すことができ、これを元に動的な挙動を行うことができます。
 また、[Go 1.18で追加されたGenerics](https://tip.golang.org/doc/go1.18#generics)を用いることで、ある制約を満たす複数の型に対して処理を共通化できます。
 
 例えば、以下のようなサンプルを定義します。
 
-サンプルでは、あるstructに対して、フィールド名と定義順が一致するが、型が`Patcher[T]`で置き換えられたstructを用意することで、部分的なフィールドの変更(=Patch)をする挙動を`reflect`を使って実装できることを示します。
+サンプルでは、あるstruct(`Sample`)に対して、フィールド名と定義順が一致するが、型が`Patcher[T]`で置き換えられたstruct(`SamplePatch`)を用意することで、部分的なフィールドの変更(=Patch)をする挙動を`reflect`を使って実装できることを示します。
 
 [playground](https://go.dev/play/p/_a85DOAZV7H)
 
@@ -138,6 +138,8 @@ func main() {
 }
 ```
 
+上記のサンプルでは`Sample`, `SamplePatch`に対してのみしか動作が確かめられていませんが、実際には条件を守るあらゆるstructのペアに対してPatchを行うことができます。
+
 - `reflect`を使用することでstructなどのデータ構造に対して動的な処理を実装できます
 - `generics`を利用することで任意の制約を満たす型に対して共通した処理を実装できます
   - (サンプルでは特に示していないが)「特定の`interface`を実装する」という型制約をかけることもできます。
@@ -160,6 +162,9 @@ func patchSample(s *Sample, patcher SamplePatch) {
 このケースでは返り値がないのでピンときにくいかもしれませんが、`reflect.Value`から値を取り出そうと思うと`Interface()`メソッドで`any`型の値を取り出すしかありませんので、
 `type assertion`を関数内で行うことで返り値の型を具体的なものにするのが普通だと思います。
 
+**内部的な挙動は`reflect`で作りこむにしろ、具体的な型を当てたラッパーはcode generatorで作成したいということはよくあるはずだ、ということです。**
+(`reflect`使わずcode generatorでこういう挙動をするコードを吐き出してもいいんですがここでは気にしません！)
+
 - `generics`では[#49085](https://github.com/golang/go/issues/49085)がないためにmethodにtype paramを与えることができません。
 
 つまり以下のようなことはできないということです。
@@ -171,7 +176,7 @@ func (p Patch[T]) Convert[U any](converter func(t T) U) U {
 }
 ```
 
-ですので、`patch`を具体的な型で包む部分はcode generatorで生成したいなあと思うことはあるはずですし、メソッドにtype paramが持てないため複数の型に同じ処理のメソッドを実装したい場合はcode generatorを作ったほうがメンテが楽だったりすることもあるということです。
+メソッドにtype paramが持てないため**複数の型にほぼ同じ処理のメソッドを実装したい場合はcode generatorを作ったほうがメンテが楽だったりすることもあるということです。**
 
 また、双方ともに型情報に含まれないような情報を用いた処理を行えません。
 
@@ -183,7 +188,7 @@ https://github.com/golang/go/blob/go1.22.5/src/html/template/context.go#L80-L161
 
 https://github.com/golang/go/blob/go1.22.5/src/html/template/state_string.go
 
-これらはソースコードの解析その他を行わない限り不可能なことですので、こういったことをしたい場合はcode generatorが必要になります。
+**これらはソースコードの解析その他を行わない限り不可能なことですので、こういったことをしたい場合はcode generatorが必要になります。**
 
 ## 4つの(おそらく)代表的な方法
 
@@ -200,6 +205,7 @@ https://github.com/golang/go/blob/go1.22.5/src/html/template/state_string.go
   - Goのsource codeを解析しast(abstract syntax tree)を得てそれをもとにコードを生成する方法です。
   - `go/ast`, `go/parser`, `go/printer`などのstd libraryを用います。
   - `ast`で1からコードをくみ上げることも当然可能ですが、前述のいずれかの方法をとったほうが簡単なので、rewriteする方法についてのみ述べます
+  - `ast`のrewriteではコメントのオフセット周りに問題があるため、[github.com/dave/dst]を代わりに用います
 
 上記を整理しなおすを以下のような関係図になります
 
@@ -226,10 +232,10 @@ go source codeのテキスト、またはテキストのストリームは[gofmt
     - パラメータを複数回使いまわすとか
     - ifで分岐するとか
     - ユーザーから入力を受けたい場合、などに対応しにくいです。
-  - するならほかの方法を使うほうが良いです
+      - するならほかの方法を使うほうが良いです
 - [text/template]を用いる方法
   - 利点: stdで終始できる
-    - ここが最大の利点だと思います。全く何もimportしないで済みます
+    - ここが最大の利点だと思います。std以外を全く何もimportしないで済みます
     - 複数templateへの分割、関数の任意な追加、ユーザーからtemplateの入力を受け付けなど複雑なケースに対応できます
   - 欠点: 読みにくい
     - `gopls`(`Go`の言語サーバー)によるsyntax highlightなどの支援を受けられますが、生来の複雑さを持っため`for`がネストしだす本当に読みにくいです。
@@ -247,7 +253,7 @@ go source codeのテキスト、またはテキストのストリームは[gofmt
 - `ast`(dst)-rewriteを行う方法
   - 利点: 既存のgo source codeを入力とできる。
     - 入力をGo source codeとできるのは当然この方法だけです。
-  - 欠点: 一からastをくみ上げるのは手間がかかる
+  - 欠点: astの変更や、１からastをくみ上げるのは手間がかかる
     - `Go`のソースコードを直接書きに行くほかの方法に比べてたった1つのトークンを書くだけでも何倍もの文字を打つ必要があってかなり面倒です。
     - そのためこの記事ではrewriteする方法しか想定しません。
 
@@ -258,14 +264,14 @@ go source codeのテキスト、またはテキストのストリームは[gofmt
 ### ファイル先頭に// Code generated ... DO NOT EDIT.をつける
 
 [go generateのドキュメント](https://pkg.go.dev/cmd/go#hdr-Generate_Go_files_by_processing_source)にもある通り、
-`^// Code generated .* DO NOT EDIT\.$`という正規表現にマッチする行が**ソースコード先頭**に含まれる場合、`go tool`はこれをcode generatorによって生成されたファイルであるとみなします。
-`Code generated`の後の部分にcode generatorのpackage pathを書いておくとよいのではないかと思います。
+`^// Code generated .* DO NOT EDIT\.$`という正規表現にマッチする行が**package declarationより前**に含まれる場合、`go tool`はこれをcode generatorによって生成されたファイルであるとみなします。
+`Code generated`の後の`.*`の部分にcode generatorのpackage pathを書いておくとどうやって生成したのかわかってよいのではないかと思います。
 
-Go1.21より[ast.IsGenerated](https://pkg.go.dev/go/ast@go1.22.5#IsGenerated)という関数がexportされるようになったので、ast解析を行って`*ast.File`がえられており、それがcode generatorに生成されたファイルかの確認が行いたい場合はこれを用いるとよいでしょう。
+`Go1.21`より[ast.IsGenerated](https://pkg.go.dev/go/ast@go1.22.5#IsGenerated)という関数がexportされるようになったので、ast解析を行って`*ast.File`がえられており、それがcode generatorに生成されたファイルかの確認が行いたい場合はこれを用いるとよいでしょう。
 
 ### for-range-mapの部分で毎回異なる順序で生成してしまうことがあるので注意する
 
-code generator実装の内部で`fo-range-map`をしてしまうと、実行ごとに異なる順序になることがあるため、こうならないための気遣いが必要です。
+code generator実装の内部で`fo-range-map`をしてしまうと、実行ごとに異なる順序になることがあるため、そうならないための気遣いが必要です。
 
 > https://go.dev/ref/spec#For_range
 >
@@ -311,12 +317,13 @@ for _, k := range keys {
 
 ### go:generate go run -mod=mod
 
-これは`README.md`にどのような指示を書くのかという話なのですが、
+これは`README.md`などの中で、あなたの作成したcode generatorの呼び出し方をどのように指示するかという話なんですが、
 
 あなたの作るcode generatorが生成するコードが何かしらの外部モジュールを必要とし、それがcode generatorと同じモジュールで管理されているとき、以下のように、`go run -mod=mod`で実行するよう指示するとよいでしょう。
 
 ```
-# 架空のURLを取り扱うのでexample.comのサブドメインとして書いていますが単なる例示で文字列そのものには意味はありません。
+# 架空のURLを取り扱うのでexample.comのサブドメインとして書いています
+# url自体は興味のあるところではありません！
 //go:generate go run -mod=mod fully-qualified.example.com/package/path/cmd/path/to/main/pkg@version
 ```
 
@@ -324,7 +331,7 @@ for _, k := range keys {
 >
 > -mod=mod tells the go command to ignore the vendor directory and to [automatically update](https://go.dev/ref/mod#go-mod-file-updates) go.mod, for example, when an imported package is not provided by any known module.
 
-とある通り、code generatorのバージョンが、生成物の配置先となるgo moduleの`go.mod`に追加されるなり更新されるなりするらしいです。
+とある通り、`-mod=mod`で動作させるとcode generatorのバージョンが、生成物の配置先となるgo moduleの`go.mod`に追加されるなり更新されるなりするらしいです。
 
 ### post process: goimports
 
@@ -358,7 +365,8 @@ func applyGoimports(ctx context.Context, r io.Reader) (*bytes.Buffer, error) {
 ```
 
 一応補足ですが、code generatorは大体`io.Writer`に書き出すようになっているため、`goimports`にその出力を渡すには一旦`*bytes.Buffer`に出力するか、でなければ`io.Pipe`を使ってパイプを行います。
-出力は`Go`のソースコードなのでメモリに置けないほど大きくなることは想定する必要がないはずです。多量のファイルの一気に処理するとかでない限り`*byte.Buffer`を経由して持ちまわって問題ありません。
+出力は`Go`のソースコードなのでメモリに置けないほど大きくなることは想定する必要がないはずです。
+多量のファイルの一気に処理するとかでない限り`*byte.Buffer`を経由して持ちまわって問題ないでしょう。
 
 ## simple text emitter: io.Writerに書くだけのほうほう
 
@@ -523,6 +531,26 @@ Yay Yay.
 渡すパラメータは任意の`Go struct`か`map[K]V`であれば、dot selectorでフィールドの値か、keyに収められている値がそれぞれ取り出されることが書かれています。
 structを指定する場合は`reflect`パッケージを使って値にアクセスしますので、`reflect`でアクセスできるフィールドを指定する必要があります(=Exported)。
 
+```go
+var example = template.Must(template.New("").Parse(
+	`An example template.
+Hello {{.Gopher}}.
+Yay Yay.
+`,
+))
+
+type sample struct {
+	Gopher string
+}
+
+err := example.Execute(os.Stdout, sample{Gopher: "me"})
+/*
+An example template.
+Hello me.
+Yay Yay.
+*/
+```
+
 メソッドでもよいとドキュメントされています。
 
 ```go
@@ -572,7 +600,8 @@ error: template: :2:8: executing "" at <.Gopher>: error calling Gopher: sample
 ```
 
 同様に、`map[K]V`でもいいです。`map[K]V`の場合は先頭が小文字なフィールドにもアクセスできます。
-template textが先頭が小文字なフィールドにアクセスしていたら`map[K]V`を使うしかないので基本的にはそうなってることはないと思います。
+template textが先頭が小文字なフィールドにアクセスしていたら`map[K]V`を使うしかなくなってしまいます。
+型を決められるstructのほうが管理が容易であるため、基本的には先頭が大文字なフィールドしか使われることはないと思います。
 
 ```go
 _ = example.Execute(os.Stdout, map[string]string{"Gopher": "from map[string]string"})
@@ -908,13 +937,13 @@ https://github.com/ngicks/go-example-code-generation/blob/main/template/multiple
 
 `{{block}}`は`{{define}}`して`{{template}}`するショートハンドです。
 
-筆者もこの記事を書くまで全くわかっていなかったのですが、`*Template`は以下の通り`*common`という構造体で解析されたtemplateを保持し、この`*common`は`(*Template).New`で作成されたすべての`(*Template)`に共有されています。
+筆者もこの記事を書くまで全くわかっていなかったのですが、`*Template`は以下の通り`*common`という構造体で解析されたtemplateを保持し、この`*common`は`(*Template).New`で作成されたすべての`*Template`に共有されています。
 
 https://github.com/golang/go/blob/go1.22.5/src/text/template/template.go#L13-L35
 
-`Parse`はこの`*common`を上書きします。そのため、`Parse`や`Funcs`は`*common`を共有するすべての`*Template`に影響します。
-同名のtemplateを複数定義している場合などに`Parse`する順序によって結果が変わることになります。
-しかるに、template同士はヒエラルキーのないフラットな構造で、お互い名前で参照しあうことができます。
+- `Parse`はこの`*common`を上書きします。そのため、`Parse`や`Funcs`は`*common`を共有するすべての`*Template`に影響します。
+- 同名のtemplateを複数定義している場合などでは`Parse`する順序によって結果が変わることになります。
+- template同士はヒエラルキーのないフラットな構造で、お互い名前で参照しあうことができます。
 
 以下で複数のtemplateを使用するサンプルを示します。
 
@@ -1047,7 +1076,7 @@ https://github.com/ngicks/go-example-code-generation/tree/main/template/parse-fs
 `-- tmp4.tmpl
 ```
 
-各templateの中身のは[sub-template](#sub-template)の同名ものとそれぞれ変わりませんが、以下のように名前だけ若干変わります。
+各templateの中身のは[multiple-template](#multiple-template)の同名ものとそれぞれ変わりませんが、以下のように名前だけ若干変わります。
 
 ```tmpl
 sub1: {{template "tmp2.tmpl" .Sub1}}
@@ -1067,7 +1096,7 @@ https://github.com/golang/go/blob/go1.22.5/src/text/template/helper.go#L172-L178
 `main.go`と同階層にこのtemplateディレクトリがあるものとして、以下のようなコードで読み込んで実行します。
 事項結果自体は[multiple-template](#multiple-template)のものと変わりません。
 
-ポイントとしては`//go:embed`でディレクトリを指定すると、そのディレクトリまでのパス構造がそのまま保たれます。つまり`//go:embed foo/bar/baz`とすると、`embed.FS`は`foo/bar/baz`というディレクトリ構造を持ちます。今回の場合この`templates` FSの直下に`template`ディレクトリがあってその中に各ファイルがある状態となります。
+ポイントとしては`//go:embed`でディレクトリを指定すると、そのディレクトリまでのパス構造がそのまま保たれます。つまり`//go:embed foo/bar/baz`とすると、`embed.FS`は`foo/bar/baz`というパス以下に`baz`ディレクトリの中身を埋め込みます。今回の場合この`templates` FSの直下に`template`ディレクトリがあってその中に各ファイルがある状態となります。
 また、`fs.FS`のルールにより、`./template`は適切なパスではないので`template`で指定します([fs.ValidPath](https://pkg.go.dev/io/fs@go1.22.5#ValidPath))。
 
 `template.ParseFS`の第二引数にvariadicな`patterns ...string`を渡すことができますが、それぞれが[fs.Glob](https://pkg.go.dev/io/fs@go1.22.5#Glob)に渡されるのため、[path.Match](https://pkg.go.dev/path@go1.22.5#Match)の条件を満たす必要があります。
@@ -1077,7 +1106,7 @@ https://github.com/golang/go/blob/go1.22.5/src/text/template/helper.go#L172-L178
 var templates embed.FS
 
 var (
-	root       = template.Must(template.ParseFS(templates, "template/*"))
+	root = template.Must(template.ParseFS(templates, "template/*"))
 )
 
 type param struct {
@@ -1149,7 +1178,7 @@ var (
 )
 
 func init() {
-		tmpls, err := templates.ReadDir("template")
+	tmpls, err := templates.ReadDir("template")
 	if err != nil {
 		panic(err)
 	}
@@ -1367,7 +1396,7 @@ func IsEnumExceptMuh(v Enum) bool {
 
 ### ユーザーからtemplateを入力させるときのimportの取り扱い
 
-この記事の話はここまでで終わりでもよかったんですが、欠点のところで「importの取り扱いが難しい」と正直に述べてしまったので、どのように処理すべきかの例を示します。
+この記事の話はここまでで終わりでもよかったんですが、欠点のところで「importの取り扱いが難しい」と正直に述べてしまったので、それへのアンサーとしてどのように処理すべきかの例を示します。
 
 みなさんご存じの通り、`Go`のimportはimportされるpackageにアクセスするためのqualifierを`import "packagePath"`で定義し、`qualifier.ExportedIdentifier`で各要素にアクセスします。
 当然qualifierはidentifierなので名前のかぶりを起こすとcompilation errorですし、`html/template`と`text/template`のように名前が同じ、かつ異なるパッケージは当然のように存在します。そのため、かぶりが起きたときにqualifier名を被らない何かにfallbackする仕組みが必要です。
@@ -1408,9 +1437,9 @@ qualifierはidentifierであるため、当然名前は被ってはいけませ�
 type UserInput struct {
 	// package name of generated code.
 	PackageName string
-	// Imports describes dependencies of Template text.
+	// Imports describes dependencies to other packages of Template text.
 	// Template will not use packages other than described in this field.
-	// Template may use all, any of, or even none of imported packages in the generated code.
+	// Template may use all, some of, or even none of imported packages in the generated code.
 	//
 	// Imports maps the import path (key) to the template arg name (value).
 	// Template refers to import qualifiers by template arg name(value) and
@@ -1418,7 +1447,7 @@ type UserInput struct {
 	// e.g. Template may describe imports by map[string]string{"bytes": "Bytes"} and refer to it as {{.Imports.Bytes}}.
 	//
 	// The values are also allowed to be `.` or `_`.
-	// In that cases, the generated code will have dot or underscore imports
+	// In those cases, the generated code will have dot or underscore imports
 	// and Template will not receive those values.
 	Imports map[string]string
 	// template text
@@ -1448,6 +1477,8 @@ UserInput{
 
 `Imports`で、keyにpackage path, valueに`Template`中で参照できる変数名を指定させます。
 正直key-valueは逆のほうがいい気もするんですが、同一のパッケージに複数のqualifierでアクセスしたいケースはかなり珍しいと思うのでシンプルさためにこうしています。
+dot importは生成されたコードのほかの部分を壊しかねないため許容しないほうがいい気もするんですが、今回は単に例示なので許しています。
+
 `Template`が`text/template`で解析/実行が可能なtemplate textです。
 
 #### importPathからqualifierを取り出す
@@ -1460,7 +1491,8 @@ UserInput{
 この前提が崩れると、ユーザーにパッケージ名も入力させなければlexicalな処理で事足りる範疇を超えてしまい、type checkのようなことが必要になってしまうためです。
 このサンプルでは一致しているもの思い込みます: 一致しないのはディレクトリ名を書き換えたけど`package`宣言を修正し忘れているときだけだと思います。別にするメリットは基本ないはずですね。
 
-大抵は`path.Base(packagePath)`でよいのですが、`math/rand/v2`のように、major version suffixは無視するのが一般的な`Go`のやり口なので、このケースを特別に処理する必要があります。
+大抵は`path.Base(packagePath)`でよいのです。
+ただし`math/rand/v2`のように、major version suffixがある場合はこれを無視するのが一般的な`Go`のやり口なので、このケースを特別に処理する必要があります。
 
 ```go
 func qualFromPkgPath(pkgPath string) string {
@@ -1489,7 +1521,7 @@ func qualFromPkgPath(pkgPath string) string {
 ユーザーによってimportも入力されるため、メインとなるtemplateのimport decl部分はもはやあらかじめ書いておくことができなくなります。
 そのため以下のように何かのパラメータをrangeする必要があります。
 
-```tmpl
+```tmpl: pkg.tmpl
 // Code generated by me. DO NOT EDIT.
 package {{.PackageName}}
 
@@ -1506,7 +1538,7 @@ importはqual nameとpackage pathから構成されるため、上記パラメ�
 ```go
 type ImportSpec struct {
 	// Name is the import qualifier name. Maybe empty.
-	// If empty, the qual must be inferred from PkgPath.
+	// If empty, the qual must be lexically inferred from PkgPath.
 	Name    string
 	PkgPath string
 }
@@ -1656,7 +1688,7 @@ func makeUserImportArg(specs []ImportSpec, userImports map[string]string) map[st
 
 https://github.com/ngicks/go-example-code-generation/tree/main/template/handle-imports
 
-以下のように実行します。
+以下のように実行します。特に解説していませんが、`goimports`によるフォーマットをかけてからファイルに出力するようにしています。
 
 ```go
 package main
@@ -1954,7 +1986,7 @@ sha512sum="5f06276c8c00bb1bab175d2c1f3f92332a3383bd7bf2f8f550f59cf69a8d1af6cddaf
 - [Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
 - [Goのcode generation: ast(dst)-rewrite](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
 
-`text/template`は機能が豊富で柔軟にコード生成できますが、`Go`のsource codeを生成するための専用というわけではないので可読性を保値ながら記述するのに苦労します。
+`text/template`は機能が豊富で柔軟にコード生成できますが、`Go`のsource codeを生成するための専用というわけではないので可読性を保ちながら記述するのに苦労します。
 記事の最後のほうで説明した通り、importの取り扱いは結構面倒でいろいろな落とし穴が存在しえますね。
 ただし、この一連の記事が説明する方法はそれぞれ組み合わせてよいので、用途に合わせて使い分け、組み合わせるのがよいでしょう。特にimport周りは`jennifer`はうまく取り扱ってくれます。
 `text/template`はtemplate textをutf-8のテキストとして持ち回るため、ユーザーからの入力を受け付けて挙動をカスタマイズさせたい場合に特に便利だと思います。

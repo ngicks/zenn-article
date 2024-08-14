@@ -16,12 +16,12 @@ published: false
 - code generatorを実装する際の注意点など
 - `io.Writer`に書き出すシンプルな方法
 - `text/template`を使う方法
-  - `text/template`のcode generationにかかわりそうな機能性について説明します。
-  - 実際に`text/template`を使ってcode generatorを実装します。
+  - `text/template`のcode generationにかかわりそうな機能性。
+  - 実際に`text/template`を使ったcode generatorのexample。
 
 について、
 
-[Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
+さらに、[Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
 
 についてそれぞれ述べました。
 
@@ -32,7 +32,7 @@ published: false
 について述べます
 
 - `ast`のパーズ方法について以下の二つに触れ、
-  - `go/parser`, `go/printer`を用いる方法
+  - `go/parser`を用いる方法
   - [golang.org/x/tools/go/packages]を用いる方法
 - `astutil.Apply`でgo source codeのrewriteを実装します
 - `astutil.Apply`ではコメントオフセットの狂いによってコメントの順序がおかしくなる問題について述べ
@@ -59,7 +59,7 @@ go version go1.22.0 linux/amd64
 ## ast(dst)-rewrite
 
 １からastをくみ上げることでコードを生成することもできますが、それをやるならば上記の`text/template`か`github.com/dave/jennifer`を用いるほうが楽なはずなので、ここでは深く紹介しません。
-その代わり、astや型情報
+その代わり、astをもとにそれをrewriteする方法のみを取り扱います。
 
 ### ソースコードの解析
 
