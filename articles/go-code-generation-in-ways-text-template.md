@@ -66,7 +66,7 @@ https://github.com/search?q=repo%3Agolang%2Fgo%20%2F%2Fgo%3Agenerate&type=code
 
 ### goのgeneric function
 
-`Go`では[reflect](https://pkg.go.dev/reflect@go1.22.5)を使うことで型情報を`any`な値から取り出すことができ、これを元に動的な挙動を行うことができます。
+`Go`では[reflect](https://pkg.go.dev/reflect@go1.22.6)を使うことで型情報を`any`な値から取り出すことができ、これを元に動的な挙動を行うことができます。
 また、[Go 1.18で追加されたGenerics](https://tip.golang.org/doc/go1.18#generics)を用いることで、ある制約を満たす複数の型に対して処理を共通化できます。
 
 例えば、以下のようなサンプルを定義します。
@@ -267,7 +267,7 @@ go source codeのテキスト、またはテキストのストリームは[gofmt
 `^// Code generated .* DO NOT EDIT\.$`という正規表現にマッチする行が**package declarationより前**に含まれる場合、`go tool`はこれをcode generatorによって生成されたファイルであるとみなします。
 `Code generated`の後の`.*`の部分にcode generatorのpackage pathを書いておくとどうやって生成したのかわかってよいのではないかと思います。
 
-`Go1.21`より[ast.IsGenerated](https://pkg.go.dev/go/ast@go1.22.5#IsGenerated)という関数がexportされるようになったので、ast解析を行って`*ast.File`がえられており、それがcode generatorに生成されたファイルかの確認が行いたい場合はこれを用いるとよいでしょう。
+`Go1.21`より[ast.IsGenerated](https://pkg.go.dev/go/ast@go1.22.6#IsGenerated)という関数がexportされるようになったので、ast解析を行って`*ast.File`がえられており、それがcode generatorに生成されたファイルかの確認が行いたい場合はこれを用いるとよいでしょう。
 
 ### for-range-mapの部分で毎回異なる順序で生成してしまうことがあるので注意する
 
@@ -303,11 +303,9 @@ for _, k := range keys {
 `Go1.23`以降ならもっと簡単に
 
 ```go
-// https://go.dev/play/p/2yRGLquakg8
+// https://go.dev/play/p/FamvmtR8GzW
 var m map[K]V
-keys := slices.Collect(maps.Keys(m))
-slices.Sort(keys)
-for _, k := range keys {
+for _, k := range slices.Sorted((maps.Keys(m))) {
 	_ = m[k]
 	// ...
 }
@@ -403,7 +401,7 @@ https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows.s
 
 ### text/template
 
-https://pkg.go.dev/text/template@go1.22.5
+https://pkg.go.dev/text/template@go1.22.6
 
 stdライブラリに組み込まれたテンプレート機能です。
 
@@ -480,7 +478,7 @@ Yay Yay.
 というtemplate textでは`{{.Gopher}}`の部分が入力のパラメータによって動的に変更されることになります。
 上記は、パラメータとして渡された任意のGo structの、`Gopher`というexported fieldの値でここを置き換えるという意味になります。
 
-このdelimiter(`{{`,`}}`)は[(\*Template).Delims](https://pkg.go.dev/text/template@go1.22.5#Template.Delims)で任意の文字列に変更できます。
+このdelimiter(`{{`,`}}`)は[(\*Template).Delims](https://pkg.go.dev/text/template@go1.22.6#Template.Delims)で任意の文字列に変更できます。
 基本的には変えないほうが良いです: `gopls`のドキュメントにも、delimiterは変えられるが変えたら構文解析が機能しないようなことが書いてあります。
 筆者はこの記事を書くまで変更できることすら知りませんでした。
 
@@ -797,9 +795,9 @@ https://github.com/ngicks/go-example-code-generation/blob/main/template/funcmap
 
 template actionの中で実行できる関数は以下で定義される通りいろいろありますが
 
-https://pkg.go.dev/text/template@go1.22.5#hdr-Functions
+https://pkg.go.dev/text/template@go1.22.6#hdr-Functions
 
-それ以外にも、[(\*Template).Funcs](https://pkg.go.dev/text/template@go1.22.5#Template.Funcs)で任意に追加できます。
+それ以外にも、[(\*Template).Funcs](https://pkg.go.dev/text/template@go1.22.6#Template.Funcs)で任意に追加できます。
 
 関数はtemplate内で参照される前に追加されている必要がありますが、あとから上書きすることもできます。
 
@@ -1097,9 +1095,9 @@ https://github.com/golang/go/blob/go1.22.5/src/text/template/helper.go#L172-L178
 事項結果自体は[multiple-template](#multiple-template)のものと変わりません。
 
 ポイントとしては`//go:embed`でディレクトリを指定すると、そのディレクトリまでのパス構造がそのまま保たれます。つまり`//go:embed foo/bar/baz`とすると、`embed.FS`は`foo/bar/baz`というパス以下に`baz`ディレクトリの中身を埋め込みます。今回の場合この`templates` FSの直下に`template`ディレクトリがあってその中に各ファイルがある状態となります。
-また、`fs.FS`のルールにより、`./template`は適切なパスではないので`template`で指定します([fs.ValidPath](https://pkg.go.dev/io/fs@go1.22.5#ValidPath))。
+また、`fs.FS`のルールにより、`./template`は適切なパスではないので`template`で指定します([fs.ValidPath](https://pkg.go.dev/io/fs@go1.22.6#ValidPath))。
 
-`template.ParseFS`の第二引数にvariadicな`patterns ...string`を渡すことができますが、それぞれが[fs.Glob](https://pkg.go.dev/io/fs@go1.22.5#Glob)に渡されるのため、[path.Match](https://pkg.go.dev/path@go1.22.5#Match)の条件を満たす必要があります。
+`template.ParseFS`の第二引数にvariadicな`patterns ...string`を渡すことができますが、それぞれが[fs.Glob](https://pkg.go.dev/io/fs@go1.22.6#Glob)に渡されるのため、[path.Match](https://pkg.go.dev/path@go1.22.6#Match)の条件を満たす必要があります。
 
 ```go
 //go:embed template
@@ -1400,7 +1398,7 @@ func IsEnumExceptMuh(v Enum) bool {
 
 みなさんご存じの通り、`Go`のimportはimportされるpackageにアクセスするためのqualifierを`import "packagePath"`で定義し、`qualifier.ExportedIdentifier`で各要素にアクセスします。
 当然qualifierはidentifierなので名前のかぶりを起こすとcompilation errorですし、`html/template`と`text/template`のように名前が同じ、かつ異なるパッケージは当然のように存在します。そのため、かぶりが起きたときにqualifier名を被らない何かにfallbackする仕組みが必要です。
-また、`math/rand/v2`の`v2`のようなmajor versionはパッケージ名にならないのが普通で、この場合`rand`がパッケージ名になりますのでこれを考慮した処理も必要になります。
+また、`math/rand/v2`の`v2`のようなmajor versionはパッケージ名にならないのが普通なので、この場合`rand`がパッケージ名になりますのでこれを考慮した処理も必要になります。
 
 ユーザーが入力するtemplateが他のパッケージをimportするためには、単にtemplate textのみを入力とすると、非常に面倒な解析処理とテキスト置換処理が必要になります。
 基本的にはimport package群も同様に入力させるほうがよいでしょう。
@@ -1526,7 +1524,7 @@ func qualFromPkgPath(pkgPath string) string {
 package {{.PackageName}}
 
 import (
-{{range .Imports}}	{{if .Name}}{{.Name}} {{end}}{{quote .PkgPath}}
+{{range .Imports}}	{{if .Qual}}{{.Qual}} {{end}}{{quote .PkgPath}}
 {{end -}}
 )
 
@@ -1537,9 +1535,9 @@ importはqual nameとpackage pathから構成されるため、上記パラメ�
 
 ```go
 type ImportSpec struct {
-	// Name is the import qualifier name. Maybe empty.
+	// Qual is the import qualifier name. Maybe empty.
 	// If empty, the qual must be lexically inferred from PkgPath.
-	Name    string
+	Qual    string
 	PkgPath string
 }
 
@@ -1566,10 +1564,10 @@ func makeImportSpecs(preDeclared []ImportSpec, userImports map[string]string) []
 	qualToPkgPath := make(map[string]string, len(importSpecs)+len(userImports))
 
 	for _, spec := range importSpecs {
-		if spec.Name == "." || spec.Name == "_" {
+		if spec.Qual == "." || spec.Qual == "_" {
 			continue
 		}
-		name := spec.Name
+		name := spec.Qual
 		if name == "" {
 			name = qualFromPkgPath(spec.PkgPath)
 		}
@@ -1611,11 +1609,14 @@ USER_PKG:
 	}
 
 	slices.SortFunc(importSpecs, func(i, j ImportSpec) int {
-		return strings.Compare(i.PkgPath, j.PkgPath)
+		if c := strings.Compare(i.PkgPath, j.PkgPath); c != 0 {
+			return c
+		}
+		return strings.Compare(i.Qual, j.Qual)
 	})
 
 	importSpecs = slices.CompactFunc(importSpecs, func(i, j ImportSpec) bool {
-		return i.Name == j.Name && i.PkgPath == j.PkgPath
+		return i.Qual == j.Qual && i.PkgPath == j.PkgPath
 	})
 
 	return importSpecs
@@ -1658,10 +1659,10 @@ type UserTemplateArg struct {
 func makeUserImportArg(specs []ImportSpec, userImports map[string]string) map[string]string {
 	pkgNames := make(map[string][]string)
 	for _, spec := range specs {
-		if spec.Name == "." || spec.Name == "_" {
+		if spec.Qual == "." || spec.Qual == "_" {
 			continue
 		}
-		name := spec.Name
+		name := spec.Qual
 		if name == "" {
 			name = qualFromPkgPath(spec.PkgPath)
 		}
@@ -1992,17 +1993,11 @@ sha512sum="5f06276c8c00bb1bab175d2c1f3f92332a3383bd7bf2f8f550f59cf69a8d1af6cddaf
 `text/template`はtemplate textをutf-8のテキストとして持ち回るため、ユーザーからの入力を受け付けて挙動をカスタマイズさせたい場合に特に便利だと思います。
 
 [Go]: https://go.dev/
-[C++]: https://en.wikipedia.org/wiki/C%2B%2B
-[Node.js]: https://nodejs.org/en
-[TypeScript]: https://www.typescriptlang.org/
-[python]: https://www.python.org/
 [Rust]: https://www.rust-lang.org
-[The Rust Programming Language 日本語]: https://doc.rust-jp.rs/book-ja/
 [Visual Studio Code]: https://code.visualstudio.com/
 [vscode]: https://code.visualstudio.com/
-[git]: https://git-scm.com/
 [github.com/dave/jennifer]: https://github.com/dave/jennifer
 [github.com/dave/dst]: https://github.com/dave/dst
-[text/template]: https://pkg.go.dev/text/template@go1.22.5
-[go/ast]: https://pkg.go.dev/go/ast@go1.22.5
-[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages
+[text/template]: https://pkg.go.dev/text/template@go1.22.6
+[go/ast]: https://pkg.go.dev/go/ast@go1.22.6
+[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages

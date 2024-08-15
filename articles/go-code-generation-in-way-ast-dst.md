@@ -10,18 +10,18 @@ published: false
 
 `Go`のcode generationについてまとめようと思います。
 
-前段の記事: [Goのcode generation: text/template](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
+前段の記事の
 
-- Rationale: なぜGoでcode generationが必要なのか
-- code generatorを実装する際の注意点など
-- `io.Writer`に書き出すシンプルな方法
-- `text/template`を使う方法
-  - `text/template`のcode generationにかかわりそうな機能性。
-  - 実際に`text/template`を使ったcode generatorのexample。
-
-について、
-
-さらに、[Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
+- [Goのcode generation: text/template](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
+  - Rationale: なぜGoでcode generationが必要なのか
+  - code generatorを実装する際の注意点など
+  - `io.Writer`に書き出すシンプルな方法
+  - `text/template`を使う方法
+    - `text/template`のcode generationにかかわりそうな機能性。
+    - 実際に`text/template`を使ったcode generatorのexample。
+- [Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で
+  - [github.com/dave/jennifer]の各機能
+  - `text/template`で実装したcode generatorのexampleを`jennifer`で再実装
 
 についてそれぞれ述べました。
 
@@ -31,12 +31,22 @@ published: false
 
 について述べます
 
-- `ast`のパーズ方法について以下の二つに触れ、
+- astのパーズ方法
   - `go/parser`を用いる方法
   - [golang.org/x/tools/go/packages]を用いる方法
+- 軽いastの解析方法やデバッグ方法
+  - ast構造のprint: ast.Print
+  - directive commentの解析
+  - astのtraverse方法
 - `astutil.Apply`でgo source codeのrewriteを実装します
 - `astutil.Apply`ではコメントオフセットの狂いによってコメントの順序がおかしくなる問題について述べ
 - [github.com/dave/dst]によってこの問題を起さずにast rewriteができることを述べます。
+  - `dst`の紹介
+  - astと`dst`の相互変換
+  - `dst`でのコメントの取り扱い方法について
+  - `dstutil.Apply`を使ったrewrite
+
+についてそれぞれ述べます。
 
 ## 前提知識
 
@@ -60,6 +70,26 @@ go version go1.22.0 linux/amd64
 
 １からastをくみ上げることでコードを生成することもできますが、それをやるならば上記の`text/template`か`github.com/dave/jennifer`を用いるほうが楽なはずなので、ここでは深く紹介しません。
 その代わり、astをもとにそれをrewriteする方法のみを取り扱います。
+
+### 利点と欠点
+
+- 利点
+  - 既存のgo source codeを入力とできる。
+- 欠点
+  - astの変更や、１からastをくみ上げるのは手間がかかる
+  - `Go`のソースコードを直接書きに行くほかの方法に比べてたった1つのトークンを書くだけでも何倍もの文字を打つ必要があってかなり面倒です。
+  - そのためこの記事ではrewriteする方法しか想定しません。
+
+`text/template`や[github.com/dave/jennifer]を使う方法に比べてずいぶん面倒です。
+ではなぜこんなことをわざわざするのかというと
+
+- editorのextensionを実装して、code actionとしてsource codeを書き換えたい
+- code generatorの出力結果をさらに修正したい
+- ユーザーの体験のため;
+  - ある`Go`のtypeに対して何かの生成を行いたいとき、生成元は`Go`で書くのが最も一直線です。
+  - `text/template`などを使う方法であげたYAMLやJSONのメタデータを書く方法では、メタデータから生成結果の想像がつかないとやや書きづらくなります。
+
+仕事でcode generatorを実装する際には筆者的に正当化しずらい費用対効果なので(メタデータをYAMLなどで書かせる方法のコスパがよすぎるため)、なかなか実装する機会がありませんが、体験はいいので慣れておきたいと筆者的には思ってました。
 
 ### ソースコードの解析
 
@@ -125,11 +155,11 @@ func main() {
 }
 ```
 
-`token.NewFileSet`で[\*token.FileSet](https://pkg.go.dev/go/token@go1.22.5#FileSet)をallocateして、[parser.ParseFile](https://pkg.go.dev/go/parser@go1.22.5#ParseFile)で第３引数を解析します。ドキュメントにある通り、[nil, []byte, string, io.Readerのいずれかを受け付け, nilの場合第二引数のfilenameを読み込みます](https://github.com/golang/go/blob/go1.22.5/src/go/parser/interface.go#L24-L42)。
+`token.NewFileSet`で[\*token.FileSet](https://pkg.go.dev/go/token@go1.22.6#FileSet)をallocateして、[parser.ParseFile](https://pkg.go.dev/go/parser@go1.22.6#ParseFile)で第３引数を解析します。ドキュメントにある通り、[nil, []byte, string, io.Readerのいずれかを受け付け, nilの場合第二引数のfilenameを読み込みます](https://github.com/golang/go/blob/go1.22.5/src/go/parser/interface.go#L24-L42)。
 
 #### ast.Print
 
-解析された[\*ast.File](https://pkg.go.dev/go/ast@go1.22.5#File)を[ast.Print](https://pkg.go.dev/go/ast@go1.22.5#Print)もしくは[ast.Fprint](https://pkg.go.dev/go/ast@go1.22.5#Fprint)に渡すことで内部の構造をプリントすることができます。
+解析された[\*ast.File](https://pkg.go.dev/go/ast@go1.22.6#File)を[ast.Print](https://pkg.go.dev/go/ast@go1.22.6#Print)もしくは[ast.Fprint](https://pkg.go.dev/go/ast@go1.22.6#Fprint)に渡すことで内部の構造をプリントすることができます。
 これは要するに`reflect`によってgo structをwalkする関数です。ですので、`Go`のコードからどのようにastを扱えばいいのかがわかります。
 
 前述通り上記サンプルコードの出力結果は長いので省略しますが、抜粋して一部を以下に例示します。
@@ -176,7 +206,7 @@ type Some[T, U any] struct {
 // ...
 ```
 
-[\*ast.GenDecl](https://pkg.go.dev/go/ast@go1.22.5#GenDecl)は
+[\*ast.GenDecl](https://pkg.go.dev/go/ast@go1.22.6#GenDecl)は
 
 > A GenDecl node (generic declaration node) represents an import, constant, type or variable declaration. A valid Lparen position (Lparen.IsValid()) indicates a parenthesized declaration.
 
@@ -188,7 +218,7 @@ type Some[T, U any] struct {
 
 #### golang.org/x/tools/go/packages
 
-[ast.ParseDir](https://pkg.go.dev/go/parser@go1.22.5#ParseDir)が返す[\*ast.Package](https://pkg.go.dev/go/ast@go1.22.5#Package)が[Go1.22からdeprecatedになっている](https://tip.golang.org/doc/go1.22#minor_library_changes)ため、ディレクトリの中身を一気にパーズしたいとき何使えばいいんだよってなりますよね。
+[ast.ParseDir](https://pkg.go.dev/go/parser@go1.22.6#ParseDir)が返す[\*ast.Package](https://pkg.go.dev/go/ast@go1.22.6#Package)が[Go1.22からdeprecatedになっている](https://tip.golang.org/doc/go1.22#minor_library_changes)ため、ディレクトリの中身を一気にパーズしたいとき何使えばいいんだよってなりますよね。
 
 困ったので[github.com/golang/example](https://github.com/golang/example)を見ていると、[このコミット](https://github.com/golang/example/commit/1d6d2400d4027025cb8edc86a139c9c581d672f7)で[golang.org/x/tools/go/packages]を勧める文章に変わっていました。
 
@@ -239,11 +269,11 @@ func main() {
 
 こんな感じでモジュールをロードします。
 
-[\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Config)をいろいろ設定し、[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Load)の第一引数として渡します。第二引数はvariadicなパターンで、`go`コマンドに渡すようなpackage patternを渡して読み込みたいパッケージを指定できます。
+[\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Config)をいろいろ設定し、[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Load)の第一引数として渡します。第二引数はvariadicなパターンで、`go`コマンドに渡すようなpackage patternを渡して読み込みたいパッケージを指定できます。
 
 ##### pattern
 
-[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Load)の第二引数にはvairadicなpatternを渡し、これによってロードするパッケージを指定します。
+[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Load)の第二引数にはvairadicなpatternを渡し、これによってロードするパッケージを指定します。
 
 > https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Package
 >
@@ -261,7 +291,7 @@ func main() {
 
 ##### \*package.Config
 
-[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Load)の第一引数には[\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Config)を渡します。
+[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Load)の第一引数には[\*packages.Config](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Config)を渡します。
 
 ちょっとわかりにくいところがあるのでそこだけ説明します。
 
@@ -281,7 +311,7 @@ github.com/hack-pad/hackpadfs: packages.Error{Pos:"", Msg:"no required module pr
 
 ##### packages.Visit
 
-[packages.Visit](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Visit)で、ロードされたパッケージをインポートグラフ順にvisitできます。
+[packages.Visit](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Visit)で、ロードされたパッケージをインポートグラフ順にvisitできます。
 
 ```go
 	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
@@ -329,7 +359,7 @@ package path: path
 
 ##### pkgs[i].Syntax: []\*ast.File
 
-[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Package)の`Fset`フィールドは`*token.FileSet`,`Syntax`フィールドは`[]*ast.File`なので、`ast.Print`などast情報を使った処理ができます。
+[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Package)の`Fset`フィールドは`*token.FileSet`,`Syntax`フィールドは`[]*ast.File`なので、`ast.Print`などast情報を使った処理ができます。
 
 ```go
 	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
@@ -347,7 +377,7 @@ package path: path
 
 ##### pkgs[i].Types: \*types.Package
 
-[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages#Package)の.Typesフィールドは`*types.Package`なので、型情報を使って処理を行うことができます。
+[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Package)の.Typesフィールドは`*types.Package`なので、型情報を使って処理を行うことができます。
 
 ```go
 	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
@@ -1302,7 +1332,7 @@ free floating commentも`Start`にひとまとめに入れれらます。
 つまり、`Start`は末尾から操作して`\n`などの空白のみの行までをクリップして探索すると`ast`版と同等ということになります。
 
 上記の`parseDirective`実装では単に末尾から探索していますが、`ast`版は先頭から探索なので、挙動差が生じています。~~これは単なる手抜きですので~~実際にはこういった実装はしないほうがよいでしょう。
-ですので、doc commentに当たるindexの範囲を探索してからその範囲を先頭から走査したほうがよいでしょう。
+doc commentに当たるindexの範囲を探索し、その範囲を先頭から走査すると挙動差が生じません。
 
 #### Replace or Insert
 
@@ -1546,22 +1576,56 @@ Go1.23ではexprの追加はありません。逆に言って`1.0.0`から追加
 ですのでおそらく今後数年はまずもって使い続けられると筆者は見積もっています。
 exprが追加されてなおかつモジュールオーナーが非活発的な場合、筆者も頑張って貢献して直します。
 
-## まとめ
-
 ## おわりに
 
+前段の記事で
+
+- [Goのcode generation: text/template](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
+  - Rationale: なぜGoでcode generationが必要なのか
+  - code generatorを実装する際の注意点など
+  - `io.Writer`に書き出すシンプルな方法
+  - `text/template`を使う方法
+    - `text/template`のcode generationにかかわりそうな機能性。
+    - 実際に`text/template`を使ったcode generatorのexample。
+- [Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で
+  - [github.com/dave/jennifer]の各機能
+  - `text/template`で実装したcode generatorのexampleを`jennifer`で再実装
+
+についてそれぞれ述べました。
+
+この記事では、
+
+- astのパーズ方法
+  - `go/parser`を用いる方法
+  - [golang.org/x/tools/go/packages]を用いる方法
+- 軽いastの解析方法やデバッグ方法
+  - ast構造のprint: ast.Print
+  - directive commentの解析
+  - astのtraverse方法
+- `astutil.Apply`でgo source codeのrewriteを実装します
+- `astutil.Apply`ではコメントオフセットの狂いによってコメントの順序がおかしくなる問題について述べ
+- [github.com/dave/dst]によってこの問題を起さずにast rewriteができることを述べます。
+  - `dst`の紹介
+  - astと`dst`の相互変換
+  - `dst`でのコメントの取り扱い方法について
+  - `dstutil.Apply`を使ったrewrite
+
+を述べました。
+
+`Go`のsource codeを解析してastをえて、それを解析してrewriteを行うためにかかわりそうな要素について紹介しました。
+もう少し凝ったexampleを乗せてもいいかなと思いましたが、それは別の記事に分離しようかと思います(書くかはわかりませんが)。
+
+`text/template`や[github.com/dave/jennifer]を用いてコードを生成したほうがはるかに簡単なので、この方法を利用することは少ないと思います。
+linterのcode actionのようなものを実装したいときや、code generatorの生成結果をさらに変更するなどのケースで便利かなと思います。
+
+実装する機会は少ないかもしれない・・・少なくとも筆者的に仕事やるには正当化しずらい手間です・・ですが、やれると体験がよいので覚えておくとよいかもしれません。
+
 [Go]: https://go.dev/
-[C++]: https://en.wikipedia.org/wiki/C%2B%2B
-[Node.js]: https://nodejs.org/en
-[TypeScript]: https://www.typescriptlang.org/
-[python]: https://www.python.org/
 [Rust]: https://www.rust-lang.org
-[The Rust Programming Language 日本語]: https://doc.rust-jp.rs/book-ja/
 [Visual Studio Code]: https://code.visualstudio.com/
 [vscode]: https://code.visualstudio.com/
-[git]: https://git-scm.com/
 [github.com/dave/jennifer]: https://github.com/dave/jennifer
 [github.com/dave/dst]: https://github.com/dave/dst
-[text/template]: https://pkg.go.dev/text/template@go1.22.5
-[go/ast]: https://pkg.go.dev/go/ast@go1.22.5
-[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages
+[text/template]: https://pkg.go.dev/text/template@go1.22.6
+[go/ast]: https://pkg.go.dev/go/ast@go1.22.6
+[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages

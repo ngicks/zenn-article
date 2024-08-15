@@ -64,7 +64,7 @@ go version go1.22.0 linux/amd64
 [github.com/dave/jennifer]を使うと、
 
 - `Go`のトークンや構文に対応づいた関数群をメソッドチェインで呼び出すことでコードを生成することができます。
-- [Qual](https://github.com/dave/jennifer?tab=readme-ov-file#qual)によって自動的にimport declが管理されるため、同名のパッケージをインポートする際の名前被りも自動的に回避されます。
+- [Qual](https://github.com/dave/jennifer/tree/v1.7.0?tab=readme-ov-file#qual)によって自動的にimport declが管理されるため、同名のパッケージをインポートする際の名前被りも自動的に回避されます。
 - `foobarFunc`系のメソッドや[Do](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#Do)で関数を受けとることができるので容易にfor-loopを回したパラメータに基づく生成が可能です。
 
 ### 利点と欠点
@@ -83,7 +83,7 @@ go version go1.22.0 linux/amd64
 
 ### 基本的な使用方法
 
-[README.md](https://github.com/dave/jennifer?tab=readme-ov-file#jennifer)でしっかり説明がなされているので特に説明することはないかと思います、APIの様式がわかる程度のことを書いておいたほうが読みやすいかもしれないので先にここでそれについて述べておきます。
+[README.md](https://github.com/dave/jennifer/tree/v1.7.0?tab=readme-ov-file#jennifer)でしっかり説明がなされているので特に説明することはないかと思います、APIの様式がわかる程度のことを書いておいたほうが読みやすいかもしれないので先にここでそれについて述べておきます。
 
 #### 宣言、書き出し
 
@@ -112,7 +112,7 @@ func main() {
 }
 ```
 
-`Render`は[NoFormat](https://github.com/dave/jennifer/blob/3f94e7e1799d54504d53f8f56a079d2e2353a4cb/jen/file.go#L64)を`true`にしない限り[format.Sourceによってフォーマットをかける](https://github.com/dave/jennifer/blob/3f94e7e1799d54504d53f8f56a079d2e2353a4cb/jen/jen.go#L81-L89)挙動があります。そのため、出力が`Go`のソースコードとして正しくない場合にformat部分でエラーを吐くことがあります。
+`Render`は[NoFormat](https://github.com/dave/jennifer/blob/v1.7.0/jen/file.go#L64)を`true`にしない限り[format.Sourceによってフォーマットをかける](https://github.com/dave/jennifer/blob/v1.7.0/jen/jen.go#L81-L89)挙動があります。そのため、出力が`Go`のソースコードとして正しくない場合にformat部分でエラーを吐くことがあります。
 上記サンプルでは一旦`Render`の結果を`*bytes.Buffer`に受けてからファイルに書き出していますが、こうすることで、`format.Source`が成功まで`os.Create`による対象ファイルのtruncateを遅延しています。
 
 #### print
@@ -142,7 +142,7 @@ decoratePrint(jen.Var().Id("yay").Op("=").Lit("yay yay"))
 
 [\*jen.File](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#File)は[jen.NewFile](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFile),[jen.NewFilePath](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFilePath),[jen.NewFilePathName](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFilePathName)のいずれかで作成します。
 
-それぞれは以下のように[Qual](https://github.com/dave/jennifer/tree/master?tab=readme-ov-file#qual)を使った場合の挙動が違います。
+それぞれは以下のように[Qual](https://github.com/dave/jennifer/tree/v1.7.0?tab=readme-ov-file#qual)を使った場合の挙動が違います。
 `NewFilePath`, `NewFilePathName`は生成対象のパッケージパスを認識しますので、`Qual`が参照するのが生成対象そのものだった時は`PackageName`が省略されます。
 
 ```go
@@ -277,10 +277,9 @@ decoratePrint(
 */
 ```
 
-#### fooFunc
+#### 関数を受けとるメソッド: ○○Func
 
-`○○Func`や[Do](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#Do)を用いると関数を受けることができるので、ここでfor-loopを回すなりするとよいでしょう。
-また以下のスニペットで何気なく使っていますが`Add`で`*jen.Statement`などを追加できます。
+`○○Func`という風に`Func`が,例えば、`StructFunc`を用いると関数を受けることができるので、ここでfor-loopを回すなりするとよいでしょう。
 
 ```go
 fields := []struct {
@@ -293,7 +292,7 @@ fields := []struct {
 }
 decoratePrint(jen.Type().Id("foo").StructFunc(func(g *jen.Group) {
 	for _, f := range fields {
-		g.Id(f.name).Add(f.def)
+		g.Id(f.name).ががdd(f.def)
 	}
 }))
 /*
@@ -305,6 +304,69 @@ decoratePrint(jen.Type().Id("foo").StructFunc(func(g *jen.Group) {
 	}
 	---
 */
+```
+
+#### 関数を受けとるメソッド: Do
+
+同様に[Do](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#Do)もコールバック関数を受け取ります。
+`○○Func`と違って受け入れる関数のシグネチャは`func(s *jen.Statement)`です。
+
+```go
+	decoratePrint(jen.Type().Id("bar").Op("struct").Op("{").
+		Do(func(s *jen.Statement) {
+			for _, f := range fields {
+				s.Id(f.name).Add(f.def).Line()
+			}
+		}).
+		Op("}"),
+	)
+	/*
+		---
+		type bar struct {
+		        foo string
+		        bar int
+		        baz *bytes.Buffer
+		}
+		---
+	*/
+```
+
+いい例が思いつかなくて少々ぎこちない感じですが、`Do`で受け取ったコールバックで書きだす内容は何でもいいので任意に関数分割を行えます。
+
+#### Add: \*jen.Statementや\*jen.Groupを追加する
+
+import pathが長くなると`Qual`を何度も書くと冗長なので関数に切り分けたくなると思います。
+
+`Add`を用いれば`Qual`など、繰り返すには長すぎる表現を関数に切り出せます。
+
+```go
+	randomIdentName := func(leng int) string {
+		var buf strings.Builder
+		buf.Grow(1 + 2*leng)
+		_ = buf.WriteByte('_')
+		for range leng {
+			_, _ = buf.WriteString(fmt.Sprintf("%x", [1]byte{rand.N[byte](255)}))
+		}
+		return buf.String()
+	}
+	bytesQual := func(ident string) *jen.Statement {
+		return jen.Qual("bytes", ident)
+	}
+	imageQual := func(ident string) *jen.Statement {
+		return jen.Qual("image", ident)
+	}
+	decoratePrint(jen.Var().DefsFunc(func(g *jen.Group) {
+		g.Id(randomIdentName(4)).Op("=").Op("*").Add(bytesQual("Buffer"))
+		g.Id(randomIdentName(4)).Op("=").Add(imageQual("Image"))
+	}))
+	/*
+		---
+		var (
+		        _76ef57e5 = *bytes.Buffer
+		        _5d5cdb42 = image.Image
+		)
+		---
+	*/
 ```
 
 #### HACK: Idでコード片を挿入
@@ -467,22 +529,41 @@ func main() {
 }
 ```
 
-## まとめ
-
 ## おわりに
 
+前段の記事: [Goのcode generation: text/template](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
+
+- Rationale: なぜGoでcode generationが必要なのか
+- code generatorを実装する際の注意点など
+- `io.Writer`に書き出すシンプルな方法
+- `text/template`を使う方法
+  - `text/template`のcode generationにかかわりそうな機能性。
+  - 実際に`text/template`を使ったcode generatorのexample。
+
+を述べ、
+
+[Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
+
+についてそれぞれ述べました。
+
+この記事では`Go`のcode generatorを作るためのライブラリである[github.com/dave/jennifer]の使い方を軽く紹介し、`text/template`で実装したenumのcode generatorを`jennifer`で再実装しました。
+
+さらに後続の記事で、それぞれ以下について説明します。
+
+- [Goのcode generation: ast(dst)-rewrite](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
+
+[github.com/dave/jennifer]では`Go`のトークンや構文に対応づいた関数をメソッドチェーンで順繰りに呼び出すことでコードを生成します。
+`○○Func`, `Do`で関数を受け取れるため、ここで反復可能なデータを取り扱うことができ、さらに`Add`も組み合わせると適当にgeneratorを分割することができます。
+また`Qual`によって自動的にimport declが管理されるため、同名のパッケージをインポートする際の名前被りも自動的に回避されます。
+
+`jennifer`は書きやすい反面、ユーザーから部分的なcode generatorを受けとって挙動をカスタマイズさせるような機能を作りづらいため、そういった機能が必要なケースでは`text/template`を組み合わせて使用するのがよいかと思います。
+
 [Go]: https://go.dev/
-[C++]: https://en.wikipedia.org/wiki/C%2B%2B
-[Node.js]: https://nodejs.org/en
-[TypeScript]: https://www.typescriptlang.org/
-[python]: https://www.python.org/
 [Rust]: https://www.rust-lang.org
-[The Rust Programming Language 日本語]: https://doc.rust-jp.rs/book-ja/
 [Visual Studio Code]: https://code.visualstudio.com/
 [vscode]: https://code.visualstudio.com/
-[git]: https://git-scm.com/
 [github.com/dave/jennifer]: https://github.com/dave/jennifer
 [github.com/dave/dst]: https://github.com/dave/dst
-[text/template]: https://pkg.go.dev/text/template@go1.22.5
-[go/ast]: https://pkg.go.dev/go/ast@go1.22.5
-[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.23.0/go/packages
+[text/template]: https://pkg.go.dev/text/template@go1.22.6
+[go/ast]: https://pkg.go.dev/go/ast@go1.22.6
+[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages
