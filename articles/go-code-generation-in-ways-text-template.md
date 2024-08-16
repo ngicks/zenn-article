@@ -48,11 +48,17 @@ go version go1.22.0 linux/amd64
 
 ## Rationale: なぜGoでcode generationが必要なのか
 
-[Go]は、`C`や[Rust](https://doc.rust-lang.org/book/ch19-06-macros.html)にあるようなマクロを言語機能として持っていないため、たびたびcode generationを行いますし、それを行うことは前提のようになっています。
+似たようなことを繰り返し行う必要があるとき、繰り返す代わりに処理を共通化しておくほうが間違えにくいのでまずそうしたいと思います。
+言語がその繰り返しを共通化・自動化する仕組みを持たないとき、最後の手段的にソースコードを生成することになります。
+
+この手の共通化の仕組みとしてはマクロがあると思います。
+[Go]は、`C`や[Rust](https://doc.rust-lang.org/book/ch19-06-macros.html)にあるようなマクロを言語機能として持っていません。
+
+[Go]では代わりにたびたびcode generationを行いますし、それを行うことは前提のようになっています。
 それは`go generate`というサブコマンドが存在することや、`Go`のstd自身がそれを多用することから様式として存在していることがわかります。
 また、`Go`にはgenericsによるある型セットに対する共通した処理と、`reflect`による型構造への動的な処理を実装できますが、これらは当然ソースコードの解析を必要とするような挙動は実装できませんので、それらを必要とする場合はcode generationが必要となります。
 
-### go:generate
+### go generate
 
 [The Go BlogのGenerating code](https://go.dev/blog/generate)にも書かれている通り、`Go 1.4`から`Go`には[go generate](https://pkg.go.dev/cmd/go#hdr-Generate_Go_files_by_processing_source)というサブコマンドが追加されました。
 これはgo source codeに書かれた`//go:generate`マジックコメントのあとにスペースを挟んで書かれた任意をコマンドを、そのソースファイルの位置をcwdに指定して実行するというものです。
@@ -286,16 +292,15 @@ code generatorが内部で`for-range-map`を行っており、これがそのま
 代わりに`Go 1.22.x`以前では
 
 ```go
-// https://go.dev/play/p/s5K782-FhKo
-var m map[K]V
-keys := make([]K, 0, len(m))
+keys := make([]K, len(m))
+var i int
 for k := range m {
-	keys = append(keys, k)
+	keys[i] = k
+	i++
 }
 slices.Sort(keys)
 for _, k := range keys {
 	_ = m[k]
-	// ...
 }
 ```
 
@@ -303,21 +308,20 @@ for _, k := range keys {
 `Go1.23`以降ならもっと簡単に
 
 ```go
-// https://go.dev/play/p/FamvmtR8GzW
-var m map[K]V
-for _, k := range slices.Sorted((maps.Keys(m))) {
+for _, k := range slices.Sorted(maps.Keys(m)) {
 	_ = m[k]
-	// ...
 }
 ```
 
 とできます。
 
+動作することは[playground](https://go.dev/play/p/M7WO6dT00YW)で確認してください
+
 ### go:generate go run -mod=mod
 
 これは`README.md`などの中で、あなたの作成したcode generatorの呼び出し方をどのように指示するかという話なんですが、
 
-あなたの作るcode generatorが生成するコードが何かしらの外部モジュールを必要とし、それがcode generatorと同じモジュールで管理されているとき、以下のように、`go run -mod=mod`で実行するよう指示するとよいでしょう。
+あなたの作るcode generatorが生成するコードが何かしらの外部パッケージを必要とし、それがcode generatorと同じモジュールで管理されているとき、以下のように、`go run -mod=mod`で実行するよう指示するとよいでしょう。
 
 ```
 # 架空のURLを取り扱うのでexample.comのサブドメインとして書いています
@@ -333,13 +337,17 @@ for _, k := range slices.Sorted((maps.Keys(m))) {
 
 ### post process: goimports
 
+ソースはここでもホストされます
+
+https://github.com/ngicks/go-example-code-generation/tree/main/misc/apply-goimports
+
 生成したコードは`goimports`によってフォーマットをかけてから書き出すとよいでしょう。
-これにより、万一code generatorの実装ミスや、ユーザーが指定できるパラメータのvalidationががおかしくて生成されたコードが`Go`の文法を満たさない場合にエラーとして検知が可能です。
+これにより、
 
-以下のコードでは`go run golang.org/x/tools/cmd/goimports@latest`するのではなく、システムにインストール済みの`goimports`を利用します。
-なので、`checkGoimports`を他の生成ロジックより前に呼び出して、実行プロセスが見ることができる位置に`goimports`が存在するかを確認しておくほうが無難です。
+- 万一code generatorの実装ミスや、ユーザーが指定できるパラメータのvalidationががおかしくて生成されたコードが`Go`の文法を満たさない場合にエラーとして検知が可能です。
+- インデントか崩れていたり、使われていないimportがあったりしたとき修正してもらえます。
 
-別に`go run`で`goimports`を呼び出しても問題ないことのほうが多いと思います。ただ、`go run`はモジュールが`$GOPATH`以下にキャッシュされていない場合などにダウンロードをしますから、ダウンロード関連のエラーも起きうるわけです。ここでダウンロード周りのエラーを起されても困るのでこうしています。
+`gofmt`, `gofumpt`と同様に`goimports`はstdinに`Go`のsource codeを入力するとstdoutに出力する挙動があるので入力はファイルシステムに書き出されている必要はありません。
 
 ```go
 func checkGoimports() error {
@@ -347,24 +355,88 @@ func checkGoimports() error {
 	return err
 }
 
-func applyGoimports(ctx context.Context, r io.Reader) (*bytes.Buffer, error) {
+
+func applyGoimportsPiped(ctx context.Context, r io.Reader) (io.Reader, error) {
 	cmd := exec.CommandContext(ctx, "goimports")
-	cmd.Stdin = r
-	formatted := new(bytes.Buffer)
-	stderr := new(bytes.Buffer)
-	cmd.Stdout = formatted
-	cmd.Stderr = stderr
-	err := cmd.Run()
+	return newCmdPipeReader(cmd, r)
+}
+
+func applyGoimports(ctx context.Context, r io.Reader) (*bytes.Buffer, error) {
+	r, err := applyGoimportsPiped(ctx, r)
 	if err != nil {
-		return nil, fmt.Errorf("goimports failed: err = %v, msg = %s", err, stderr.Bytes())
+		return nil, err
 	}
-	return formatted, nil
+
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, r)
+
+	return &buf, err
+}
+
+type cmdPipeReader struct {
+	cmd      *exec.Cmd
+	pipe     io.Reader
+	stderr   *bytes.Buffer
+	waitOnce sync.Once
+	err      atomic.Value
+}
+
+func newCmdPipeReader(cmd *exec.Cmd, r io.Reader) (*cmdPipeReader, error) {
+	stderr := new(bytes.Buffer)
+
+	cmd.Stdin = r
+	cmd.Stderr = stderr
+
+	p, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		return nil, err
+	}
+
+	return &cmdPipeReader{cmd: cmd, pipe: p, stderr: stderr}, nil
+}
+
+func (r *cmdPipeReader) Read(p []byte) (n int, err error) {
+	var firstRead bool
+	r.waitOnce.Do(func() {
+		firstRead = true
+		go func() {
+			err := r.cmd.Wait()
+			if err == nil {
+				err = io.EOF
+			} else {
+				err = fmt.Errorf("%s failed: err = %w, msg = %s", r.cmd.Path, err, r.stderr.Bytes())
+			}
+			r.err.Store(err)
+		}()
+	})
+
+	if !firstRead {
+		errValue := r.err.Load()
+		if errValue != nil {
+			return n, errValue.(error)
+		}
+	}
+
+	n, err = r.pipe.Read(p)
+	if err != io.EOF && !errors.Is(err, os.ErrClosed) {
+		return n, err
+	}
+
+	return n, nil
 }
 ```
 
-一応補足ですが、code generatorは大体`io.Writer`に書き出すようになっているため、`goimports`にその出力を渡すには一旦`*bytes.Buffer`に出力するか、でなければ`io.Pipe`を使ってパイプを行います。
-出力は`Go`のソースコードなのでメモリに置けないほど大きくなることは想定する必要がないはずです。
-多量のファイルの一気に処理するとかでない限り`*byte.Buffer`を経由して持ちまわって問題ないでしょう。
+こんな感じでpipeを返すことでfilter的に`goimports`を使うことができます。
+
+このコードでは`go run golang.org/x/tools/cmd/goimports@latest`とするのではなく、システムにインストール済みの`goimports`を利用します。
+なので、`checkGoimports`を他の生成ロジックより前に呼び出して、実行プロセスが見ることができる位置に`goimports`が存在するかを確認しておくほうが無難です。
+
+別に`go run ...`しても問題ないとは思うんですが、`go run`はモジュールが`$GOPATH`以下にキャッシュされていない場合はホストからモジュールをダウンロードします。この行でダウンロード周りのエラーを起されたくないですのでこうしています。
 
 ## simple text emitter: io.Writerに書くだけの方法
 
