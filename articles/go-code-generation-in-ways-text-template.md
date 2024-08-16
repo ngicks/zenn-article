@@ -188,11 +188,11 @@ func (p Patch[T]) Convert[U any](converter func(t T) U) U {
 
 例えば、code generatorである[golang.org/x/tools/cmd/stringer](https://pkg.go.dev/golang.org/x/tools/cmd/stringer)は以下のような、iotaを用いたenum風なconst定義に対して
 
-https://github.com/golang/go/blob/go1.22.5/src/html/template/context.go#L80-L161
+https://github.com/golang/go/blob/go1.22.6/src/html/template/context.go#L80-L161
 
 以下のように`String`メソッドを生成します。
 
-https://github.com/golang/go/blob/go1.22.5/src/html/template/state_string.go
+https://github.com/golang/go/blob/go1.22.6/src/html/template/state_string.go
 
 **これらはソースコードの解析その他を行わない限り不可能なことですので、こういったことをしたい場合はcode generatorが必要になります。**
 
@@ -446,15 +446,15 @@ func (r *cmdPipeReader) Read(p []byte) (n int, err error) {
 
 例えば、`Go`の`runtime`では以下のような単にテキストを書くだけのcode generatorを見つけることができます。
 
-https://github.com/golang/go/blob/go1.22.5/src/runtime/wincallback.go
+https://github.com/golang/go/blob/go1.22.6/src/runtime/wincallback.go
 
 生成対象は`.s`の[Go assembly](https://go.dev/doc/asm)ファイルですが、まあ言いたいことはかわらないのでいいとしましょう。
 
 このコードによって以下の3つのファイルが生成されます。
 
-https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows_arm.s
-https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows_arm64.s
-https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows.s
+https://github.com/golang/go/blob/go1.22.6/src/runtime/zcallback_windows_arm.s
+https://github.com/golang/go/blob/go1.22.6/src/runtime/zcallback_windows_arm64.s
+https://github.com/golang/go/blob/go1.22.6/src/runtime/zcallback_windows.s
 
 これらのファイルは以下のような、ほぼ同じパターンを2000(=`maxCallback`)回繰り返すだけの単純なものです。
 
@@ -470,20 +470,6 @@ https://github.com/golang/go/blob/go1.22.5/src/runtime/zcallback_windows.s
 `text/template`を用いる方法について述べます。
 
 `text/template`は高機能でぱっと見難しいので、code generatorを作る際にかかわりそうな機能性について説明し、最後にcode generatorを実装してみることとします。
-
-### text/template
-
-https://pkg.go.dev/text/template@go1.22.6
-
-stdライブラリに組み込まれたテンプレート機能です。
-
-テンプレートなので、既存の型となるテキストの特定の部分を入力によって切り替えるものなのですが、`if`や`for`などが機能として組み込まれているのでおおよそ何でもできてしまいます。
-
-`html/template`も存在しますが、こちらは`html`を出力するための各種サニタイズを実装した`text/template`のラッパーみたいなものですので、テキストの出力に関しては`text/template`を使用します。
-エディターの自動補完に任せると`html/template`のほうがimportされることがありますので、なぜか出力文字列がエスケープされていたらimportを確認しましょう。
-
-詳細な使い方の説明は上記の`text/template`のdoc comment、ないしは実装そのものに当たってほしいと思いますが、筆者は初めて読んだときあまりにピンときませんでした。
-なのでcode generatorとして使うときにかかわりそうなところはここで説明しておきます。
 
 ### 利点と欠点
 
@@ -505,9 +491,24 @@ stdライブラリに組み込まれたテンプレート機能です。
   - importの取り扱いが大変。
     - ユーザーにtemplateを入力させる系を想定すると、ここで新しく追加されたimportをどう取り扱うか、自分で決める必要があります。
 
+### text/template
+
+https://pkg.go.dev/text/template@go1.22.6
+
+stdライブラリに組み込まれたテンプレート機能です。
+
+テンプレートなので、既存の型板となるテキストの、特定の部分を入力によって切り替えるものです。
+それに加えて`if`、`for`、関数の呼び出しなどが機能として組み込まれているのでおおよそ何でもできてしまいます。
+
+`html/template`も存在しますが、こちらは`html`を出力するための各種サニタイズを実装した`text/template`のラッパーみたいなものですので、テキストの出力に関しては`text/template`を使用します。
+エディターの自動補完に任せると`html/template`のほうがimportされることがありますので、なぜか出力文字列がエスケープされていたらimportを確認しましょう。
+
+詳細な使い方の説明は上記の`text/template`のdoc comment、ないしは実装そのものに当たってほしいと思いますが、筆者は初めて読んだときあまりにピンときませんでした。
+なのでcode generatorとして使うときにかかわりそうなところはここで説明しておきます。
+
 ### エディターのサポート(syntax highlight, Go to definition, etc...)
 
-`gopls`の設定をしたうえでtemplateを`gotmpl`か`tmpl`でテキストとして保存すると`gopls`によるsyntax highlightなどのサポートを得られます(experimental)。
+`gopls`の設定をしたうえでtemplateを`.gotmpl`か`.tmpl`の拡張子で保存すると、`gopls`によるsyntax highlightなどのサポートを得られます(experimental)。
 
 vscodeの場合、`settings.json`に以下を追加します。
 
@@ -598,7 +599,9 @@ Yay Yay.
 `Execute`の第二引数にはパラメータを詰め込んだデータを渡します。
 `{{.}}`の`.`はcontextualな値で、トップレベルでは`Execute`に渡したデータそのものをさしています。
 
-渡すパラメータは任意の`Go struct`か`map[K]V`であれば、dot selectorでフィールドの値か、keyに収められている値がそれぞれ取り出されることが書かれています。
+渡すパラメータは任意の`Go`の値です。
+structもしくは`map[K]V`であれば、dot selectorで紐づけられた値にアクセスできます。
+
 structを指定する場合は`reflect`パッケージを使って値にアクセスしますので、`reflect`でアクセスできるフィールドを指定する必要があります(=Exported)。
 
 ```go
@@ -871,7 +874,7 @@ https://pkg.go.dev/text/template@go1.22.6#hdr-Functions
 
 それ以外にも、[(\*Template).Funcs](https://pkg.go.dev/text/template@go1.22.6#Template.Funcs)で任意に追加できます。
 
-関数はtemplate内で参照される前に追加されている必要がありますが、あとから上書きすることもできます。
+**関数は、それを参照するtemplateがParseされるより前に追加されている必要があります**が、あとから上書きすることもできます。
 
 以下でいろいろ試してみます。
 
@@ -985,7 +988,7 @@ func main() {
 }
 ```
 
-関数の引数の型は何でもいいですが、入力パラメータと一致しなければエラーになるようです。見たところ[(reflect.Type).AssignableToがfalseの場合エラー](https://github.com/golang/go/blob/go1.22.5/src/text/template/exec.go#L852-L862)です。
+関数の引数の型は何でもいいですが、入力パラメータと一致しなければエラーになるようです。見たところ[(reflect.Type).AssignableToがfalseの場合エラー](https://github.com/golang/go/blob/go1.22.6/src/text/template/exec.go#L852-L862)です。
 
 ### multiple-template
 
@@ -1009,7 +1012,7 @@ https://github.com/ngicks/go-example-code-generation/blob/main/template/multiple
 
 筆者もこの記事を書くまで全くわかっていなかったのですが、`*Template`は以下の通り`*common`という構造体で解析されたtemplateを保持し、この`*common`は`(*Template).New`で作成されたすべての`*Template`に共有されています。
 
-https://github.com/golang/go/blob/go1.22.5/src/text/template/template.go#L13-L35
+https://github.com/golang/go/blob/go1.22.6/src/text/template/template.go#L13-L35
 
 - `Parse`はこの`*common`を上書きします。そのため、`Parse`や`Funcs`は`*common`を共有するすべての`*Template`に影響します。
 - 同名のtemplateを複数定義している場合などでは`Parse`する順序によって結果が変わることになります。
@@ -1155,9 +1158,9 @@ sub3: {{template "tmp4.tmpl" .Sub3}}
 {{block "additional" .}}{{end}}
 ```
 
-`ParseFS`でファイルを読み込むと以下の行の挙動により`Base`が名前になってしまうためです。
+これは`ParseFS`でファイルを読み込むと以下の行の挙動により`Base`が名前になってしまうためです。
 
-https://github.com/golang/go/blob/go1.22.5/src/text/template/helper.go#L172-L178
+https://github.com/golang/go/blob/go1.22.6/src/text/template/helper.go#L172-L178
 
 `gopls`の支援により以下ようなsyntax highlightがかかります。
 
@@ -1282,6 +1285,7 @@ code generatorとしてかかわりそうな機能は一通り説明したと思
 
 以下のざっくり仕様を満たすものを作ることとします
 
+- パラメータはstructで受け付けます(=`json.Unmarshal`などでJSONなどのデータフォーマットで入力可能)
 - `type Foo string`な、string-base typeのみを生成します。
 - `const (...)`でvariantsを列挙し、
 - `IsFoo`で入力がvariantsかどうかを判定します。
@@ -1507,7 +1511,7 @@ qualifierはidentifierであるため、当然名前は被ってはいけませ�
 type UserInput struct {
 	// package name of generated code.
 	PackageName string
-	// Imports describes dependencies to other packages of Template text.
+	// Imports describes dependencies to other packages to which the Template text depends.
 	// Template will not use packages other than described in this field.
 	// Template may use all, some of, or even none of imported packages in the generated code.
 	//

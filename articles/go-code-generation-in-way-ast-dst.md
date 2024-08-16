@@ -89,21 +89,26 @@ go version go1.22.0 linux/amd64
   - ある`Go`のtypeに対して何かの生成を行いたいとき、生成元は`Go`で書くのが最も一直線です。
   - `text/template`などを使う方法であげたYAMLやJSONのメタデータを書く方法では、メタデータから生成結果の想像がつかないとやや書きづらくなります。
 
-仕事でcode generatorを実装する際には筆者的に正当化しずらい費用対効果なので(メタデータをYAMLなどで書かせる方法のコスパがよすぎるため)、なかなか実装する機会がありませんが、体験はいいので慣れておきたいと筆者的には思ってました。
+仕事でcode generatorを実装する際には筆者的に正当化しずらい費用対効果なので(メタデータをYAMLなどで書かせる方法のコスパがよすぎるため)、なかなか実装する機会がありませんが、体験はいいので慣れておきたいと筆者的には思っていました。
 
-### ソースコードの解析
+### Go source codeの解析
+
+source codeを解析してastをえる方法について述べます。
+
+- 文字列・単一のファイルに対しては`go/parser`の[parser.ParseFile](https://pkg.go.dev/go/parser@go1.22.6#ParseFile)を利用します
+- 複数のファイル・パッケージを解析するには[golang.org/x/tools/go/packages]を利用します。
 
 #### go/parser
 
 astは`go/token`, `go/parser`を用いて解析します。
 
-`Go`のastはastと言いながら各Exprの位置情報が記録されています。これは`go/printer`による逆変換ができるようにするためかもしれません。
+`Go`のastはastと言いながら各Exprの位置情報が記録されています。これはlinter・その他で構文エラーの位置を表示するため、さらに`go/printer`による逆変換ができるようにするためなどの理由があるのだと思います。
 
 1ファイルのみを読み込むには以下のようにします。
 
 出力は少々長くなるので省略しました。なので、以下のplaygroundで実行するか、[ソース](https://github.com/ngicks/go-example-code-generation/tree/main/ast/print/ast)をコピーしてローカルで実行してみてください。
 
-[playground](https://go.dev/play/p/QZ7x7sFeNWB)
+[playground](https://go.dev/play/p/cTZCHKH2pXA)
 
 ```go
 package main
@@ -143,6 +148,14 @@ func (s Some[T, U]) Method1() {
 	// ...nothing...
 }
 
+// comment slash slash
+
+
+/*
+
+comment slash star
+
+*/
 `
 
 func main() {
@@ -155,12 +168,12 @@ func main() {
 }
 ```
 
-`token.NewFileSet`で[\*token.FileSet](https://pkg.go.dev/go/token@go1.22.6#FileSet)をallocateして、[parser.ParseFile](https://pkg.go.dev/go/parser@go1.22.6#ParseFile)で第３引数を解析します。ドキュメントにある通り、[nil, []byte, string, io.Readerのいずれかを受け付け, nilの場合第二引数のfilenameを読み込みます](https://github.com/golang/go/blob/go1.22.5/src/go/parser/interface.go#L24-L42)。
+`token.NewFileSet`で[\*token.FileSet](https://pkg.go.dev/go/token@go1.22.6#FileSet)をallocateして、[parser.ParseFile](https://pkg.go.dev/go/parser@go1.22.6#ParseFile)で第３引数を解析します。ドキュメントにある通り、第3引数は[nil, []byte, string, io.Readerのいずれかを受け付け, nilの場合第二引数のfilenameを読み込みます](https://github.com/golang/go/blob/go1.22.6/src/go/parser/interface.go#L24-L42)。
 
 #### ast.Print
 
 解析された[\*ast.File](https://pkg.go.dev/go/ast@go1.22.6#File)を[ast.Print](https://pkg.go.dev/go/ast@go1.22.6#Print)もしくは[ast.Fprint](https://pkg.go.dev/go/ast@go1.22.6#Fprint)に渡すことで内部の構造をプリントすることができます。
-これは要するに`reflect`によってgo structをwalkする関数です。ですので、`Go`のコードからどのようにastを扱えばいいのかがわかります。
+これは要するに`reflect`によってgo structをwalkしながらprintする関数です。
 
 前述通り上記サンプルコードの出力結果は長いので省略しますが、抜粋して一部を以下に例示します。
 
@@ -218,7 +231,11 @@ type Some[T, U any] struct {
 
 #### golang.org/x/tools/go/packages
 
-[ast.ParseDir](https://pkg.go.dev/go/parser@go1.22.6#ParseDir)が返す[\*ast.Package](https://pkg.go.dev/go/ast@go1.22.6#Package)が[Go1.22からdeprecatedになっている](https://tip.golang.org/doc/go1.22#minor_library_changes)ため、ディレクトリの中身を一気にパーズしたいとき何使えばいいんだよってなりますよね。
+サンプルは以下でもホストされます
+
+https://github.com/ngicks/go-example-code-generation/tree/main/ast/parse-by-packages
+
+少し前ではあるパッケージ、つまりディレクトリの中にあるsource fileを一気に解析するには[ast.ParseDir](https://pkg.go.dev/go/parser@go1.22.6#ParseDir)を使えばよかったのですが、これが返す[\*ast.Package](https://pkg.go.dev/go/ast@go1.22.6#Package)が[Go1.22からdeprecatedになっている](https://tip.golang.org/doc/go1.22#minor_library_changes)ため、ディレクトリの中身を一気にパーズしたいとき何使えばいいんだよってなりますよね。
 
 困ったので[github.com/golang/example](https://github.com/golang/example)を見ていると、[このコミット](https://github.com/golang/example/commit/1d6d2400d4027025cb8edc86a139c9c581d672f7)で[golang.org/x/tools/go/packages]を勧める文章に変わっていました。
 
@@ -306,7 +323,7 @@ github.com/hack-pad/hackpadfs: packages.Error{Pos:"", Msg:"no required module pr
 ```
 
 - `Overlay`
-  - コードを追ってみる限り`json.Marshal`してファイルシステムに書き出された後`-overlay`オプションに渡されます。
+  - コードを追ってみる限り内容をtemp fileとしてそれぞれ書き出し、`-overlay`オプションに渡すことができるjsonファイルを書き出してから`-overlay`オプションに書き出したjsonファイルのパスを渡します。
   - `-overlay`オプションそのものは今回の話題に対して重要ではないので、ここでは説明を避け[go Command Documentation](https://pkg.go.dev/cmd/go)を読むようにとだけ書いておきます。
 
 ##### packages.Visit
@@ -359,7 +376,17 @@ package path: path
 
 ##### pkgs[i].Syntax: []\*ast.File
 
-[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Package)の`Fset`フィールドは`*token.FileSet`,`Syntax`フィールドは`[]*ast.File`なので、`ast.Print`などast情報を使った処理ができます。
+[packages.Load](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Load)の返り値は`[]*packages.Package`です。
+[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Package)の各フィールドが解析結果です。
+
+`Load`時、`LoadMode`に`packages.NeedSyntax`をつけると
+
+- `Fset`フィールド: `*token.FileSet`
+- `Syntax`フィールド: `[]*ast.File`
+
+が読み込まれます。これによりパッケージ内のファイルすべてを`parser.ParseFile`するのと同等の挙動が得られます。
+
+当然`ast.Print`などast情報を使った処理ができます。
 
 ```go
 	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
@@ -377,7 +404,8 @@ package path: path
 
 ##### pkgs[i].Types: \*types.Package
 
-[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages#Package)の.Typesフィールドは`*types.Package`なので、型情報を使って処理を行うことができます。
+`Load`時、`LoadMode`に`packages.NeedTypes`をつけると`Types`フィールドに`*types.Package`が解析結果として代入されます。
+これにより型情報を使った処理を行うことができます。
 
 ```go
 	pkgs, err := packages.Load(cfg, "io", "./ast/parse-by-packages/target")
@@ -413,9 +441,11 @@ package path: path
 	}
 ```
 
+`types`の話はちょっとしたおまけなのでこれ以上詳しくしません。
+
 ### directive commentとその解析方法
 
-`Go`には[Compiler directiveをコメントとして書くことができます。](https://pkg.go.dev/cmd/compile#hdr-Compiler_Directives)
+`Go`はマジックコメントで[Compiler directiveを書貸せるようになっています。](https://pkg.go.dev/cmd/compile#hdr-Compiler_Directives)
 このdirective commentはdoc commentに出現しないようです。なので、directive commentでcode generatorに対して指示を出せるとdoc commentを邪魔せず、メタデータを別ファイルに分けることなく`Go`のsource codeに追加できるため便利かもしれません。
 ただし、directive commentの解析をastから行うには若干の工夫がいるので以下でその方法を述べます。
 
@@ -430,7 +460,7 @@ package path: path
 //directive comment
 ```
 
-[compiler directive](https://pkg.go.dev/cmd/compile#hdr-Compiler_Directives)の項目では説明されていませんが、`//go:embed`のように色々なマジックコメントがwildに存在します。
+[compiler directive](https://pkg.go.dev/cmd/compile#hdr-Compiler_Directives)の項目では説明されていませんが、`//go:embed`のように他にも色々なマジックコメントが存在します。
 
 [staticcheckの//lint:ignore directive](https://staticcheck.dev/docs/configuration/#line-based-linter-directives)や、[golangci-lintのnolint directive](https://golangci-lint.run/usage/false-positives/#nolint-directive)などサードパーティのツール、特にlinterなどがこのdirective commentを利用して挙動の調節が行えるようになっています。
 
@@ -497,7 +527,9 @@ func main() {
 
 ### astのtraverse方法
 
-astをトラバースするには以下などの関数を用います。どれもdepth-first orderです。
+astを解析して得ることができても、その中から特定の探したいパターンを探せなければ意味のある処理を行うことができません。
+
+そこで`Go`は以下の関数などでastをトラバースする方法を提供しています。
 
 - [ast.Inspect](https://pkg.go.dev/go/ast@go1.22.6#Inspect)
   - astをwalkします
@@ -580,12 +612,11 @@ const (
 
 astをrewriteするのでSyntaxをfor-rangeします。
 
-今回は`pre`のみを使っていきます。
+`astutil.Apply`では、あるast nodeにstep inする前に呼び出されるコールバック(`pre`)と、walkしきあったとに呼び出されるコールバック(`post`)を渡して処理を行えます。
+今回は`pre`のみを用います。
 
-今回は`*ast.GenDecl`を探索するので
-`ast.Apply`に`*ast.File`を渡すと、[package comment, package name, Declsの順](https://github.com/golang/tools/blob/v0.24.0/go/ast/astutil/rewrite.go#L429-L436)でwalkしていくのでdefault branchで`return true`しないとうまいこと進んでくれません。
-
-コメントを書き換えるのでnodeとコメントの関連付けを保つために[\*ast.CommentMap](https://pkg.go.dev/go/ast@go1.22.6#CommentMap)を先に作成します。
+今回は`*ast.GenDecl`を探索するので`*ast.File`を`astutil.Apply`に渡します。
+その際のステップ順序は[package comment, package name, Declsの順](https://github.com/golang/tools/blob/v0.24.0/go/ast/astutil/rewrite.go#L429-L436)であるのでdefault branchで`return true`しないとうまいこと進んでくれません。
 
 ```go
 	for _, f := range pkg.Syntax {
@@ -649,7 +680,7 @@ astをrewriteするのでSyntaxをfor-rangeします。
 時々忘れちゃいますが、defaultでfallthroughが起きないだけで`Go`のswitch-case文はbreakが使えます。
 
 `type Foo string`なstring-based typeかどうかは以下のように判定します。
-これは単に`type Foo string`をparseした結果を`ast.Print`して確かめた通りに記述しているだけです。
+こういった判定は、astを`ast.Print`して確かめた通りに実装するとよいです。
 
 ```go
 func isStringBasedType(spec ast.Spec) (string, bool) {
@@ -665,7 +696,7 @@ func isStringBasedType(spec ast.Spec) (string, bool) {
 }
 ```
 
-前述のとおり、`*ast.CommentGroup`の`Text`ではdirective commentが除外されてしまうので`List`を走査します。
+前述のとおり、`*ast.CommentGroup`の`Text`メソッドではdirective commentが除外されてしまうので`List`を走査します。
 
 ```go
 type EnumParam struct {
@@ -703,8 +734,10 @@ func stripMarker(text string) string {
 
 replaceする部分です。
 
-`*astutil.Cursor`をそのまま受け取ります。呼び出し側でcursorは`*ast.GenDecl`をさしているので、Parent=`*ast.File`を`astutil.Apply`でwalkします。
 仕様で説明した通り、特定のコメントがついた`const ()`を探して、あれば置き換え、なければ追加します。
+
+追加する際には`(*Cursor).InsertAfter`で、対象タイプの直後にコードを挿入したいため、対象となる`GenDecl`を指した状態の`*Cursor`をそのまま受け取れると都合がよいのでそうします。
+既に作成された`const ()`ブロックを探すには、もう1度`Parent`=`*ast.File`を`Apply`で探索します。
 
 ```go
 func addOrReplaceEnum(c *astutil.Cursor, param EnumParam) {
@@ -806,7 +839,7 @@ func capitalize(s string) string {
 }
 ```
 
-#### \*ast.CommentMap
+#### node移動時にコメントの整合性を保つ: \*ast.CommentMap
 
 > https://pkg.go.dev/go/ast@go1.22.6#File
 >
@@ -1087,7 +1120,7 @@ https://stackoverflow.com/questions/31628613/comments-out-of-order-after-adding-
 https://github.com/ngicks/go-example-code-generation/blob/main/ast/print/dst
 
 dstを利用するためには`*ast.File`をまず用意します。これは今まで通り`parser.ParseFile`を呼び出したり、[golang.org/x/tools/go/packages]を利用します。
-以下のように`decorator`パッケージを利用して`*dst.File`
+以下のように`decorator`パッケージを利用して`*ast.File`を`*dst.File`に*decorate*します。
 
 ```go
 package main
@@ -1411,16 +1444,18 @@ doc commentに当たるindexの範囲を探索し、その範囲を先頭から�
 ```go
 func astVariants(param EnumParam, targetDecoration dst.GenDeclDecorations) *dst.GenDecl {
 	if len(targetDecoration.Start) > 0 {
-		var i int
-		for i = len(targetDecoration.Start) - 1; i >= 0; i-- {
-			if targetDecoration.Start[i] == "\n" {
-				break
+		if targetDecoration.Start[len(targetDecoration.Start)-1] != "//enum:generated_for="+param.Name {
+			var i int
+			for i = len(targetDecoration.Start) - 1; i >= 0; i-- {
+				if targetDecoration.Start[i] == "\n" {
+					break
+				}
 			}
+			if i < 0 {
+				i = len(targetDecoration.Start) - 1
+			}
+			targetDecoration.Start = append(slices.Clone(targetDecoration.Start[:i]), "\n", "//enum:generated_for="+param.Name)
 		}
-		if i < 0 {
-			i = len(targetDecoration.Start) - 1
-		}
-		targetDecoration.Start = append(slices.Clone(targetDecoration.Start[:i]), "\n", "//enum:generated_for="+param.Name)
 	} else {
 		targetDecoration.Start = []string{"//enum:generated_for=" + param.Name}
 	}
@@ -1466,8 +1501,8 @@ func astVariants(param EnumParam, targetDecoration dst.GenDeclDecorations) *dst.
 +		if err != nil {
 +			panic(err)
 +		}
-+
-		err = printer.Fprint(out, pkg.Fset, f)
+-		err = printer.Fprint(out, pkg.Fset, f)
++		err = printer.Fprint(out, pkg.Fset, af)
 		if err != nil {
 			panic(err)
 		}
@@ -1478,7 +1513,7 @@ func astVariants(param EnumParam, targetDecoration dst.GenDeclDecorations) *dst.
 
 https://github.com/ngicks/go-example-code-generation/blob/main/ast/rewrite/dstutil
 
-`ast`版ではうまくいかなかったに対し、
+`ast`版ではうまくいかなかったのに対し、
 
 ```go
 package target
@@ -1618,7 +1653,7 @@ exprが追加されてなおかつモジュールオーナーが非活発的な�
 `text/template`や[github.com/dave/jennifer]を用いてコードを生成したほうがはるかに簡単なので、この方法を利用することは少ないと思います。
 linterのcode actionのようなものを実装したいときや、code generatorの生成結果をさらに変更するなどのケースで便利かなと思います。
 
-実装する機会は少ないかもしれない・・・少なくとも筆者的に仕事やるには正当化しずらい手間です・・ですが、やれると体験がよいので覚えておくとよいかもしれません。
+実装する機会は少ないかもしれない・・・少なくとも筆者的に仕事でやるには正当化しずらい手間です・・ですが、やれると体験がよいので覚えておくとよいかもしれません。
 
 [Go]: https://go.dev/
 [Rust]: https://www.rust-lang.org

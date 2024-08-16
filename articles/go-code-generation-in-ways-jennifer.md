@@ -83,11 +83,15 @@ go version go1.22.0 linux/amd64
 
 ### 基本的な使用方法
 
+コードは以下でホストされます
+
+https://github.com/ngicks/go-example-code-generation/tree/main/jennifer/basic
+
 [README.md](https://github.com/dave/jennifer/tree/v1.7.0?tab=readme-ov-file#jennifer)でしっかり説明がなされているので特に説明することはないかと思います、APIの様式がわかる程度のことを書いておいたほうが読みやすいかもしれないので先にここでそれについて述べておきます。
 
 #### 宣言、書き出し
 
-`jen.NewFile`,`jen.NewFilePath`,`jen.NewFilePathName`のいずれかで`*jen.File`(=1つのGo source code fileに対応づくもの)をallocateし、そこからメソッドをいろいろ呼び出します。最後に`(*jen.File).Render`でファイルなどに生成したコードを書き出して終了します。
+`jen.NewFile`, `jen.NewFilePath`, `jen.NewFilePathName`のいずれかで`*jen.File`(=1つの`.go`ファイルに対応づくもの)をallocateし、そこからメソッドをいろいろ呼び出します。最後に`(*jen.File).Render`でファイルなどに生成したコードを書き出して終了します。
 
 ```go
 package main
@@ -113,7 +117,7 @@ func main() {
 ```
 
 `Render`は[NoFormat](https://github.com/dave/jennifer/blob/v1.7.0/jen/file.go#L64)を`true`にしない限り[format.Sourceによってフォーマットをかける](https://github.com/dave/jennifer/blob/v1.7.0/jen/jen.go#L81-L89)挙動があります。そのため、出力が`Go`のソースコードとして正しくない場合にformat部分でエラーを吐くことがあります。
-上記サンプルでは一旦`Render`の結果を`*bytes.Buffer`に受けてからファイルに書き出していますが、こうすることで、`format.Source`が成功まで`os.Create`による対象ファイルのtruncateを遅延しています。
+上記サンプルでは一旦`Render`の結果を`*bytes.Buffer`に受けてからファイルに書き出していますが、こうすることで、`format.Source`の成功まで`os.Create`による対象ファイルのtruncateを遅延しています。
 
 #### print
 
@@ -140,7 +144,7 @@ decoratePrint(jen.Var().Id("yay").Op("=").Lit("yay yay"))
 
 #### \*jen.File
 
-[\*jen.File](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#File)は[jen.NewFile](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFile),[jen.NewFilePath](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFilePath),[jen.NewFilePathName](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFilePathName)のいずれかで作成します。
+[\*jen.File](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#File)は[jen.NewFile](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFile), [jen.NewFilePath](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFilePath), [jen.NewFilePathName](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#NewFilePathName)のいずれかで作成します。
 
 それぞれは以下のように[Qual](https://github.com/dave/jennifer/tree/v1.7.0?tab=readme-ov-file#qual)を使った場合の挙動が違います。
 `NewFilePath`, `NewFilePathName`は生成対象のパッケージパスを認識しますので、`Qual`が参照するのが生成対象そのものだった時は`PackageName`が省略されます。
@@ -190,7 +194,7 @@ decoratePrint(f)
 
 #### Package comment
 
-`*jen.File`の`PackageComment`で`package`キーワードより先にコメントを書き出します。
+`*jen.File`の`PackageComment`で`package clause`より先にコメントを書き出します。
 
 ```go
 var f *jen.File
@@ -540,11 +544,7 @@ func main() {
   - `text/template`のcode generationにかかわりそうな機能性。
   - 実際に`text/template`を使ったcode generatorのexample。
 
-を述べ、
-
-[Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
-
-についてそれぞれ述べました。
+を述べました。
 
 この記事では`Go`のcode generatorを作るためのライブラリである[github.com/dave/jennifer]の使い方を軽く紹介し、`text/template`で実装したenumのcode generatorを`jennifer`で再実装しました。
 
