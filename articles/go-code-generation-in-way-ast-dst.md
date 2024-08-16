@@ -1443,19 +1443,17 @@ doc commentに当たるindexの範囲を探索し、その範囲を先頭から�
 
 ```go
 func astVariants(param EnumParam, targetDecoration dst.GenDeclDecorations) *dst.GenDecl {
-	if len(targetDecoration.Start) > 0 {
-		if targetDecoration.Start[len(targetDecoration.Start)-1] != "//enum:generated_for="+param.Name {
-			var i int
-			for i = len(targetDecoration.Start) - 1; i >= 0; i-- {
-				if targetDecoration.Start[i] == "\n" {
-					break
-				}
+	if len(targetDecoration.Start) > 0 && targetDecoration.Start[len(targetDecoration.Start)-1] != "//enum:generated_for="+param.Name {
+		var i int
+		for i = len(targetDecoration.Start) - 1; i >= 0; i-- {
+			if targetDecoration.Start[i] == "\n" {
+				break
 			}
-			if i < 0 {
-				i = len(targetDecoration.Start) - 1
-			}
-			targetDecoration.Start = append(slices.Clone(targetDecoration.Start[:i]), "\n", "//enum:generated_for="+param.Name)
 		}
+		if i < 0 {
+			i = len(targetDecoration.Start) - 1
+		}
+		targetDecoration.Start = append(slices.Clone(targetDecoration.Start[:i]), "\n", "//enum:generated_for="+param.Name)
 	} else {
 		targetDecoration.Start = []string{"//enum:generated_for=" + param.Name}
 	}
