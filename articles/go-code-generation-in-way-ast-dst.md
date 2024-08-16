@@ -101,7 +101,7 @@ astは`go/token`, `go/parser`を用いて解析します。
 
 1ファイルのみを読み込むには以下のようにします。
 
-出力は少々長くなるので省略しました。なので、以下のplaygroundで実行するか、[ソース](https://github.com/ngicks/go-example-code-generation/ast/print/ast.go)をコピーしてローカルで実行してみてください。
+出力は少々長くなるので省略しました。なので、以下のplaygroundで実行するか、[ソース](https://github.com/ngicks/go-example-code-generation/tree/main/ast/print/ast)をコピーしてローカルで実行してみてください。
 
 [playground](https://go.dev/play/p/QZ7x7sFeNWB)
 

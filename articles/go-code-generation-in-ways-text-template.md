@@ -366,7 +366,7 @@ func applyGoimports(ctx context.Context, r io.Reader) (*bytes.Buffer, error) {
 出力は`Go`のソースコードなのでメモリに置けないほど大きくなることは想定する必要がないはずです。
 多量のファイルの一気に処理するとかでない限り`*byte.Buffer`を経由して持ちまわって問題ないでしょう。
 
-## simple text emitter: io.Writerに書くだけのほうほう
+## simple text emitter: io.Writerに書くだけの方法
 
 まずsimple text emitterと呼んでいた単に`io.Writer`に`Go source code`を書き出すだけの方法について述べます。
 
