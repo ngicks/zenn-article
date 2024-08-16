@@ -270,7 +270,7 @@ go source codeのテキスト、またはテキストのストリームは[gofmt
 ### ファイル先頭に// Code generated ... DO NOT EDIT.をつける
 
 [go generateのドキュメント](https://pkg.go.dev/cmd/go#hdr-Generate_Go_files_by_processing_source)にもある通り、
-`^// Code generated .* DO NOT EDIT\.$`という正規表現にマッチする行が**package declarationより前**に含まれる場合、`go tool`はこれをcode generatorによって生成されたファイルであるとみなします。
+`^// Code generated .* DO NOT EDIT\.$`という正規表現にマッチする行が**package clauseより前**に含まれる場合、`go tool`はこれをcode generatorによって生成されたファイルであるとみなします。
 `Code generated`の後の`.*`の部分にcode generatorのpackage pathを書いておくとどうやって生成したのかわかってよいのではないかと思います。
 
 `Go1.21`より[ast.IsGenerated](https://pkg.go.dev/go/ast@go1.22.6#IsGenerated)という関数がexportされるようになったので、ast解析を行って`*ast.File`がえられており、それがcode generatorに生成されたファイルかの確認が行いたい場合はこれを用いるとよいでしょう。
