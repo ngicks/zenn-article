@@ -523,18 +523,21 @@ func main() {
 }
 ```
 
-[この行でdirective commentが除外されますが](https://github.com/golang/go/blob/go1.22.6/src/go/ast/ast.go#L110-L130)、`/**/`スタイルのコメントには全く機能しないので、上記のCompiler directiveのドキュメントにも反した挙動のように思えます。なるだけ`/**/`スタイルのコメントは使わないほうが混乱が少なくていいのかもしれません。
+[(\*CommentGroup).Textのこの行でdirective commentが除外されますが](https://github.com/golang/go/blob/go1.22.6/src/go/ast/ast.go#L110-L130)、`/**/`スタイルのコメントには全く機能しないので、上記のCompiler directiveのドキュメントにも反した挙動のように思えます。なるだけ`/**/`スタイルのコメントは使わないほうが混乱が少なくていいのかもしれません。
 
 ### astのtraverse方法
 
 astを解析して得ることができても、その中から特定の探したいパターンを探せなければ意味のある処理を行うことができません。
 
-そこで`Go`は以下の関数などでastをトラバースする方法を提供しています。
+そこで`Go`は以下の関数などでastをトラバースする方法を提供しています。すべてdepth-first orderです。
 
 - [ast.Inspect](https://pkg.go.dev/go/ast@go1.22.6#Inspect)
   - astをwalkします
+  - 関数を渡して各nodeを受けとります。
+  - 渡した関数で`true`を返すと子要素に向けて進みます。
 - [ast.Walk](https://pkg.go.dev/go/ast@go1.22.6#Walk)
-  - astをwalkしますがこちらは[Visitor interface](https://pkg.go.dev/go/ast@go1.22.6#Visitor)を受けるため、ステートマシン的に状態を切り替えられます。
+  - astをwalkしますが、`Inspect`と違い、関数の代わりに[Visitor interface](https://pkg.go.dev/go/ast@go1.22.6#Visitor)を受けります
+  - この`Visitor`は`Visit`メソッドで`Visitor`を返します。受けたnodeによって返す`Visitor`実装を切り替えることでステートマシン的にふるまわせることができます。
 - [\*inspector.Inspector](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/inspector#Inspector)
   - 型(`*ast.TypeSpec`など)によるフィルターをかけたnodeの探索を行います。
   - [WithStack](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/inspector#Inspector.WithStack)でマッチしたnodeに到達するまでのrootからのast nodeのstackを取得できるので、上位エレメントの構造がこうなら、みたいな条件付けでマッチできるのだと思います。
@@ -1228,7 +1231,7 @@ https://github.com/ngicks/go-example-code-generation/blob/main/ast/rewrite/dstut
 #### dstutil.Apply
 
 [golang.org/x/tools/go/packages]を用いたロードまでは全く一緒です。
-dstutil.Applyの前に`decorator.DecorateFile`
+dstutil.Applyの前に`decorator.DecorateFile`を呼び出して`*dst.File`を得ます。
 
 ```diff go
 	for _, f := range pkg.Syntax {
@@ -1303,8 +1306,10 @@ func parseDirective(decorations dst.GenDeclDecorations) (EnumParam, bool) {
 }
 ```
 
-まず、コメントは[dst.GenDeclDecorations](https://pkg.go.dev/github.com/dave/dst@v0.27.3#GenDeclDecorations)のような構造体に変更されています。
-`dst`のdoc commentで述べられる通り、`Go`のコメントは思いのほか自由にかけるので、各部に対応したフィールドに単に`[]string`で格納する形になっています。
+`dst`におけるコメントは[dst.GenDeclDecorations](https://pkg.go.dev/github.com/dave/dst@v0.27.3#GenDeclDecorations)などの構造体で表現されます。
+
+`dst`のdoc commentで述べられる通り、`Go`のコメントは思いのほか自由な位置にそれぞれ書くことができます。
+`dst`はそれらの各部の関係性を保ったまま、`dst.GenDeclDecorations`の対応するフィールドにそれぞれ`[]string`で格納します。
 
 ```go
 /*Start*/
@@ -1362,7 +1367,7 @@ comment slash star
 ```
 
 free floating commentも`Start`にひとまとめに入れれらます。
-つまり、`Start`は末尾から操作して`\n`などの空白のみの行までをクリップして探索すると`ast`版と同等ということになります。
+つまり、`Start`は末尾から最初の`\n`のみを含む行、もしくは行頭までの範囲を解析すると`ast`版と同等ということになります。
 
 上記の`parseDirective`実装では単に末尾から探索していますが、`ast`版は先頭から探索なので、挙動差が生じています。~~これは単なる手抜きですので~~実際にはこういった実装はしないほうがよいでしょう。
 doc commentに当たるindexの範囲を探索し、その範囲を先頭から走査すると挙動差が生じません。
@@ -1599,7 +1604,7 @@ const (
 
 `ast`と違い、[github.com/dave/dst]はサードパーティ、かつ個人メンテのライブラリですから`Go`の進化についていけないリスクは常に抱えています。
 
-例えばGo1.18で[IndexListExpr](https://pkg.go.dev/go/ast@go1.23rc2#IndexListExpr)が追加されました。`1.18`と言えばgenericsが追加されたアップデートです。genericsのために構文が拡張されたので(instantiation時に複数の型がある場合の表記, e.g. `[int, string, *bytes.Buffer]`が今までの構文上存在しなかった)、このexprが追加されたわけです。
+例えばGo1.18で[IndexListExpr](https://pkg.go.dev/go/ast@go1.23rc2#IndexListExpr)が追加されました。`1.18`と言えばgenericsが追加されたアップデートです。genericsのために構文が拡張されたので(instantiation時に複数の型がある場合の表記, e.g. `[int, string, *bytes.Buffer]`がそれまでのastでは表現できなかった)、このexprが追加されたわけです。
 
 現状の`dst`は上記には対応済みであるので現状のあらゆるコードにうまく機能するはずです。今後構文の追加があれば、同様にexprが追加されてそれについていけなくなるという可能性があるわけです。
 

@@ -65,7 +65,7 @@ go version go1.22.0 linux/amd64
 
 - `Go`のトークンや構文に対応づいた関数群をメソッドチェインで呼び出すことでコードを生成することができます。
 - [Qual](https://github.com/dave/jennifer/tree/v1.7.0?tab=readme-ov-file#qual)によって自動的にimport declが管理されるため、同名のパッケージをインポートする際の名前被りも自動的に回避されます。
-- `foobarFunc`系のメソッドや[Do](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#Do)で関数を受けとることができるので容易にfor-loopを回したパラメータに基づく生成が可能です。
+- `○○Func`系のメソッドや[Do](https://pkg.go.dev/github.com/dave/jennifer/jen@v1.7.0#Do)で関数を受けとることができるので容易にfor-loopを回したパラメータに基づく生成が可能です。
 
 ### 利点と欠点
 

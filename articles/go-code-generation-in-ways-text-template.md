@@ -1478,7 +1478,7 @@ func IsEnumExceptMuh(v Enum) bool {
 
 この記事の話はここまでで終わりでもよかったんですが、欠点のところで「importの取り扱いが難しい」と正直に述べてしまったので、それへのアンサーとしてどのように処理すべきかの例を示します。
 
-みなさんご存じの通り、`Go`のimportはimportされるpackageにアクセスするためのqualifierを`import "packagePath"`で定義し、`qualifier.ExportedIdentifier`で各要素にアクセスします。
+みなさんご存じの通り、`Go`のimportはimportされるpackageにアクセスするためのqualifierを`import "packagePath"`で宣言し、`qualifier.ExportedIdentifier`で各要素にアクセスします。
 当然qualifierはidentifierなので名前のかぶりを起こすとcompilation errorですし、`html/template`と`text/template`のように名前が同じ、かつ異なるパッケージは当然のように存在します。そのため、かぶりが起きたときにqualifier名を被らない何かにfallbackする仕組みが必要です。
 また、`math/rand/v2`の`v2`のようなmajor versionはパッケージ名にならないのが普通なので、この場合`rand`がパッケージ名になりますのでこれを考慮した処理も必要になります。
 
