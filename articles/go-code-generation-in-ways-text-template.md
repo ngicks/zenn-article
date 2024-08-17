@@ -45,18 +45,29 @@ go version go1.22.0 linux/amd64
 ```
 
 書いてる途中で`1.23.0`がリリースされちゃったんですがでたばっかりなんで`1.22.6`を参照したままです。ﾏﾆｱﾜﾅｶｯﾀ。。。
+間に合わなかったので一部のリンクは`1.23.0rc2`へのままです。
 
 ## Rationale: なぜGoでcode generationが必要なのか
 
-似たようなことを繰り返し行う必要があるとき、繰り返す代わりに処理を共通化しておくほうが間違えにくいのでまずそうしたいと思います。
-言語がその繰り返しを共通化・自動化する仕組みを持たないとき、最後の手段的にソースコードを生成することになります。
+似たようなことを繰り返し行う必要があるとき、繰り返し同じコードを書く代わりに処理を共通化しておくほうが間違えにくいのでまずそうしたいと思います。
 
-この手の共通化の仕組みとしてはマクロがあると思います。
-[Go]は、`C`や[Rust](https://doc.rust-lang.org/book/ch19-06-macros.html)にあるようなマクロを言語機能として持っていません。
+共通化の方法に
+
+- 関数、struct
+- interfaceによるdynamic dispatch
+- generics
+- reflect
+- macro
+- code generation
+
+などがあります。
+プログラミング言語が要求を満たす共通化の方法を提供しないとき、ソースコードを生成することになります。これはたぶん最後の手段です。
+
+[Go]は、上記で言うとmacroをサポートしません。`C`だとよくマクロを使いますし、[Rust]は[強力なマクロ機能を備えています](https://doc.rust-lang.org/book/ch19-06-macros.html)よね。
 
 [Go]では代わりにたびたびcode generationを行いますし、それを行うことは前提のようになっています。
 それは`go generate`というサブコマンドが存在することや、`Go`のstd自身がそれを多用することから様式として存在していることがわかります。
-また、`Go`にはgenericsによるある型セットに対する共通した処理と、`reflect`による型構造への動的な処理を実装できますが、これらは当然ソースコードの解析を必要とするような挙動は実装できませんので、それらを必要とする場合はcode generationが必要となります。
+また、`Go`にはgenericsによる「ある型セットに対する共通した処理」と、`reflect`による「型情報を使った動的な処理」を実装できますが、これらは当然ソースコードの解析を必要とするような挙動は実装できませんので、それらを必要とする場合はcode generationが必要となります。
 
 ### go generate
 
@@ -70,14 +81,14 @@ https://github.com/search?q=repo%3Agolang%2Fgo%20%2F%2Fgo%3Agenerate&type=code
 
 以上のように検索してみればたくさんヒットします。
 
-### goのgeneric function
+### goのreflect/generic
 
 `Go`では[reflect](https://pkg.go.dev/reflect@go1.22.6)を使うことで型情報を`any`な値から取り出すことができ、これを元に動的な挙動を行うことができます。
 また、[Go 1.18で追加されたGenerics](https://tip.golang.org/doc/go1.18#generics)を用いることで、ある制約を満たす複数の型に対して処理を共通化できます。
 
 例えば、以下のようなサンプルを定義します。
 
-サンプルでは、あるstruct(`Sample`)に対して、フィールド名と定義順が一致するが、型が`Patcher[T]`で置き換えられたstruct(`SamplePatch`)を用意することで、部分的なフィールドの変更(=Patch)をする挙動を`reflect`を使って実装できることを示します。
+サンプルでは、あるstruct(`Sample`)に対して、フィールド名と定義順が一致するが、型が`Patcher[T]`(`T`は元のstruct fieldの型)で置き換えられたstruct(`SamplePatch`)を用意することで、部分的なフィールドの変更(=Patch)をする挙動を`reflect`を使って実装できることを示します。
 
 [playground](https://go.dev/play/p/_a85DOAZV7H)
 
@@ -165,7 +176,7 @@ func patchSample(s *Sample, patcher SamplePatch) {
 `patch`の引数はどちらも`any`でしたが、実際には第一引数は`foobar`へのポインターで、第二引数は`foobarPatch`のnon-pointer型でないと想定通りの動作をしませんから、
 こうやって具体的な型の書かれた関数を定義したほうが利用しやすいことになります。
 
-このケースでは返り値がないのでピンときにくいかもしれませんが、`reflect.Value`から値を取り出そうと思うと`Interface()`メソッドで`any`型の値を取り出すしかありませんので、
+このケースでは返り値がないのでピンときにくいかもしれませんが、`reflect.Value`から値を取り出そうと思うと、(basicな型でないときは)`Interface()`メソッドで`any`型の値を取り出すしかありませんので、
 `type assertion`を関数内で行うことで返り値の型を具体的なものにするのが普通だと思います。
 
 **内部的な挙動は`reflect`で作りこむにしろ、具体的な型を当てたラッパーはcode generatorで作成したいということはよくあるはずだ、ということです。**
