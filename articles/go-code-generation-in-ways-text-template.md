@@ -1157,7 +1157,7 @@ https://github.com/ngicks/go-example-code-generation/tree/main/template/parse-fs
 
 各templateの中身のは[multiple-template](#multiple-template)の同名ものとそれぞれ変わりませんが、以下のように名前だけ若干変わります。
 
-```tmpl
+```tmpl: tmp1.tmpl
 sub1: {{template "tmp2.tmpl" .Sub1}}
 sub2: {{template "tmp3.tmpl" .Sub2}}
 sub3: {{template "tmp4.tmpl" .Sub3}}
