@@ -1116,6 +1116,8 @@ https://github.com/golang/tools/blob/55d718e5dba2aaaa12d0a2ab2c11c7ac7eb84fcb/go
 
 強調したくて前述しましたが、`gopls`を以下のように設定するとsyntax highlightがかかります。それ以外の機能は設定なしでも機能しているようです。
 
+vscodeの場合、`settings.json`に以下を追加します。
+
 ```json
 {
   // ...other settings...
