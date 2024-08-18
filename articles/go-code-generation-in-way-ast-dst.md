@@ -3,7 +3,7 @@ title: "Goのcode generation: ast(dst)-rewrite"
 emoji: "🧰"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## Goのcode generationについてまとめる
