@@ -564,14 +564,16 @@ https://github.com/ngicks/go-example-code-generation/blob/main/ast/rewrite/astut
 
 #### 仕様
 
-ざっくり以下のような仕様で作ります。
+ざっくり以下のような仕様のものを作ります。
 
-- string-based typeのみを生成対象とする
-- `//enum:variants=`から始まるコメントでcomma separatedなvariantsを記述できる
-  - これはdirective commentでもよい
+- `//enum:variants=`がdoc commentとしてつけられた型を対象とする
+  - string-based typeのみとする
+- `//enum:variants=`の後にspaceなどなしでcomma separatedなvariantsを記述し、これを各enumのvalueとする。
+  - directive commentであってもなくてもよい。
 - このvariantsを元に、変数名を`型名+variant`、値がvariantのstring literalを`const ()`で列挙する
+- 生成された`*ast.GenDecl`ブロックはdoc commentに`//enum:generated_for=型名`を持つ。
+  - これによって生成済みかを検査できる
 - すでに生成済みのconstの`*ast.GenDecl`がある場合はそれを`Replace`し、ない場合は追加します。
-  - 生成された`*ast.GenDecl`ブロックに`//enum:generated_for=型名`をつけることで識別可能にします。
 
 #### ターゲット
 
