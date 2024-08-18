@@ -352,13 +352,21 @@ for _, k := range slices.Sorted(maps.Keys(m)) {
 
 https://github.com/ngicks/go-example-code-generation/tree/main/misc/apply-goimports
 
-生成したコードは`goimports`によってフォーマットをかけてから書き出すとよいでしょう。
+生成したコードは[goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports)によってフォーマットをかけてから書き出すとよいでしょう。
 これにより、
 
 - 万一code generatorの実装ミスや、ユーザーが指定できるパラメータのvalidationががおかしくて生成されたコードが`Go`の文法を満たさない場合にエラーとして検知が可能です。
 - インデントか崩れていたり、使われていないimportがあったりしたとき修正してもらえます。
 
 `gofmt`, `gofumpt`と同様に`goimports`はstdinに`Go`のsource codeを入力するとstdoutに出力する挙動があるので入力はファイルシステムに書き出されている必要はありません。
+
+`goimports`は以下のコマンドでインストールします。
+
+```
+go install golang.org/x/tools/cmd/goimports@latest
+```
+
+呼び出しは例えば以下のような感じで行えばよいです。
 
 ```go
 func checkGoimports() error {
