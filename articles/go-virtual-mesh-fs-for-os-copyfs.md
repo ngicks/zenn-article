@@ -84,7 +84,7 @@ func (w *Writer) AddFS(fsys fs.FS) error
 
 ## 既存のfilesystem abstraction library
 
-サードパーティの実装の中で、複数のソースから[fs.FS]を作り上げることができるものがありますが、そのようなfilesystem abstraction libraryで似たようなことができないことを示します。
+サードパーティの実装の中で、複数のソースから[fs.FS]を作り上げることができるものがありますが、そのようなfilesystem abstraction libraryで今回の実現したいユースケースと似たようなことができないことを示します。
 
 GitHub starがそれなりについていて、書き込み可能なfilesystem abstraction interfaceを提供するライブラリは以下の三つなどがあります。
 
