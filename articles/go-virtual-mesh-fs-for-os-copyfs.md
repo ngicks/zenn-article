@@ -1,6 +1,6 @@
 ---
 title: "Goのos.CopyFSのために複数のfsの内容を混ぜ込むことができるFsを作る"
-emoji: "🧰"
+emoji: "👥"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
 published: true
