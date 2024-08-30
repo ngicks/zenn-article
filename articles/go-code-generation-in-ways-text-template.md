@@ -1,19 +1,19 @@
 ---
-title: "Goのcode generation: text/template"
+title: "Goのcode generatorの作り方: 諸注意とtext/templateの使い方"
 emoji: "🧰"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
 published: true
 ---
 
-## Goのcode generationについてまとめる
+## Goのcode generatorの作り方についてまとめる
 
 `Go`のcode generationについてまとめようと思います。
 
 この記事では
 
 - Rationale: なぜGoでcode generationが必要なのか
-- code generatorを実装する際の注意点など
+- code generatorを実装する際の諸注意
 - `io.Writer`に書き出すシンプルな方法
 - `text/template`を使う方法
   - `text/template`のcode generationにかかわりそうな機能性について説明します。
@@ -23,8 +23,8 @@ published: true
 
 後続の
 
-- [Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
-- [Goのcode generation: ast(dst)-rewrite](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
+- [Goのcode generatorの作り方: jenniferの使い方](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
+- [Goのcode generatorの作り方: ast(dst)を解析して書き換える](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
 
 についてそれぞれ述べます。
 
@@ -2074,8 +2074,8 @@ sha512sum="5f06276c8c00bb1bab175d2c1f3f92332a3383bd7bf2f8f550f59cf69a8d1af6cddaf
 
 さらに後続の記事で、それぞれ以下について説明します。
 
-- [Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
-- [Goのcode generation: ast(dst)-rewrite](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
+- [Goのcode generatorの作り方: jenniferの使い方](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で[github.com/dave/jennifer]を用いる方法
+- [Goのcode generatorの作り方: ast(dst)を解析して書き換える](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
 
 `text/template`は機能が豊富で柔軟にコード生成できますが、`Go`のsource codeを生成するための専用というわけではないので可読性を保ちながら記述するのに苦労します。
 記事の最後のほうで説明した通り、importの取り扱いは結構面倒でいろいろな落とし穴が存在しえますね。

@@ -1,25 +1,25 @@
 ---
-title: "Goのcode generation: ast(dst)-rewrite"
+title: "Goのcode generatorの作り方: ast(dst)を解析して書き換える"
 emoji: "🧰"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
 published: true
 ---
 
-## Goのcode generationについてまとめる
+## Goのcode generatorの作り方についてまとめる
 
 `Go`のcode generationについてまとめようと思います。
 
 前段の記事の
 
-- [Goのcode generation: text/template](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
+- [Goのcode generatorの作り方: 諸注意とtext/templateの使い方](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
   - Rationale: なぜGoでcode generationが必要なのか
   - code generatorを実装する際の注意点など
   - `io.Writer`に書き出すシンプルな方法
   - `text/template`を使う方法
     - `text/template`のcode generationにかかわりそうな機能性。
     - 実際に`text/template`を使ったcode generatorのexample。
-- [Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で
+- [Goのcode generatorの作り方: jenniferの使い方](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で
   - [github.com/dave/jennifer]の各機能
   - `text/template`で実装したcode generatorのexampleを`jennifer`で再実装
 
@@ -1620,14 +1620,14 @@ exprが追加されてなおかつモジュールオーナーが非活発的な�
 
 前段の記事で
 
-- [Goのcode generation: text/template](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
+- [Goのcode generatorの作り方: 諸注意とtext/templateの使い方](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
   - Rationale: なぜGoでcode generationが必要なのか
   - code generatorを実装する際の注意点など
   - `io.Writer`に書き出すシンプルな方法
   - `text/template`を使う方法
     - `text/template`のcode generationにかかわりそうな機能性。
     - 実際に`text/template`を使ったcode generatorのexample。
-- [Goのcode generation: jennifer](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で
+- [Goのcode generatorの作り方: jenniferの使い方](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-jennifer)で
   - [github.com/dave/jennifer]の各機能
   - `text/template`で実装したcode generatorのexampleを`jennifer`で再実装
 

@@ -1,16 +1,16 @@
 ---
-title: "Goのcode generation: jennifer"
+title: "Goのcode generatorの作り方: jenniferの使い方"
 emoji: "🧰"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
 published: true
 ---
 
-## Goのcode generationについてまとめる
+## Goのcode generatorの作り方についてまとめる
 
 `Go`のcode generationについてまとめようと思います。
 
-前段の記事: [Goのcode generation: text/template](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
+前段の記事: [Goのcode generatorの作り方: 諸注意とtext/templateの使い方](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
 
 - Rationale: なぜGoでcode generationが必要なのか
 - code generatorを実装する際の注意点など
@@ -29,7 +29,7 @@ published: true
 
 さらに後続の記事で
 
-- [Goのcode generation: ast(dst)-rewrite](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
+- [Goのcode generatorの作り方: ast(dst)を解析して書き換える](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
 
 について述べます。
 
@@ -535,7 +535,7 @@ func main() {
 
 ## おわりに
 
-前段の記事: [Goのcode generation: text/template](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
+前段の記事: [Goのcode generatorの作り方: 諸注意とtext/templateの使い方](https://zenn.dev/ngicks/articles/go-code-generation-in-ways-text-template)で
 
 - Rationale: なぜGoでcode generationが必要なのか
 - code generatorを実装する際の注意点など
@@ -550,7 +550,7 @@ func main() {
 
 さらに後続の記事で、それぞれ以下について説明します。
 
-- [Goのcode generation: ast(dst)-rewrite](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
+- [Goのcode generatorの作り方: ast(dst)を解析して書き換える](https://zenn.dev/ngicks/articles/go-code-generation-in-way-ast-dst)で[astutil](https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/ast/astutil)および[github.com/dave/dst]を用いる方法
 
 [github.com/dave/jennifer]では`Go`のトークンや構文に対応づいた関数をメソッドチェーンで順繰りに呼び出すことでコードを生成します。
 `○○Func`, `Do`で関数を受け取れるため、ここで反復可能なデータを取り扱うことができ、さらに`Add`も組み合わせると適当にgeneratorを分割することができます。
