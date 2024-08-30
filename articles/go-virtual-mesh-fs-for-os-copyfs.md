@@ -22,6 +22,8 @@ published: true
   - バージョン情報とか
   - それらをまとめたjsonファイルとか
 
+そのため書き込み先ごとに[os.Create](https://pkg.go.dev/os@go1.23.0#Create)を呼ぶだとか、[(\*zip.Writer).Create](https://pkg.go.dev/archive/zip@go1.23.0#Writer.Create)を呼ぶだとか、別々の方法を実装する必要があります。
+
 なるだけ[fs.FS]を渡したらそれで終わるように、[fs.FS]としての見せ方を工夫できたらもっと楽できそうですよね。
 ということで本記事では「複数のfsの内容の配置を変えたりしながら混ぜ込む」ことを実現できるfilesystem実装を作成します。
 
@@ -55,7 +57,7 @@ func CopyFS(dir string, fsys fs.FS) error
 
 `dir`で、ディレクトリを指定してそこにコンテンツをすべてコピーします。
 
-[embed.FS]は内容物のpermission bitを`0o444`(ファイル)と`0o555`(ディレクトリ)にしてしまうこともあり(([[1]](https://github.com/golang/go/blob/go1.23.0/src/embed/embed.go#L345),[[2]](https://github.com/golang/go/blob/go1.23.0/src/embed/embed.go#L335),[[3]](https://github.com/golang/go/blob/go1.23.0/src/embed/embed.go#L226-L231))、`CopyFS`は厳密に[fs.FS]の内容をリスペクトせず、`0o666`(ファイル)、`0o777`(ディレクトリ、ただしumaskがかかる)とbitwise orしたpermissionでファイルを作ります。
+[embed.FS]は内容物のpermission bitを`0o444`(ファイル)と`0o555`(ディレクトリ)にしてしまう([[1]](https://github.com/golang/go/blob/go1.23.0/src/embed/embed.go#L345),[[2]](https://github.com/golang/go/blob/go1.23.0/src/embed/embed.go#L335),[[3]](https://github.com/golang/go/blob/go1.23.0/src/embed/embed.go#L226-L231))こともあるのか、`CopyFS`は厳密に[fs.FS]の内容をリスペクトせず、ディレクトリは`0o777`(ただしumaskがかかる)で作られ、ファイルは`0o666`とbitwise orしたpermissionで作ります。
 
 ### (\*tar.Writer).AddFS, (\*zip.Writer).AddFS
 
@@ -67,7 +69,7 @@ func (w *Writer) AddFS(fsys fs.FS) error
 ```
 
 ただし、[os.CopyFS]と違いこちらはpermission bitを特に広げることなく書き込むようですので、[embed.FS]の内容を書き込む際には注意が必要です。
-[\*zip.Reader](https://pkg.go.dev/archive/zip@go1.23.0#NewReader)などを使ってzipやtarの展開を行うならばpermissionは好きに変えられるのでアーカイブ内でどうなっていても問題ないことが多いですが、`tar -xf`などで展開すると狭すぎるpermissionで苦しむことがあります(1敗)。
+[\*zip.Reader](https://pkg.go.dev/archive/zip@go1.23.0#NewReader)などを使ってzipやtarの展開を行うならばpermissionは好きに変えられるのでアーカイブ内でどうなっていても問題ないことが多いですが、`tar -xf`などで展開すると狭すぎるpermission・・・例えば`0o600`のディレクトリが爆誕して苦しむことがあります(1敗)。
 
 ## 既存のfs.FSの作成方法
 
@@ -143,7 +145,7 @@ https://github.com/hack-pad/hackpadfs/blob/v0.2.4/fs.go#L22-L33
 - `hackpadfs`も同様に[mount.FS](https://github.com/hack-pad/hackpadfs/blob/v0.2.4/mount/fs.go#L21-L29)によってマウントが可能です。
 
 `afero`の`CopyOnWriteFs`によるoverlayとupper layerにだけ書き込めるという特性は大変便利ですが今回やりたいことを実現できるものではありません。
-後者二つのmount機能も同様に、実際にディレクトリのbind mountをfs上でするときのような挙動を実現できるので便利ですが、今回やりたいのはファイル単位の配置の偽装なので、これでユースケースを実現するのは無理そうです。
+後者二つのmount機能も同様に、ディレクトリのbind mountのような挙動を実現できるので便利ですが、今回やりたいのはファイル単位の配置の偽装なので、これでユースケースを実現するのは無理そうです。
 
 見たところこれ以上filesystem同士を組み合わせるという発想の何かはそこまでなさそうなので、「複数のfsの内容の配置を変えたりしながら混ぜ込む」を、これらのライブラリの組み合わせで実現するのは難しそうです。
 
@@ -473,7 +475,7 @@ known hashes == copied hashes.json: true
 
 まだまだいろいろと整備のしがいはあります。説明中では特に何にも触れませんでしたが、`synth.Fs`はパスとして[fs.FS]と同じルールのものしか受け付けません。つまりunix風かつ、`./foo`のような`./`や、`/`へのアクセスが許されません。こうすると実装がめちゃくちゃ単純になるのでこういったルールを敷いています。`afero.Fs`はinterfaceなので、ラッパーとなる`Fs`を定義してパスの変換をかけたらいいかなと思っていました。まだまだ色々作るべきものはあります。
 
-[fs.FS]や`afero`や`hackpadfs`の存在は`Go`を一層魅力的にするように思います。他の言語での実装、例えば[denoのFileSystem trait](https://github.com/denoland/deno/blob/e53678fd5841fe7b94f8f9e16d6521201a3d2993/ext/fs/interface.rs#L104-L338)なんかも見たことがありますが、stdに取り込まれて認知度が高くてその周辺にツールがそろってるのはあんま見たことがない気がします。(すみません、言っといてなんですが普通に他にも仮想fsをstdに取り込んでる言語ありそうですね。調べてみようかな。ご存じだったら教えてください。)
+[fs.FS]や`afero`、`go-billy`や`hackpadfs`の存在は`Go`を一層魅力的にするように思います。他の言語での仮想FSの実装は、例えば[denoのFileSystem trait](https://github.com/denoland/deno/blob/e53678fd5841fe7b94f8f9e16d6521201a3d2993/ext/fs/interface.rs#L104-L338)なんかも見たことがありますが、stdに取り込まれて認知度が高くてその周辺にツールがそろってるのはあんま見たことがない気がします。(すみません、言っといてなんですが普通に他にも仮想fsをstdに取り込んでる言語ありそうですね。調べてみようかな。ご存じだったら教えてください。)
 
 [fs.FS]は便利で楽しいですね。どんどん使い倒していきましょう。
 
