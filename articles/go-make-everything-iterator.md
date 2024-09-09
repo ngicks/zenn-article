@@ -34,6 +34,8 @@ function, 1 value   f  func(func(V) bool)              value    v  V
 function, 2 values  f  func(func(K, V) bool)           key      k  K            v          V
 ```
 
+なので下記は構文として合法であるのでコンパイルします。
+
 [playground](https://go.dev/play/p/X2rku5_DWaX)
 
 ```go
@@ -201,10 +203,10 @@ func bar[K, V any](seq iter.Seq2[K, V]) {
 }
 ```
 
-`[]V`や`map[K]V`を引数に受けていると、別のデータソースを使用したい場合変換しなければならないことや、複数の`[]V`,`map[K]V`を用いたい場合に結合する処理が必要でした。
-結合の際に`len(s1)+len(s2)`の長さを持つsliceのallocateする必要があるはずなので、そこでメモリ負荷があったはずです。
+`[]V`や`map[K]V`を引数に受けていると、別のデータ構造を使用したい場合変換しなければならないことや、複数の`[]V`,`map[K]V`を用いたい場合に結合する処理が必要でした。
+結合の際に`len(s1)+len(s2)`の長さを持つsliceなどをallocateする必要があるはずなので、そこでメモリとコピーの負荷があったはずです。
 
-- `heap.Interface`だろうが`*list.List`だろうが`*ring.Ring`だろうが同じ`iter.Seq[V]`というシグネチャで受け取れます。
+- `heap.Interface`だろうが`*list.List`だろうが`*ring.Ring`だろうが、iteratorにする関数を定義すれば同じ`iter.Seq[V]`というシグネチャで受け取れます。
 - `xiter`の実装で`Concat`, `Concat2`が提案されているので`[]V`や`map[K]V`を結合する処理は書かなくてよくなります。
   - 新しいsliceのallocationはなくなるので、入力のsliceのサイズが大きければメモリ負荷的に有利になっていくはずです。
 
@@ -249,7 +251,7 @@ type IntoIterable2[K, V any] interface {
 }
 ```
 
-データソースとなりうる型にすでにiteratorを返すメソッドが定義されていてなおかつ上記と異なるのは普通にありうると思います。
+iterator生成元となる型にすでにiteratorを返すメソッドが定義されていてなおかつ上記と異なるのは普通にありうると思います。
 そこで、関数がinterfaceを満たせるような型を以下に定義します。
 
 ```go
@@ -280,6 +282,120 @@ func (f FuncIterable2[K, V]) IntoIter2() iter.Seq2[K, V] {
     return f()
 }
 ```
+
+## 実装の注意点
+
+iteratorやadapterなどを実装するときの注意点を述べます。
+
+### range-over-funcはbreakしたら二度と呼ばない
+
+`for range seq`は１度しか呼び出さないようにします。
+
+例えば、`v`をn回yieldするiteratorを実装するとします。以下二通りの実装ができます。
+
+[playground](https://go.dev/play/p/LhMOHbyE89V)
+
+```go
+func seq1[V any](v V, n int) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        for m := n; m != 0; m-- {
+            if !yield(v) {
+                return
+            }
+        }
+    }
+}
+
+func seq2[V any](v V, n int) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        for ; n != 0; n-- {
+            if !yield(v) {
+                return
+            }
+        }
+    }
+}
+```
+
+上記二つは以下のように、breakして再度for-rangeにかけると違った挙動をします。
+
+```go
+func breakAndResume[V any](seq iter.Seq[V], n int) {
+    i := n
+    for v := range seq {
+        fmt.Printf("%v, ", v)
+        i--
+        if i <= 0 {
+            break
+        }
+    }
+    fmt.Println()
+    for v := range seq {
+        fmt.Printf("%v, ", v)
+    }
+    fmt.Println()
+}
+
+func main() {
+    fmt.Println("seq1:")
+    breakAndResume(seq1(5, 5), 3)
+    /*
+        seq1:
+        5, 5, 5,
+        5, 5, 5, 5, 5,
+    */
+    fmt.Println("\nseq2:")
+    breakAndResume(seq2(5, 5), 3)
+    /*
+        seq2:
+        5, 5, 5,
+        5, 5, 5,
+    */
+}
+```
+
+これは単に`seq1`はステートをクロージャーの中に持たないのに対し、`seq2`は(`n`を引き算してしまうことで)ステートのあるクロージャーを返してしまっているからです。
+これは例のために露骨にしてありますが、実際上`heap.Interface`や`*bufio.Scanner`をiteratorにラップしたものは内部でステートを変更してしまうので、`seq2`のように**iteratorが冪等ではないこともあるのは普通のこと**です。
+
+これは`iter.Pull`でラップすることで同じように扱うことができます。
+
+```go
+func wrapPull[V any](seq iter.Seq[V]) (iter.Seq[V], func()) {
+    next, stop := iter.Pull(seq)
+    return func(yield func(V) bool) {
+        for {
+            v, ok := next()
+            if !ok || !yield(v) {
+                return
+            }
+        }
+    }, stop
+}
+
+func main() {
+    fmt.Println("\nseq1:")
+    seq, stop := wrapPull(seq1(5, 5))
+    breakAndResume(seq, 3)
+    stop()
+    /*
+        seq1:
+        5, 5, 5,
+        5, 5,
+    */
+    fmt.Println("\nseq2:")
+    seq, stop = wrapPull(seq2(5, 5))
+    breakAndResume(seq, 3)
+    stop()
+    /*
+        seq2:
+        5, 5, 5,
+        5, 5,
+    */
+}
+```
+
+ただ`iter.Pull`は新しい`goroutine`を取得してしまうため、stopが呼ぶか、seqを最後までiterateするかをしないと`goroutine leak`となってしまいます。
+`iter.Pull`を不用意に呼ぶとうっかり`goroutine leak`をしてしまうのでやらんでいいならやらないほうがいいですね。
 
 ## K-V pair
 
@@ -328,7 +444,7 @@ func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
 
 ## Repeat
 
-特定の要素を繰り返したいというケースはありますよね。`iter.Seq`に適合するようにしておきます。
+特定の要素を繰り返したいというケースはありますよね。以下のように`iter.Seq`に適合するようにしておきます。
 
 ```go
 // Repeat returns an iterator that generates v n times.
@@ -344,7 +460,8 @@ func Repeat[V any](v V, n int) iter.Seq[V] {
         }
     }
     return func(yield func(V) bool) {
-        for ; n != 0; n-- {
+        // no state in the seq.
+        for n := n; n != 0; n-- {
             if !yield(v) {
                 return
             }
@@ -365,7 +482,7 @@ func RepeatFunc[V any](fnV func() V, n int) iter.Seq[V] {
         }
     }
     return func(yield func(V) bool) {
-        for ; n != 0; n-- {
+        for n := n; n != 0; n-- {
             if !yield(fnV()) {
                 return
             }
@@ -382,7 +499,7 @@ func RepeatFunc[V any](fnV func() V, n int) iter.Seq[V] {
 rng := hiter.RepeatFunc(func() int { return rand.N(20) }, -1)
 ```
 
-特定の値以下の乱数を得たいときが本当にたくさんあって・・・ほとんどテストですが。
+特定の値以下の乱数を何度も得たいときが本当にたくさんあって・・・ほとんどテストですが。
 
 ## 既存のデータシーケンスをiteratorにする
 
@@ -400,7 +517,7 @@ type Numeric interface {
 }
 
 // Range produces an iterator that yields sequential Numeric values in range [start, end).
-// Values start from `start` and steps toward `end` 1 by 1,
+// Values start from `start` and step toward `end` 1 by 1,
 // increased or decreased depending on start < end or not.
 func Range[T Numeric](start, end T) iter.Seq[T] {
     return func(yield func(T) bool) {
@@ -423,6 +540,8 @@ func Range[T Numeric](start, end T) iter.Seq[T] {
     }
 }
 ```
+
+`start > end`する都合上type constraintにcomplexを入れられません。
 
 ### Window(moving window)
 
@@ -455,11 +574,11 @@ func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
 
 ### Chan
 
-channel `<-chan V`をiteratorに変換できると他のアダプタをそのまま使えるので良いので以下のように定義します。
+channel `<-chan V`をiteratorに変換できると他のアダプタをそのまま使えて良いので以下のように定義します。
 
 あんまり使う機会はないかもですね。
 
-- channelはsynchronizationを目的として使うことが多いですから、そういった目的ではiteratorにする意味が薄いです。
+- channelはsynchronizationを目的として使うことが多いですから、そういった目的ではiteratorにできません。
 - channelからデータを受けとって加工して別のchannelに送信する目的では一旦`iter.Seq`を介すといろんな処理が共通化ができていいかも。
   - `iter.Seq2[any, error]`を利用すればタスクのエラーも容易につたえることができますしね。
 
@@ -503,7 +622,11 @@ func ChanSend[V any](ctx context.Context, c chan<- V, seq iter.Seq[V]) (v V, sen
 
 ### string
 
-stringの中身はutf-8 encodingの`[]byte`なはずなので、stringを`[]byte`と同一視して処理すること自体はできるはずですが、`strings`パッケージも存在する通り、stringの操作はプログラムを作るときにおいて重要なことなので特別扱いするiteratorがあったほうがいいかと思って実装しています。
+stringを処理するiteratorを実装します。
+
+stringの中身はutf-8 encodingの`[]byte`なので、stringを`[]byte`として既存のiterator-adapterで処理すること自体はできます。
+一方で、`strings`パッケージも存在する通り、stringの操作はプログラムを作るときにおいてとりわけ特別扱いされます。
+これを踏まえて、stringを特別扱いするiteratorがあったほうがいいと判断しています。
 
 そのうちstdでもstringsパッケージ以下にiteratorを返す関数群が実装されると思いますので、それまでのつなぎや遊び用に作っている感じです。
 
@@ -524,6 +647,7 @@ func StringsCollect(sizeHint int, seq iter.Seq[string]) string {
 // Sub slicing may cut in mid of utf8 sequences.
 func StringsChunk(s string, n int) iter.Seq[string] {
     return func(yield func(string) bool) {
+        s := s // no state in the seq.
         if n <= 0 {
             return
         }
@@ -547,6 +671,7 @@ func StringsChunk(s string, n int) iter.Seq[string] {
 // StringsRuneChunk returns an iterator over non overlapping sub strings of n utf8 characters.
 func StringsRuneChunk(s string, n int) iter.Seq[string] {
     return func(yield func(string) bool) {
+        s := s // no state in the seq.
         for len(s) > 0 {
             var i int
             for range n {
@@ -583,10 +708,12 @@ type StringsCutterFunc func(s string) (tokUntil, skipUntil int)
 // splitFn is allowed to return negative offsets.
 // In that case the returned iterator immediately yields rest of s and stops iteration.
 func StringsSplitFunc(s string, n int, splitFn StringsCutterFunc) iter.Seq[string] {
-    if splitFn == nil {
-        splitFn = StringsCutNewLine
-    }
     return func(yield func(string) bool) {
+        if splitFn == nil {
+            splitFn = StringsCutNewLine
+        }
+        s := s
+        n := n
         for len(s) > 0 {
             tokUntil, skipUntil := splitFn(s)
             if tokUntil < 0 || skipUntil < 0 {
@@ -766,46 +893,55 @@ stdの`container/heap`, `container/list`, `container/ring`を以下のように�
 
 ```go
 // Heap returns an iterator over heap.Interface.
-// Consuming iter.Seq[T] also consumes h.
-// To avoid this, the caller must clone input h before passing to Heap.
-func Heap[T any](h heap.Interface) iter.Seq[T] {
-    return func(yield func(T) bool) {
+// Consuming iter.Seq[V] also consumes h.
+// To avoid this, callers must clone input h before passing to Heap.
+func Heap[V any](h heap.Interface) iter.Seq[V] {
+    return func(yield func(V) bool) {
         for h.Len() > 0 {
             popped := heap.Pop(h)
-            if !yield(popped.(T)) {
+            if !yield(popped.(V)) {
                 return
             }
         }
     }
 }
 
-// ListAll returns an iterator over l.
-func ListAll[T any](l *list.List) iter.Seq[T] {
-    return ListElementAll[T](l.Front())
+// ListAll returns an iterator over all element of l starting from l.Front().
+// ListAll assumes Values of all element are type V.
+// If other than that or nil, the returned iterator panics.
+func ListAll[V any](l *list.List) iter.Seq[V] {
+    return ListElementAll[V](l.Front())
 }
 
 // ListElementAll returns an iterator over from ele to end of the list.
-func ListElementAll[T any](ele *list.Element) iter.Seq[T] {
-    return func(yield func(T) bool) {
-        for ; ele != nil; ele = ele.Next() {
-            if !yield(ele.Value.(T)) {
+// ListElementAll assumes Values of all element are type V.
+// If other than that or nil, the returned iterator panics.
+func ListElementAll[V any](ele *list.Element) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        // shadowing ele, no state in the seq closure as much as possible.
+        for ele := ele; ele != nil; ele = ele.Next() {
+            if !yield(ele.Value.(V)) {
                 return
             }
         }
     }
 }
 
-// ListBackward returns an iterator over l,
-// traversing it backward by calling Back and Prev.
-func ListBackward[T any](l *list.List) iter.Seq[T] {
-    return ListElementBackward[T](l.Back())
+// ListBackward returns an iterator over all element of l starting from l.Back().
+// ListBackward assumes Values of all element are type V.
+// If other than that or nil, the returned iterator panics.
+func ListBackward[V any](l *list.List) iter.Seq[V] {
+    return ListElementBackward[V](l.Back())
 }
 
 // ListElementBackward returns an iterator over from ele to start of the list.
-func ListElementBackward[T any](ele *list.Element) iter.Seq[T] {
-    return func(yield func(T) bool) {
-        for ; ele != nil; ele = ele.Prev() {
-            if !yield(ele.Value.(T)) {
+// ListElementBackward assumes Values of all element are type V.
+// If other than that or nil, the returned iterator panics.
+func ListElementBackward[V any](ele *list.Element) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        // no state in in the seq closure as much as possible.
+        for ele := ele; ele != nil; ele = ele.Prev() {
+            if !yield(ele.Value.(V)) {
                 return
             }
         }
@@ -813,29 +949,33 @@ func ListElementBackward[T any](ele *list.Element) iter.Seq[T] {
 }
 
 // Ring returns an iterator over r.
-// by traversing from r and consecutively calling Next.
-func RingAll[T any](r *ring.Ring) iter.Seq[T] {
-    return func(yield func(T) bool) {
-        if !yield(r.Value.(T)) {
+// The returned iterator generates data assuming Values of all ring elements are type V.
+// It yields r.Value traversing by consecutively calling Next, and stops when it finds r again.
+// Removing r from the ring after it started iteration may make it iterate forever.
+func RingAll[V any](r *ring.Ring) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        if !yield(r.Value.(V)) {
             return
         }
         for n := r.Next(); n != r; n = n.Next() {
-            if !yield(n.Value.(T)) {
+            if !yield(n.Value.(V)) {
                 return
             }
         }
     }
 }
 
-// RingBackward returns an iterator over r,
-// traversing it backward starting from r and consecutively calling Prev.
-func RingBackward[T any](r *ring.Ring) iter.Seq[T] {
-    return func(yield func(T) bool) {
-        if !yield(r.Value.(T)) {
+// RingBackward returns an iterator over r.
+// The returned iterator generates data assuming Values of all ring elements are type V.
+// It yields r.Value traversing by consecutively calling Prev, and stops when it finds r again.
+// Removing r from the ring after it started iteration may make it iterate forever.
+func RingBackward[V any](r *ring.Ring) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        if !yield(r.Value.(V)) {
             return
         }
         for n := r.Prev(); n != r; n = n.Prev() {
-            if !yield(n.Value.(T)) {
+            if !yield(n.Value.(V)) {
                 return
             }
         }
@@ -862,7 +1002,7 @@ func SyncMap[K, V any](m *sync.Map) iter.Seq2[K, V] {
 ### Third party: github.com/wk8/go-ordered-map/v2
 
 insertion-ordered mapの実装に筆者は[github.com/wk8/go-ordered-map/v2](httos://github.com/wk8/go-ordered-map)を使ったことがあります。
-`map[K]*V`+`*list.List`の組み合わせで実現しています。
+`map[K]*V`+`*list.List`の組み合わせです。
 
 https://github.com/wk8/go-ordered-map/pull/41
 
@@ -872,16 +1012,18 @@ https://github.com/wk8/go-ordered-map/pull/41
 
 `[]T`ベースのdeque実装に筆者は[github.com/gammazero/deque](https://github.com/gammazero/deque)を用いたことがあります。
 
-こちらは動きがないため`iter.Seq`を返すメソッドの実装はありません。必要になったらPRを出してみようかと思いますが活発ではないかもしれません。
+こちらは動きがないため`iter.Seq`を返すメソッドの実装はありません。必要になったらPRを出してみようかと思いますが活発ではないかもしれないので出したとてマージされないかも。
 
-[(\*deque.Deque\[T\]).At(i int) T](https://pkg.go.dev/github.com/gammazero/deque#Deque.At)で各インデックスにアクセス可能です。stdでも`At`メソッドを実装する型に以下の4つがあります。
+なので、これをラップしてiteratorに変換できる関数を定義しましょう。
+
+この実装では、[(\*deque.Deque\[T\]).At(i int) T](https://pkg.go.dev/github.com/gammazero/deque#Deque.At)で各インデックスにアクセス可能です。stdでも`At`メソッドを実装する型に以下の4つがあります。
 
 - https://pkg.go.dev/encoding/asn1@go1.23.0#BitString.At
 - https://pkg.go.dev/go/types@go1.23.0#MethodSet.At
 - https://pkg.go.dev/go/types@go1.23.0#Tuple.At
 - https://pkg.go.dev/go/types@go1.23.0#TypeList.At
 
-そこそこ一般的なメソッドであると判断して以下のように`At`をiteratorに変換する関数を用意します。
+そこそこ一般的なinterfaceであると判断して以下のように`At`をiteratorに変換する関数を用意します。
 
 ```go
 type Atter[T any] interface {
@@ -939,7 +1081,7 @@ func main() {
 
 時期的にrange-over-funcの提案のに合わせて作ったようなので`iter.Seq2[K, V]`などを返すメソッドがあります。
 
-実装を見ると明言されているのでわかりやすいですが、ordered mapと言いつつ[treap](https://en.wikipedia.org/wiki/Treap)ですので`K`によるアクセスは`O(1)`ではなく`O(log n)`となります。かわりに特定のkey値範囲(e.g. `"aaa"`以上`"ccc"`以下のような)の探索などを行えます。
+実装を見ると明言されているのでわかりやすいですが、ordered mapと言いつつ内部のデータ構造は[treap](https://en.wikipedia.org/wiki/Treap)ですので、`K`によるアクセスは`O(1)`ではなく`O(log n)`となります。かわりに特定のkey値範囲(e.g. `"aaa"`以上`"ccc"`以下のような)の探索などを行えます。
 
 データ構造は色々覚えておくと便利ですねえ。
 
@@ -957,9 +1099,9 @@ func main() {
 
 [fs.WalkDir](https://pkg.go.dev/io/fs@go1.23.0#WalkDir)は`fs.FS`とコールバック関数を引数に取り、`fs.FS`を深さ優先でwalkしながら見つかったパスごとにコールバック関数を実行します。コールバック関数が[fs.SkipDir](https://pkg.go.dev/io/fs@go1.23.0#SkipDir)を返すとディレクトリのwalkがスキップされます。[fs.SkipAll](https://pkg.go.dev/io/fs@go1.23.0#SkipAll)と探索をやめることができます。
 
-[io.Pipe](https://pkg.go.dev/io@go1.23.0#Pipe)はin-memory pipeしてreaderとwriterを返し、writerに書き込まれた内容がreaderから読むことができます。reader/writerどちらからも[CloseWithError](https://pkg.go.dev/io@go1.23.0#PipeReader.CloseWithError)を備え、エラーを片方から片方に伝搬できます。
+[io.Pipe](https://pkg.go.dev/io@go1.23.0#Pipe)はin-memory pipeしてreaderとwriterを返し、writerに書き込まれた内容がreaderから読むことができます。reader/writerどちらも[CloseWithError](https://pkg.go.dev/io@go1.23.0#PipeReader.CloseWithError)を備え、エラーを片方からもう片方に伝搬できます。
 
-例えば以下のようにすることで、`iter.Pull`を`io.Pipe`の代わりに使うことができるのですが、
+例えば以下のようにすることで、`iter.Pull`を`io.Pipe+goroutine`の代わりに使うことができるのですが、
 実際にはreader側に`CloseWithError`を実装できなかったため、同等とはいきませんでした。
 `Pull`で動いている側にエラーを伝搬する仕組みが構文上備わっていないので、別口で仕組みを作る必要があります。
 それをするなら`io.Pipe`などを使ったほうがいいんじゃないかという話です。
@@ -1089,7 +1231,7 @@ in-placeで並べかえをするので、`slices.Collect`とともに用いる�
 ```go
 slices.Collect(
     xiter.Map(
-        func(v []int) []int { return slices.Clone(v) },
+        slices.Clone,
         Permutations([]int{1, 2, 3, 4, 5}),
     ),
 )
@@ -1100,7 +1242,7 @@ slices.Collect(
 ### ReduceGroup
 
 `iter.Seq2[K, V]`を`maps.Collect`のように`map[K]V`に格納しますが、格納前にすでに格納された値をとって`reducer`を実行します。
-`maps.Collect`と違って同値の`K`が得られる時に有効な関数です。
+`maps.Collect`と違って`iter.Seq2`が同値の`K`を返す時に単に上書きしたくないときに有効です。
 
 ```go
 func ReduceGroup[K comparable, V, Sum any](seq iter.Seq2[K, V], reducer func(accumulator Sum, current V) Sum, initial Sum) map[K]Sum {
@@ -1148,11 +1290,11 @@ type Summable interface {
         ~string
 }
 
-func SumOf[T any, E Summable](seq iter.Seq[T], selector func(ele T) E) E {
+func SumOf[V any, S Summable](seq iter.Seq[V], selector func(ele V) S) S {
     return reduce(
         seq,
-        func(e E, t T) E { return e + selector(t) },
-        *new(E),
+        func(e S, t V) S { return e + selector(t) },
+        *new(S),
     )
 }
 ```
@@ -1207,7 +1349,7 @@ func Tap2[K, V any](tap func(K, V), seq iter.Seq2[K, V]) iter.Seq2[K, V]
 func Transpose[K, V any](seq iter.Seq2[K, V]) iter.Seq2[V, K]
 ```
 
-`xiter`が、`seq iter.Seq[V]`を引数に受けるときに末尾で受けるようになっている、`callback-first style`ないしは`seq-last style`になっているので、それに追従しています。組み合わせて使っても違和感がないはずです。先般的にtype paramは`K, V`を使うのでそれに追従してあります。していないところは修正漏れです。
+`xiter`が、`seq iter.Seq[V]`を引数に受けるときに末尾で受けるという`callback-first style`ないしは`seq-last style`になっているのでそれに追従しています。組み合わせて使っても違和感がないはずです。
 
 以下でいくつか使ってみます。
 
@@ -1215,7 +1357,7 @@ func Transpose[K, V any](seq iter.Seq2[K, V]) iter.Seq2[V, K]
 
 真鯵ソート。
 
-普通はこういう風に書きますが、
+iteratorなしで普通に実装するならこう書きますが、
 
 ```go
 // implementation of merge sort
@@ -1254,7 +1396,7 @@ func mergeFunc[S ~[]T, T any](l, r S, cmp func(l, r T) int) S {
 }
 ```
 
-これをiteratorにすると・・・
+これをiteratorありにすると・・・
 
 ```go
 func mergeSortIterFunc[S ~[]T, T any](m S, cmp func(l, r T) int) iter.Seq[T] {
@@ -1371,7 +1513,7 @@ func mergeSortSubbableFunc[S SliceLike[T], T any](s subbable[S, T], cmp func(l, 
 }
 ```
 
-肌身感的に要素数が少ない時は`[]T`を一度allocateしたほうがパフォーマンス的には速いと予想します。いくつか関数をまたぐことになるので、そのオーバーヘッドがついて回るはずですね・・・今までの経験からくる勘だと大体、要素数64～128の間のどこかに`[]T`へ変換したほうがよい分水嶺がありそうに思います。GC負荷まで勘定に入れて考えていないですが。
+肌身感的に要素数が少ない時は`[]T`を一度allocateしたほうがパフォーマンス的には速いと予想します。いくつか関数をまたぐことになるので、そのオーバーヘッドがついて回るはずですね・・・今までの経験からくる勘だと大体、要素数32～64の間のどこかに「これ以下なら`[]T`へ変換したほうがよい」という分水嶺がありそうに思います。
 
 ### string decorate
 
@@ -1503,8 +1645,7 @@ func SkipLast[V any](n int, seq iter.Seq[V]) iter.Seq[V] {
 分割すると`seq`の実行が頭からもう１度行われるのでseqが冪等なら2度目の呼び出し時に先頭にn要素スキップを挟む必要があります。冪等でない場合は何が起きるかわかりません。単に前のiterationの続きから始まる場合はn要素スキップを挟んではいけないことになり、**呼び出し時に乱数を使っていたりする場合は不整合な状態になる**ことになります。
 
 ```go
-// SkipLast returns an iterator over seq that skips last n elements.
-func SkipLast[V any](n int, seq iter.Seq[V]) iter.Seq[V] {
+// 以下はうまく動かない
     return func(yield func(V) bool) {
         var ( // easy implementation for ring buffer.
             buf    = make([]V, n)
@@ -1530,7 +1671,6 @@ func SkipLast[V any](n int, seq iter.Seq[V]) iter.Seq[V] {
             }
         }
     }
-}
 ```
 
 ### moving average
@@ -1558,6 +1698,8 @@ func Example_moving_average() {
 
 `for i := initial; underLimit(i); i += step {}`ではたびたびoff-by-one errorが起きるといわれています。
 これを防ぐために`Range`、`Map`、`LimitUntil`を組み合わせて任意な数値をiterateします。
+
+以下で7の倍数を50より下の範囲でiterateする例を示します。
 
 ```go
 func Example_range_map() {
