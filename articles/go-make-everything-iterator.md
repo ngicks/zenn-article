@@ -355,7 +355,7 @@ func main() {
 ```
 
 これは単に`seq1`はステートをクロージャーの中に持たないのに対し、`seq2`は(`n`を引き算してしまうことで)ステートのあるクロージャーを返してしまっているからです。
-これは例のために露骨にしてありますが、実際上`heap.Interface`や`*bufio.Scanner`をiteratorにラップしたものは内部でステートを変更してしまうので、`seq2`のように**iteratorが冪等ではないこともあるのは普通のこと**です。
+これは例のために露骨にしてありますが、実際上`heap.Interface`や`*bufio.Scanner`をiteratorにラップしたものは内部でステートを変更してしまうので、`seq2`のように**iteratorがstatefulなこともある**ということです。
 
 これは`iter.Pull`でラップすることで同じように扱うことができます。
 
@@ -396,6 +396,35 @@ func main() {
 
 ただ`iter.Pull`は新しい`goroutine`を取得してしまうため、stopが呼ぶか、seqを最後までiterateするかをしないと`goroutine leak`となってしまいます。
 `iter.Pull`を不用意に呼ぶとうっかり`goroutine leak`をしてしまうのでやらんでいいならやらないほうがいいですね。
+
+### 基本はstatelessにする
+
+上記の議論を踏まえて、statelessにできるiteratorはすべてstatelessにしたほうがいいかなあと思います。
+statefulなiteratorのほうが少ないと思われるので、ドキュメントにわざわざ書くならstatefulのほうです。デフォルトではstatelessにしておくことでドキュメントでは`All iterators (returned iter.Seq[V] and iter.Seq2[K, V]) are stateless otherwise noted`とREADMEに一度載せるだけで済むので、そこがいいと思います。
+
+### リソースの確保はiter.Seq内で行う
+
+```go
+func puller[V any](seq iter.Seq[V], n int) iter.Seq[V] {
+    // ここではなく
+    /*
+        next, stop := iter.Pull(seq)
+    */
+    return func(yield func(V) bool) {
+        // ここでする
+        next, stop := iter.Pull(seq)
+        defer stop()
+        n := n // statelessにするためにnをshadowingしておく
+        n--
+        // ...
+    }
+}
+```
+
+前述のとおり、`iter.Pull`の呼び出し方を間違うと`goroutine leak`となります。
+iterator外でリソースの確保を行ってしまうと`defer`が実行されずに`leak`となります。
+
+これは当然と言えば当然なんですがうっかりしちゃいそうです。
 
 ## K-V pair
 
@@ -549,11 +578,10 @@ func Range[T Numeric](start, end T) iter.Seq[T] {
 
 ```go
 // Window returns an iterator over overlapping sub-slices of n size (moving windows).
+// If n < 0 or len(s) == 0, the returned iterator yields nothing.
 func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
     return func(yield func(S) bool) {
-        if n <= 0 {
-            return
-        }
+        if n <= 0 || len(s) == 0 {
         var (
             start = 0
             end   = min(n, len(s))
@@ -580,7 +608,7 @@ channel `<-chan V`をiteratorに変換できると他のアダプタをそのま
 
 - channelはsynchronizationを目的として使うことが多いですから、そういった目的ではiteratorにできません。
 - channelからデータを受けとって加工して別のchannelに送信する目的では一旦`iter.Seq`を介すといろんな処理が共通化ができていいかも。
-  - `iter.Seq2[any, error]`を利用すればタスクのエラーも容易につたえることができますしね。
+  - `iter.Seq[xiter.Zipped[T, error]]`を利用すればタスクのエラーも容易につたえることができますしね。
 
 ```go
 // Chan returns an iterator over ch.
@@ -1299,6 +1327,8 @@ func SumOf[V any, S Summable](seq iter.Seq[V], selector func(ele V) S) S {
 }
 ```
 
+まず`Sum`を実装したほうがいいかもですね。
+
 ## adapterでiteratorを加工する。
 
 とりあえずいりそうなadapterは実装しておきます。
@@ -1464,7 +1494,7 @@ type subbable[S SliceLike[T], T any] struct {
 
 func (s subbable[S, T]) At(i int) T {
     i = s.i + i
-    if i >= s.j {
+    if i < s.i || i >= s.j {
         panic("index out of range")
     }
     return s.S.At(i)
@@ -1477,7 +1507,7 @@ func (s subbable[S, T]) Len() int {
 func (s subbable[S, T]) Sub(i, j int) subbable[S, T] {
     i = i + s.i
     j = j + s.i
-    if i < 0 || j > s.j || i > j {
+    if i < 0 || i < s.i ||j > s.j || i > j {
         panic(fmt.Errorf("index out of range: i=%d, j=%d,len=%d", i, j, s.Len()))
     }
     return subbable[S, T]{
@@ -1642,7 +1672,7 @@ func SkipLast[V any](n int, seq iter.Seq[V]) iter.Seq[V] {
 ```
 
 `iter.Seq`が関数であることから、以下のように`for v := range seq`を二つに分割できないことに注意してください。
-分割すると`seq`の実行が頭からもう１度行われるのでseqが冪等なら2度目の呼び出し時に先頭にn要素スキップを挟む必要があります。冪等でない場合は何が起きるかわかりません。単に前のiterationの続きから始まる場合はn要素スキップを挟んではいけないことになり、**呼び出し時に乱数を使っていたりする場合は不整合な状態になる**ことになります。
+分割すると`seq`の実行が頭からもう１度行われるのでseqがstatelessなら2度目の呼び出し時に先頭にn要素スキップを挟む必要があります。statelessでない場合は何が起きるかわかりません。単に前のiterationの続きから始まる場合はn要素スキップを挟んではいけないことになり、**呼び出し時に乱数を使っていたりする場合は不整合な状態になる**ことになります。
 
 ```go
 // 以下はうまく動かない
