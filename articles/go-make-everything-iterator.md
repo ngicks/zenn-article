@@ -3,7 +3,7 @@ title: "[Go]なるだけすべてをiteratorにする"
 emoji: "😵"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## なるだけ~~すべてを~~iteratorにする
@@ -810,13 +810,13 @@ func StringsCutUpperCase(s string) (tokUntil int, skipUntil int)
 // Scanner wraps scanner with an iterator over scanned text.
 // Callers should check [bufio.Scanner.Err] after the returned iterator stops.
 func Scan(scanner *bufio.Scanner) iter.Seq[string] {
-	return func(yield func(text string) bool) {
-		for scanner.Scan() {
-			if !yield(scanner.Text()) {
-				return
-			}
-		}
-	}
+    return func(yield func(text string) bool) {
+        for scanner.Scan() {
+            if !yield(scanner.Text()) {
+                return
+            }
+        }
+    }
 }
 ```
 
@@ -948,21 +948,21 @@ func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error] {
 // If scanner returns an error, or [*sql.Rows.Err] returns non-nil error,
 // the iterator yields that error and stops iteration.
 func SqlRows[T any](r *sql.Rows, scanner func(*sql.Rows) (T, error)) iter.Seq2[T, error] {
-	return func(yield func(T, error) bool) {
-		for r.Next() {
-			t, err := scanner(r)
-			if !yield(t, err) {
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
-		if r.Err() != nil {
-			yield(*new(T), r.Err())
-			return
-		}
-	}
+    return func(yield func(T, error) bool) {
+        for r.Next() {
+            t, err := scanner(r)
+            if !yield(t, err) {
+                return
+            }
+            if err != nil {
+                return
+            }
+        }
+        if r.Err() != nil {
+            yield(*new(T), r.Err())
+            return
+        }
+    }
 }
 ```
 
