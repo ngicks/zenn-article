@@ -399,8 +399,8 @@ func main() {
 }
 ```
 
-ただ`iter.Pull`は新しい`goroutine`を取得してしまうため、stopが呼ぶか、seqを最後までiterateするかをしないと`goroutine leak`となってしまいます。
-`iter.Pull`を不用意に呼ぶとうっかり`goroutine leak`をしてしまうのでやらんでいいならやらないほうがいいですね。
+ただ`iter.Pull`は新しい`goroutine`を取得してしまうため、stopが呼ばれるか、seqを最後までiterateするかをしないと`goroutine leak`となってしまいます。
+`iter.Pull`を不用意に呼ぶとうっかり`goroutine leak`をしてしまうかもしれないのでやらんでいいならやらないほうがいいですね。
 
 ### 基本はstatelessにする
 
@@ -541,8 +541,8 @@ rng := hiter.RepeatFunc(func() int { return rand.N(20) }, -1)
 
 https://github.com/golang/go/discussions/56413
 
-- archive/tar.Reader.Next: Nextを呼ぶたび`tar.Reader`の中身が変わるステートフルなのがiterator似合わないと感じた
-  - `io.ReaderAt`を受けて`*io.SectionReader`を返すライブラリを実装してもいいなと考えていたので、そっち版にiteratorを実装しようかなという検討による。
+- archive/tar.Reader.Next: Nextを呼ぶたび`tar.Reader`の中身が変わるステートフルなのがiteratorに合わないと感じた
+  - tarの`io.ReaderAt`を受けて`*io.SectionReader`を返すライブラリを実装してもいいなと考えていたので、そっち版にiteratorを実装しようかなという検討による。
 - bufio.Reader.ReadByte: 力尽き
 - expvar.Do: 力尽き
 - flag.Visit: 力尽き
@@ -808,18 +808,15 @@ func StringsCutUpperCase(s string) (tokUntil int, skipUntil int)
 
 ```go
 // Scanner wraps scanner with an iterator over scanned text.
-func Scan(scanner *bufio.Scanner) iter.Seq2[string, error] {
-    return func(yield func(text string, err error) bool) {
-        for scanner.Scan() {
-            if !yield(scanner.Text(), nil) {
-                return
-            }
-        }
-        if scanner.Err() != nil {
-            yield("", scanner.Err())
-            return
-        }
-    }
+// Callers should check [bufio.Scanner.Err] after the returned iterator stops.
+func Scan(scanner *bufio.Scanner) iter.Seq[string] {
+	return func(yield func(text string) bool) {
+		for scanner.Scan() {
+			if !yield(scanner.Text()) {
+				return
+			}
+		}
+	}
 }
 ```
 
@@ -936,6 +933,9 @@ func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error] {
 }
 ```
 
+`*bufio.Scanner`のように`Err`メソッドのあるstructを定義すれば`iter.Seq[*.Token]`とできます。そうしたほうがいいかも。
+今回はこのぐらい素直で薄いラッパーにとどめておきます。
+
 ### \*sql.Rows
 
 `*sql.Rows`も以下のようにするとiteratorとして利用できます。
@@ -967,6 +967,7 @@ func SqlRows[T any](r *sql.Rows, scanner func(*sql.Rows) (T, error)) iter.Seq2[T
 ```
 
 non-nil error = stopになるようなiteratorはなんとなくぎこちなさがありますね。
+`encoding`で述べたのと同様に`Err`メソッドのあるstructを定義すれば`iter.Seq[T]`とできますが今回はこちらもやめておきました。
 
 ### container/heap, container/list, container/ring
 
@@ -1181,7 +1182,7 @@ func main() {
 
 [fs.WalkDir](https://pkg.go.dev/io/fs@go1.23.0#WalkDir)は`fs.FS`とコールバック関数を引数に取り、`fs.FS`を深さ優先でwalkしながら見つかったパスごとにコールバック関数を実行します。コールバック関数が[fs.SkipDir](https://pkg.go.dev/io/fs@go1.23.0#SkipDir)を返すとディレクトリのwalkがスキップされます。[fs.SkipAll](https://pkg.go.dev/io/fs@go1.23.0#SkipAll)を返すと探索をやめることができます。
 
-[io.Pipe](https://pkg.go.dev/io@go1.23.0#Pipe)はin-memory pipeしてreaderとwriterを返し、writerに書き込まれた内容がreaderから読むことができます。reader/writerどちらも[CloseWithError](https://pkg.go.dev/io@go1.23.0#PipeReader.CloseWithError)を備え、エラーを片方からもう片方に伝搬できます。
+[io.Pipe](https://pkg.go.dev/io@go1.23.0#Pipe)はin-memory pipeを作成して両端のreaderとwriterを返し、writerに書き込まれた内容をreaderから読むことができます。reader/writerどちらも[CloseWithError](https://pkg.go.dev/io@go1.23.0#PipeReader.CloseWithError)を備え、エラーを片方からもう片方に伝搬できます。
 
 例えば以下のようにすることで、`iter.Pull`を`io.Pipe+goroutine`の代わりに使うことができるのですが、
 実際にはreader側に`CloseWithError`を実装できなかったため、同等とはいきませんでした。
@@ -1597,7 +1598,7 @@ func mergeSortSubbableFunc[S SliceLike[T], T any](s subbable[S, T], cmp func(l, 
 }
 ```
 
-肌身感的に要素数が少ない時は`[]T`を一度allocateしたほうがパフォーマンス的には速いと予想します。いくつか関数をまたぐことになるので、そのオーバーヘッドがついて回るはずですね・・・今までの経験からくる勘だと大体、要素数32～64の間のどこかに「これ以下なら`[]T`へ変換したほうがよい」という分水嶺がありそうに思います。
+要素数がいくつかまでは`[]T`を一度allocateしたほうが多分処理が速いです。今までの経験からくる勘だと大体、32～64個の間のどこかあたりに「これ以下なら`[]T`へ変換したほうがよい」という分水嶺がありそう。
 
 ### string decorate
 
