@@ -130,6 +130,11 @@ func SortedFunc[E any](seq iter.Seq[E], cmp func(E, E) int) []E
 func SortedStableFunc[E any](seq iter.Seq[E], cmp func(E, E) int) []E
 ```
 
+## stdだけど未リリースのもの
+
+- [proposal: regexp: add iterator forms of matching methods(#61902)](https://github.com/golang/go/issues/61902)
+- [bytes, strings: add iterator forms of existing functions (#61901)](https://github.com/golang/go/issues/61901)
+
 ## x/exp/xiter
 
 [proposal: x/exp/xiter: new package with iterator adapters(#61898)](https://github.com/golang/go/issues/61898)で`x/exp/xiter`が提案されています。
@@ -532,6 +537,21 @@ rng := hiter.RepeatFunc(func() int { return rand.N(20) }, -1)
 
 ## 既存のデータシーケンスをiteratorにする
 
+:::details #56413のに載ってるけど実装しなかったやつとその理由
+
+https://github.com/golang/go/discussions/56413
+
+- archive/tar.Reader.Next: Nextを呼ぶたび`tar.Reader`の中身が変わるステートフルなのがiterator似合わないと感じた
+  - `io.ReaderAt`を受けて`*io.SectionReader`を返すライブラリを実装してもいいなと考えていたので、そっち版にiteratorを実装しようかなという検討による。
+- bufio.Reader.ReadByte: 力尽き
+- expvar.Do: 力尽き
+- flag.Visit: 力尽き
+- go/token.FileSet.Iterate: 力尽き
+- path/filepath.Walk: 後述
+- runtime.Frames.Next: 力尽き
+
+:::
+
 ### Range: [n, m)
 
 [range-over-intがGo1.22.0で実装された](https://tip.golang.org/doc/go1.22#language)ことで、以降の`Go`では`for i := range n {}`が`for i := 0; i < n ; i++ {}`のショートハンドとして機能します。
@@ -582,6 +602,8 @@ func Range[T Numeric](start, end T) iter.Seq[T] {
 func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
     return func(yield func(S) bool) {
         if n <= 0 || len(s) == 0 {
+            return
+        }
         var (
             start = 0
             end   = min(n, len(s))
@@ -656,7 +678,7 @@ stringの中身はutf-8 encodingの`[]byte`なので、stringを`[]byte`とし�
 一方で、`strings`パッケージも存在する通り、stringの操作はプログラムを作るときにおいてとりわけ特別扱いされます。
 これを踏まえて、stringを特別扱いするiteratorがあったほうがいいと判断しています。
 
-そのうちstdでもstringsパッケージ以下にiteratorを返す関数群が実装されると思いますので、それまでのつなぎや遊び用に作っている感じです。
+[bytes, strings: add iterator forms of existing functions (#61901)](https://github.com/golang/go/issues/61901)がリリースされればstdでもstringsパッケージ以下にiteratorを返す関数群が実装されますが、それまでのつなぎや遊び用に作っている感じです。
 
 ```go
 // StringsCollect reduces seq to a single string.
@@ -914,6 +936,38 @@ func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error] {
 }
 ```
 
+### \*sql.Rows
+
+`*sql.Rows`も以下のようにするとiteratorとして利用できます。
+
+```go
+// SqlRows returns an iterator over scanned rows from r.
+// scanner will be invoked against every rows queried in r.
+// scanner should call [*sql.Rows.Scan] once or it can skip the row.
+// The returned iterator yields scanned result, including non-nil error.
+// If scanner returns an error, or [*sql.Rows.Err] returns non-nil error,
+// the iterator yields that error and stops iteration.
+func SqlRows[T any](r *sql.Rows, scanner func(*sql.Rows) (T, error)) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		for r.Next() {
+			t, err := scanner(r)
+			if !yield(t, err) {
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+		if r.Err() != nil {
+			yield(*new(T), r.Err())
+			return
+		}
+	}
+}
+```
+
+non-nil error = stopになるようなiteratorはなんとなくぎこちなさがありますね。
+
 ### container/heap, container/list, container/ring
 
 stdの`container/heap`, `container/list`, `container/ring`を以下のようにするとiteratorに変換できます。
@@ -1125,7 +1179,7 @@ func main() {
 
 どちらも何かの方法で、データを受けた側が、生成する側に、データのスキップなどを指示する方式をとっています。現状のiteratorの仕組みはこの逆向きのシグナルの伝搬を定義していないため、別口の仕組みを実装する必要があります。これは直感的にiteratorにフィットしないのでiteratorにする意味は薄いだろうということです。
 
-[fs.WalkDir](https://pkg.go.dev/io/fs@go1.23.0#WalkDir)は`fs.FS`とコールバック関数を引数に取り、`fs.FS`を深さ優先でwalkしながら見つかったパスごとにコールバック関数を実行します。コールバック関数が[fs.SkipDir](https://pkg.go.dev/io/fs@go1.23.0#SkipDir)を返すとディレクトリのwalkがスキップされます。[fs.SkipAll](https://pkg.go.dev/io/fs@go1.23.0#SkipAll)と探索をやめることができます。
+[fs.WalkDir](https://pkg.go.dev/io/fs@go1.23.0#WalkDir)は`fs.FS`とコールバック関数を引数に取り、`fs.FS`を深さ優先でwalkしながら見つかったパスごとにコールバック関数を実行します。コールバック関数が[fs.SkipDir](https://pkg.go.dev/io/fs@go1.23.0#SkipDir)を返すとディレクトリのwalkがスキップされます。[fs.SkipAll](https://pkg.go.dev/io/fs@go1.23.0#SkipAll)を返すと探索をやめることができます。
 
 [io.Pipe](https://pkg.go.dev/io@go1.23.0#Pipe)はin-memory pipeしてreaderとwriterを返し、writerに書き込まれた内容がreaderから読むことができます。reader/writerどちらも[CloseWithError](https://pkg.go.dev/io@go1.23.0#PipeReader.CloseWithError)を備え、エラーを片方からもう片方に伝搬できます。
 
