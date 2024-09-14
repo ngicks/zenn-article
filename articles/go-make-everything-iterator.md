@@ -22,6 +22,12 @@ https://github.com/ngicks/go-iterator-helper
 
 また、この記事は`func(func() bool)`, `iter.Seq[V]`もしくは`func(func(V) bool)`, `iter.Seq2[K,V]`もしくは`func(func(K,V) bool)`のことをカジュアルにiteratorと呼びます。この慣習はstdのドキュメントなどでも同様です。
 
+## EDIT NOTE
+
+- 2024/09/14:
+  - `iter.Seq2[V, error]` -> `iter.Seq[V]`に変換することができる`Err`メソッドのあるstructを新規追加しました。
+  - `Window`の仕様をRustのそれに合わせて、`len(input slice) < window-size`の時何もyieldしないようにしました。
+
 ## iterator
 
 [Go1.23.0](https://tip.golang.org/doc/go1.23)で言語仕様に変更がはいり、for-rangeが以下の三つの関数を受け付けるようになりました。
@@ -542,7 +548,8 @@ rng := hiter.RepeatFunc(func() int { return rand.N(20) }, -1)
 https://github.com/golang/go/discussions/56413
 
 - archive/tar.Reader.Next: Nextを呼ぶたび`tar.Reader`の中身が変わるステートフルなのがiteratorに合わないと感じた
-  - tarの`io.ReaderAt`を受けて`*io.SectionReader`を返すライブラリを実装してもいいなと考えていたので、そっち版にiteratorを実装しようかなという検討による。
+  - ~~tarの`io.ReaderAt`を受けて`*io.SectionReader`を返すライブラリを実装してもいいなと考えていたので、そっち版にiteratorを実装しようかなという検討による。~~
+    - `archive/tar`の実装とPAXとUSTarの仕様をチラチラ見てたんですが心おれました。tarをディレクトリとしてfsにマウントできるものがあるのは知っているので、不可能ではないとわかっているんですが大変ではありそうです。
 - bufio.Reader.ReadByte: 力尽き
 - expvar.Do: 力尽き
 - flag.Visit: 力尽き
@@ -597,26 +604,29 @@ func Range[T Numeric](start, end T) iter.Seq[T] {
 `slices.Chunk`がある一方でwindowはないので以下のように実装します。
 
 ```go
+
 // Window returns an iterator over overlapping sub-slices of n size (moving windows).
-// If n < 0 or len(s) == 0, the returned iterator yields nothing.
+// n must be a positive non zero value.
+// Values from the iterator are always size of n.
+// The iterator yields nothing when it is not possible.
 func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
     return func(yield func(S) bool) {
-        if n <= 0 || len(s) == 0 {
+        if n <= 0 {
             return
         }
         var (
             start = 0
-            end   = min(n, len(s))
+            end   = n
         )
         for {
+            if end > len(s) {
+                return
+            }
             if !yield(s[start:end]) {
                 return
             }
             start++
             end++
-            if end > len(s) {
-                return
-            }
         }
     }
 }
@@ -933,8 +943,10 @@ func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error] {
 }
 ```
 
-`*bufio.Scanner`のように`Err`メソッドのあるstructを定義すれば`iter.Seq[*.Token]`とできます。そうしたほうがいいかも。
-今回はこのぐらい素直で薄いラッパーにとどめておきます。
+~~`*bufio.Scanner`のように`Err`メソッドのあるstructを定義すれば`iter.Seq[*.Token]`とできます。そうしたほうがいいかも。
+今回はこのぐらい素直で薄いラッパーにとどめておきます。~~
+
+EDIT 2024/09/14: `Err`メソッドのあるstructを新規追加しました
 
 ### \*sql.Rows
 
@@ -966,8 +978,121 @@ func SqlRows[T any](r *sql.Rows, scanner func(*sql.Rows) (T, error)) iter.Seq2[T
 }
 ```
 
-non-nil error = stopになるようなiteratorはなんとなくぎこちなさがありますね。
-`encoding`で述べたのと同様に`Err`メソッドのあるstructを定義すれば`iter.Seq[T]`とできますが今回はこちらもやめておきました。
+~~non-nil error = stopになるようなiteratorはなんとなくぎこちなさがありますね。~~
+~~`encoding`で述べたのと同様に`Err`メソッドのあるstructを定義すれば`iter.Seq[T]`とできますが今回はこちらもやめておきました。~~
+
+EDIT 2024/09/14: `Err`メソッドのあるstructを新規追加しました。
+
+### iter.Seq2[V, error]をiter.Seq[V]にする
+
+上記の`*(json|xml).Decoder`/`*sql.Rows`は`iter.Seq2[V, error]`となっており、non-nil errorが帰ってくるとその直後にiteratorが止まるというものでしたが、これはなんとなくぎこちなさを感じるものでした。
+ということでラッパーとなるstructを定義して`iter.Seq2[V, error]`を`iter.Seq[V]`に変換しましょう。
+
+```go
+// Box boxes an input iter.Seq2[V, error] to iter.Seq[V],
+// by storing a first non nil error encountered.
+// Later the error can be examined by [*Box.Err].
+//
+// [*Box.Iter] returns an iterator converted to be stateful from input [iter.Seq2] by [iter.Pull2].
+// When non nil error is yielded from the iterator,
+// Box stores the error and the boxed iterator stops
+// without yielding paired value V.
+// [*Box.Err] returns that error otherwise nil.
+//
+// The zero Box is invalid and it must be allocated by [New].
+type Box[V any] struct {
+    err  error
+    next func() (V, error, bool)
+    stop func()
+}
+
+// New returns a newly allocate Box.
+//
+// When a pair from seq contains non-nil error, Box discards a former value of the pair(V),
+// then the iterator returned from [Box.Iter] stops.
+//
+// [*Box.Stop] must be called to release resource regardless of usage.
+func New[V any](seq iter.Seq2[V, error]) *Box[V] {
+    next, stop := iter.Pull2(seq)
+    return &Box[V]{
+        next: next,
+        stop: stop,
+    }
+}
+
+// Stop releases resources allocated by [New].
+// After calling Stop, iterators returned  from [Box.Iter] yields nothing.
+func (b *Box[V]) Stop() {
+    b.stop()
+}
+
+// Iter returns a stateful iterator which yields values from the input iterator.
+func (b *Box[V]) Iter() iter.Seq[V] {
+    return func(yield func(V) bool) {
+        for {
+            if b.err != nil {
+                b.stop()
+                return
+            }
+            v, err, ok := b.next()
+            if !ok {
+                return
+            }
+            if err != nil || !yield(v) {
+                b.stop()
+                b.err = err
+                return
+            }
+        }
+    }
+}
+
+// Err returns an error the input iterator has returned.
+// If the iterator has not yet encountered an error, Err returns nil.
+func (b *Box[V]) Err() error {
+    return b.err
+}
+```
+
+iteratorからnon-nil errorが返されたらこれを保存し、`Err`メソッドで確認できるようにするというシンプルなものです。
+
+```go
+type JsonDecoder struct {
+    *Box[json.Token]
+    Dec *json.Decoder
+}
+
+func NewJsonDecoder(dec *json.Decoder) *JsonDecoder {
+    return &JsonDecoder{
+        Box: New(hiter.JsonDecoder(dec)),
+        Dec: dec,
+    }
+}
+
+type XmlDecoder struct {
+    *Box[xml.Token]
+    Dec *xml.Decoder
+}
+
+func NewXmlDecoder(dec *xml.Decoder) *XmlDecoder {
+    return &XmlDecoder{
+        Box: New(hiter.XmlDecoder(dec)),
+        Dec: dec,
+    }
+}
+
+type SqlRows[V any] struct {
+    *Box[V]
+}
+
+func NewSqlRows[V any](rows *sql.Rows, scanner func(*sql.Rows) (V, error)) *SqlRows[V] {
+    return &SqlRows[V]{
+        Box: New(hiter.SqlRows(rows, scanner)),
+    }
+}
+```
+
+`*bufio.Scanner`と似たような方式なので筆者的には違和感が少ないと思います。
 
 ### container/heap, container/list, container/ring
 
