@@ -28,6 +28,8 @@ https://github.com/ngicks/go-iterator-helper
   - `iter.Seq2[V, error]` -> `iter.Seq[V]`に変換することができる`Err`メソッドのあるstructを新規追加しました。
   - `Window`の仕様をRustのそれに合わせて、`len(input slice) < window-size`の時何もyieldしないようにしました。
   - `*(json|xml).Decoder`のラッパーが正しくなかった(多分)のと共通化できるのに気づいたので修正。
+- 2024/09/15:
+  - MergeSortのベンチをとったので追記。
 
 ## iterator
 
@@ -1723,7 +1725,202 @@ func mergeSortSubbableFunc[S SliceLike[T], T any](s subbable[S, T], cmp func(l, 
 }
 ```
 
-要素数がいくつかまでは`[]T`を一度allocateしたほうが多分処理が速いです。今までの経験からくる勘だと大体、32～64個の間のどこかあたりに「これ以下なら`[]T`へ変換したほうがよい」という分水嶺がありそう。
+~~要素数がいくつかまでは`[]T`を一度allocateしたほうが多分処理が速いです。今までの経験からくる勘だと大体、32～64個の間のどこかあたりに「これ以下なら`[]T`へ変換したほうがよい」という分水嶺がありそう。~~
+
+ベンチとってみましたが`ns/op`も`B/op``alloc/op`も`[]T`にいったん変換したほうがよいです。多分公平なベンチになっている。もっと凝った実装にしないかぎり`[]T`をどうこうしたほうがいいですね。
+
+:::details ベンチの内容
+
+コード:
+
+```go
+func Benchmark_deque_merge_sort_slice_conversion(b *testing.B) {
+    rng := hiter.RepeatFunc(func() int { return mathRand.N[int](1000) }, -1)
+	randNumArray := slices.Collect(xiter.Limit(rng, 2048))
+
+	b.Run("[]int", func(b *testing.B) {
+		b.ResetTimer()
+		deque_merge_sort(b, randNumArray[:], cmp.Compare)
+	})
+
+	type bigStruct struct {
+		Key string
+		Mah [2048]byte
+	}
+	bigStructs := make([]bigStruct, 2048)
+	for i := range 2048 {
+		bigStructs[i] = bigStruct{
+			Key: hiter.StringsCollect(4*8*2, xiter.Limit(randStr(), 8)),
+		}
+	}
+
+	b.Run("[]bigStruct", func(b *testing.B) {
+		b.ResetTimer()
+		deque_merge_sort(b, bigStructs, func(i, j bigStruct) int { return cmp.Compare(i.Key, j.Key) })
+	})
+}
+
+func sizes() iter.Seq[int] {
+	return xiter.Concat(
+		xiter.Map(func(i int) int { return i * 5 }, hiter.Range(1, 5)),
+		slices.Values([]int{32, 64, 128, 256, 512, 1024, 2048}),
+	)
+}
+
+func deque_merge_sort[T any](b *testing.B, input []T, cmp func(l T, r T) int) {
+	for i := range sizes() {
+		d := deque.New[T](i)
+		for num := range xiter.Limit(slices.Values(input), i) {
+			d.PushBack(num)
+		}
+		b.Run(fmt.Sprintf("%02d", i), func(b *testing.B) {
+			b.Run("slice_version", func(b *testing.B) {
+				b.ResetTimer()
+				for range b.N {
+					ok := slices.IsSortedFunc(mergeSortFunc(input[:i], cmp), cmp)
+					if !ok {
+						panic("eh")
+					}
+				}
+			})
+			b.Run("converted_to_slice", func(b *testing.B) {
+				b.ResetTimer()
+				s := make([]T, d.Len())
+				for i := range d.Len() {
+					s[i] = d.At(i)
+				}
+				for range b.N {
+					ok := slices.IsSortedFunc(slices.Collect(collection.MergeSortFunc(s, cmp)), cmp)
+					if !ok {
+						panic("eh")
+					}
+				}
+			})
+			b.Run("no_conversion", func(b *testing.B) {
+				b.ResetTimer()
+				for range b.N {
+					ok := slices.IsSortedFunc(slices.Collect(collection.MergeSortSliceLikeFunc(d, cmp)), cmp)
+					if !ok {
+						panic("eh")
+					}
+				}
+			})
+		})
+	}
+}
+
+func mergeSortFunc[S ~[]T, T any](m S, cmp func(l, r T) int) S {
+	if len(m) <= 1 {
+		return m
+	}
+	left, right := m[:len(m)/2], m[len(m)/2:]
+	left = mergeSortFunc(left, cmp)
+	right = mergeSortFunc(right, cmp)
+	return mergeFunc(left, right, cmp)
+}
+
+func mergeFunc[S ~[]T, T any](l, r S, cmp func(l, r T) int) S {
+	m := make(S, len(l)+len(r))
+	var i int
+	for i = 0; len(l) > 0 && len(r) > 0; i++ {
+		if cmp(l[0], r[0]) < 0 {
+			m[i] = l[0]
+			l = l[1:]
+		} else {
+			m[i] = r[0]
+			r = r[1:]
+		}
+	}
+	for _, t := range l {
+		m[i] = t
+		i++
+	}
+	for _, t := range r {
+		m[i] = t
+		i++
+	}
+	return m
+}
+```
+
+結果:
+
+```
+goos: linux
+goarch: amd64
+pkg: github.com/ngicks/go-example-compare-search
+cpu: AMD Ryzen 9 7900X 12-Core Processor
+Benchmark_deque_merge_sort_slice_conversion/[]int/05/slice_version-24           12559699                98.05 ns/op          104 B/op          4 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/05/converted_to_slice-24        517952              2444 ns/op            2728 B/op         96 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/05/no_conversion-24             240393              4988 ns/op            3008 B/op        106 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/10/slice_version-24            4873216               240.3 ns/op           288 B/op          9 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/10/converted_to_slice-24        194185              6249 ns/op            5976 B/op        207 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/10/no_conversion-24             107803             11018 ns/op            6536 B/op        227 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/15/slice_version-24            3157870               383.5 ns/op           488 B/op         14 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/15/converted_to_slice-24        106075             11241 ns/op            9096 B/op        317 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/15/no_conversion-24              73005             16399 ns/op            9936 B/op        347 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/20/slice_version-24            2141949               555.3 ns/op           736 B/op         19 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/20/converted_to_slice-24         80528             14843 ns/op           12472 B/op        428 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/20/no_conversion-24              48331             24867 ns/op           13592 B/op        468 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/32/slice_version-24            1306608               919.3 ns/op          1280 B/op         31 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/32/converted_to_slice-24         46704             25974 ns/op           19960 B/op        692 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/32/no_conversion-24              30974             38339 ns/op           21752 B/op        756 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/64/slice_version-24             486316              2144 ns/op            3072 B/op         63 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/64/converted_to_slice-24         20098             59135 ns/op           40441 B/op       1397 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/64/no_conversion-24              13441             85206 ns/op           44025 B/op       1525 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/128/slice_version-24            240751              4754 ns/op            7168 B/op        127 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/128/converted_to_slice-24         9464            124066 ns/op           81402 B/op       2806 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/128/no_conversion-24              5737            183369 ns/op           88570 B/op       3062 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/256/slice_version-24            101914             10254 ns/op           16384 B/op        255 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/256/converted_to_slice-24         4282            274432 ns/op          163327 B/op       5623 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/256/no_conversion-24              2986            381700 ns/op          177662 B/op       6135 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/512/slice_version-24             53028             23999 ns/op           36864 B/op        511 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/512/converted_to_slice-24         1897            764011 ns/op          327178 B/op      11256 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/512/no_conversion-24              1023           1058138 ns/op          355869 B/op      12280 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/1024/slice_version-24            17642             60616 ns/op           81920 B/op       1023 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/1024/converted_to_slice-24         754           1586147 ns/op          663712 B/op      22522 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/1024/no_conversion-24              723           1717583 ns/op          721115 B/op      24570 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/2048/slice_version-24             7329            146184 ns/op          180224 B/op       2047 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/2048/converted_to_slice-24         321           3758705 ns/op         1337796 B/op      45053 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]int/2048/no_conversion-24              328           3636718 ns/op         1452235 B/op      49148 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/05/slice_version-24       231026              5175 ns/op           27136 B/op          4 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/05/converted_to_slice-24                   54981             21073 ns/op           56016 B/op         96 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/05/no_conversion-24                        44761             27195 ns/op           56296 B/op        106 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/10/slice_version-24                        95354             12767 ns/op           76032 B/op          9 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/10/converted_to_slice-24                   28598             43255 ns/op          123017 B/op        207 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/10/no_conversion-24                        18772             64406 ns/op          123577 B/op        227 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/15/slice_version-24                        47575             24890 ns/op          136576 B/op         14 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/15/converted_to_slice-24                   18249             63975 ns/op          149059 B/op        317 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/15/no_conversion-24                        10000            102981 ns/op          149897 B/op        347 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/20/slice_version-24                        28270             37335 ns/op          201217 B/op         19 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/20/converted_to_slice-24                   11172            101382 ns/op          257023 B/op        428 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/20/no_conversion-24                         9236            135017 ns/op          258138 B/op        468 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/32/slice_version-24                        19700             62820 ns/op          382978 B/op         31 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/32/converted_to_slice-24                    7635            155802 ns/op          319524 B/op        692 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/32/no_conversion-24                         4832            225539 ns/op          321306 B/op        756 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/64/slice_version-24                         7344            168134 ns/op          905220 B/op         63 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/64/converted_to_slice-24                    3205            394442 ns/op          650056 B/op       1397 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/64/no_conversion-24                         2637            453180 ns/op          653597 B/op       1525 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/128/slice_version-24                        3519            345533 ns/op         2080780 B/op        127 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/128/converted_to_slice-24                   1588            720638 ns/op         1311180 B/op       2806 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/128/no_conversion-24                        1412            841578 ns/op         1318176 B/op       3062 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/256/slice_version-24                        1317            811741 ns/op         4694041 B/op        255 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/256/converted_to_slice-24                    682           1954905 ns/op         2633777 B/op       5623 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/256/no_conversion-24                         525           2174178 ns/op         2647331 B/op       6135 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/512/slice_version-24                         556           2049607 ns/op        10444846 B/op        511 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/512/converted_to_slice-24                    261           4835832 ns/op         5190902 B/op      11256 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/512/no_conversion-24                         217           5214545 ns/op         5215528 B/op      12280 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/1024/slice_version-24                        271           4388631 ns/op        23003225 B/op       1023 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/1024/converted_to_slice-24                   102          11481406 ns/op        12600861 B/op      22522 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/1024/no_conversion-24                         70          14388982 ns/op        12637498 B/op      24570 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/2048/slice_version-24                         87          12204508 ns/op        50233474 B/op       2048 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/2048/converted_to_slice-24                    37          28133342 ns/op        27204557 B/op      45057 allocs/op
+Benchmark_deque_merge_sort_slice_conversion/[]bigStruct/2048/no_conversion-24                         38          31041155 ns/op        27203294 B/op      49149 allocs/op
+PASS
+ok      github.com/ngicks/go-example-compare-search     99.194s
+```
+
+:::
 
 ### string decorate
 
