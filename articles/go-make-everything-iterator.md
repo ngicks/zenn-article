@@ -34,6 +34,17 @@ https://github.com/ngicks/go-iterator-helper
   - MergeSortのベンチをいろいろ改良。筆者自身が結果を誤解していたので少し文言を変更。デカいstructかつ結果を1要素ずつ消費するときのみ`iter.Seq[V]`やや有利という感じの文言に。
   - collectionのところに`Compact`を追加。これは`deno`のstdと全く関係がない。
   - `SumOf`のところに`Sum`も追加
+- 2024-09-19(final):
+  - まずそうな記述に気付いたとき以外はこれ以上編集しないことにする。
+  - for-range-funcはrewriteであることを追記
+  - 全般的にdoc commentを修正したのを反映
+  - `xiter.Zipped[T, error]`を使えばエラーをchannel経由で伝搬できると書いたが、`KeyValue[T, error]`のほうがシンプルなのでそう変更。
+  - `Chan`のctxがnilでもよいという仕様をなくした。なぜnilでもいいという風に書いた・・・？
+  - `Chan`がctx cancellationを優先して確認するように変更。
+  - `ChanSend`のexampleを追記。書いといてなんだけど筆者自身がこれを使っている自分を想像できない。
+  - `*Box`(`iter.Seq2[V, error]` -> `iter.Seq[V]`に変換することができる`Err`メソッドのあるstruct)はstatefulなiteratorを返すのでIntoIterを実装すべきだった。
+  - `*Box`で`*sql.Rows`をスキャンするexampleを追記。このAPIスタイル好きかも。
+  - `Compact`をadapterの項目以下に移動。
 
 ## iterator
 
@@ -53,8 +64,17 @@ function, 2 values  f  func(func(K, V) bool)           key      k  K            
 
 ```go
 for range func(func() bool) {} {
-    // ...
+    // ...loop body...
 }
+```
+
+仕組みとしては以下のように、loop-bodyを関数に変換してそれを引数にiteratorを呼び出すようにrewriteされれます([ここ](https://github.com/golang/go/blob/go1.23.0/src/cmd/compile/internal/rangefunc/rewrite.go))。
+
+```go
+func(func() bool {
+    // ...loop body...
+    return true
+})
 ```
 
 `func(func() bool)`以外の二つは、`iter`パッケージで[iter.Seq\[V\]](https://pkg.go.dev/iter@go1.23.0#Seq), [iter.Seq2\[K, V\]](https://pkg.go.dev/iter@go1.23.0#Seq2)という型として定義されるので、これを用いると少しわかりやすくなります。
@@ -440,7 +460,7 @@ func puller[V any](seq iter.Seq[V], n int) iter.Seq[V] {
 ```
 
 前述のとおり、`iter.Pull`の呼び出し方を間違うと`goroutine leak`となります。
-iterator外でリソースの確保を行ってしまうと`defer`が実行されずに`leak`となります。
+iterator外でリソースの確保を行ってしまうと、iteratorが呼びされなかった場合にクリーンナップ処理が実行されないため`leak`となります。
 
 これは当然と言えば当然なんですがうっかりしちゃいそうです。
 
@@ -580,8 +600,8 @@ type Numeric interface {
 }
 
 // Range produces an iterator that yields sequential Numeric values in range [start, end).
-// Values start from `start` and step toward `end` 1 by 1,
-// increased or decreased depending on start < end or not.
+// Values start from `start` and step toward `end`.
+// At each step value is increased by 1 if start < end, otherwise decreased by 1.
 func Range[T Numeric](start, end T) iter.Seq[T] {
     return func(yield func(T) bool) {
         switch {
@@ -611,10 +631,9 @@ func Range[T Numeric](start, end T) iter.Seq[T] {
 `slices.Chunk`がある一方でwindowはないので以下のように実装します。
 
 ```go
-
 // Window returns an iterator over overlapping sub-slices of n size (moving windows).
 // n must be a positive non zero value.
-// Values from the iterator are always size of n.
+// Values from the iterator are always slices of n size.
 // The iterator yields nothing when it is not possible.
 func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
     return func(yield func(S) bool) {
@@ -647,32 +666,35 @@ channel `<-chan V`をiteratorに変換できると他のアダプタをそのま
 
 - channelはsynchronizationを目的として使うことが多いですから、そういった目的ではiteratorにできません。
 - channelからデータを受けとって加工して別のchannelに送信する目的では一旦`iter.Seq`を介すといろんな処理が共通化ができていいかも。
-  - `iter.Seq[xiter.Zipped[T, error]]`を利用すればタスクのエラーも容易につたえることができますしね。
+  - `iter.Seq[KeyValue[T, error]]`を利用すればタスクのエラーも容易につたえることができますしね。
 
 ```go
 // Chan returns an iterator over ch.
 // Either cancelling ctx or closing ch stops iteration.
-// ctx is allowed to be nil.
 func Chan[V any](ctx context.Context, ch <-chan V) iter.Seq[V] {
     return func(yield func(V) bool) {
-        if ctx == nil {
-            ctx = context.Background()
-        }
         for {
             select {
             case <-ctx.Done():
                 return
-            case v, ok := <-ch:
-                if !ok || !yield(v) {
+            default:
+                select {
+                case <-ctx.Done():
                     return
+                case v, ok := <-ch:
+                    if !ok || !yield(v) {
+                        return
+                    }
                 }
             }
         }
     }
 }
 
-// ChanSend sends values yielded from seq to c.
-// sentAll is false if ctx is cancelled before all values from seq are sent.
+// ChanSend sends values from seq to c.
+// It unblocks after either ctx is cancelled or all values from seq are consumed.
+// sentAll is true only when all values are sent to c.
+// Otherwise sentAll is false and v is the value that is being blocked on sending to the channel.
 func ChanSend[V any](ctx context.Context, c chan<- V, seq iter.Seq[V]) (v V, sentAll bool) {
     for v := range seq {
         select {
@@ -686,6 +708,61 @@ func ChanSend[V any](ctx context.Context, c chan<- V, seq iter.Seq[V]) (v V, sen
 ```
 
 第二返り値がboolなとき、望ましい状態の時にtrueになる慣習(`ok semantics`と個人的に呼んでいる)があるので全部送信できたらtrueが返るようにしてあります。
+
+前述したワーカーチャネルでまとめて処理するパターンでの活用例としては以下のような形になるでしょうか。こう書いている自分を想像できないですが。
+
+```go
+func ExampleChanSend() {
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
+
+    var (
+        in, out = make(chan string), make(chan string)
+        wg      sync.WaitGroup
+    )
+
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        hiter.ChanSend(ctx, in, hiter.Repeat("hey", 3))
+    }()
+
+    for range 3 {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            // super duper heavy tasks
+            _, _ = hiter.ChanSend(
+                ctx,
+                out,
+                hiter.Tap(
+                    func(_ string) {
+                        // sleep for random duration.
+                        // Ensuring moderate distribution among workers(goroutines.)
+                        time.Sleep(rand.N[time.Duration](100))
+                    },
+                    xiter.Map(
+                        func(s string) string { return "✨" + s + "✨" },
+                        hiter.Chan(ctx, in),
+                    ),
+                ),
+            )
+        }()
+    }
+
+    for i, decorated := range hiter.Enumerate(hiter.Chan(ctx, out)) {
+        fmt.Printf("%s\n", decorated)
+        if i == 2 {
+            cancel()
+        }
+    }
+    wg.Wait()
+    // Output:
+    // ✨hey✨
+    // ✨hey✨
+    // ✨hey✨
+}
+```
 
 ### string
 
@@ -825,7 +902,8 @@ func StringsCutUpperCase(s string) (tokUntil int, skipUntil int)
 
 ```go
 // Scanner wraps scanner with an iterator over scanned text.
-// Callers should check [bufio.Scanner.Err] after the returned iterator stops.
+// The caller should check [bufio.Scanner.Err] after the returned iterator stops
+// to see if it has been stopped for an error.
 func Scan(scanner *bufio.Scanner) iter.Seq[string] {
     return func(yield func(text string) bool) {
         for scanner.Scan() {
@@ -905,7 +983,7 @@ b0be743571677a078b5eaf08a1a19f5c783adb372faa8901a13557df09022e15ac522d71d18d662c
 */
 ```
 
-javascriptにおける([whatwgのstream spec](https://streams.spec.whatwg.org/#rs-class)の)[ReadableStreamもAsyncIterator](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream#async_iteration)だったりしますね。
+javascriptにおける([whatwgのstream spec](https://streams.spec.whatwg.org/#rs-class)の)[ReadableStreamもAsyncIterator](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream#async_iteration)だったりしますね。なのでとてつもなく珍しいスタイルのAPIということはないと思います。
 
 ただ`Go`は`io.Reader`周りのツールがしっかりそろっているのでわざわざこういう形にしないかなと思います。
 
@@ -919,13 +997,16 @@ decoderでトークンを読み進めてから`dec.Decode`を呼ぶことで大�
 
 ```go
 // JsonDecoder returns an iterator over json tokens.
+// The first non-nil error encountered stops iteration after yielding it.
+// [io.EOF] is excluded from result.
 func JsonDecoder(dec *json.Decoder) iter.Seq2[json.Token, error] {
     return tokener(dec)
 }
 
 // XmlDecoder returns an iterator over xml tokens.
-// The first non-nil error encountered stops iteration.
-// Callers should call [xml.CopyToken] before going to next iteration if they need to retain tokens.
+// The first non-nil error encountered stops iteration after yielding it.
+// [io.EOF] is excluded from result.
+// The caller should call [xml.CopyToken] before going to next iteration if they need to retain tokens.
 func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error] {
     return tokener(dec)
 }
@@ -960,11 +1041,10 @@ EDIT 2024-09-14: `Err`メソッドのあるstructを新規追加しました
 
 ```go
 // SqlRows returns an iterator over scanned rows from r.
-// scanner will be invoked against every rows queried in r.
-// scanner should call [*sql.Rows.Scan] once or it can skip the row.
-// The returned iterator yields scanned result, including non-nil error.
-// If scanner returns an error, or [*sql.Rows.Err] returns non-nil error,
-// the iterator yields that error and stops iteration.
+// scanner will be called against [*sql.Rows] after each time [*sql.Rows.Next] returns true.
+// It must either call [*sql.Rows.Scan] once per invocation or do nothing and return.
+// If the scan result or [*sql.Rows.Err] returns a non-nil error,
+// the iterator stops its iteration immediately after yielding the error.
 func SqlRows[T any](r *sql.Rows, scanner func(*sql.Rows) (T, error)) iter.Seq2[T, error] {
     return func(yield func(T, error) bool) {
         for r.Next() {
@@ -995,14 +1075,14 @@ EDIT 2024-09-14: `Err`メソッドのあるstructを新規追加しました。
 ということでラッパーとなるstructを定義して`iter.Seq2[V, error]`を`iter.Seq[V]`に変換しましょう。
 
 ```go
-// Box boxes an input iter.Seq2[V, error] to iter.Seq[V],
-// by storing a first non nil error encountered.
+// Box boxes an input [iter.Seq2][V, error] to [iter.Seq][V] by stripping nil errors from the input iterator.
+// The first non-nil error causes the boxed iterator to be stopped and Box stores the error.
 // Later the error can be examined by [*Box.Err].
 //
-// [*Box.Iter] returns an iterator converted to be stateful from input [iter.Seq2] by [iter.Pull2].
-// When non nil error is yielded from the iterator,
-// Box stores the error and the boxed iterator stops
-// without yielding paired value V.
+// Box converts input iterator stateful form by calling [iter.Pull2].
+// [*Box.IntoIter] returns the iterator as [iter.Seq][V].
+// While consuming values from the iterator, it might conditionally yield a non-nil error.
+// In that case Box stores the error and stops without yielding the value V paired to the error.
 // [*Box.Err] returns that error otherwise nil.
 //
 // The zero Box is invalid and it must be allocated by [New].
@@ -1012,10 +1092,10 @@ type Box[V any] struct {
     stop func()
 }
 
-// New returns a newly allocate Box.
+// New returns a newly allocated Box.
 //
-// When a pair from seq contains non-nil error, Box discards a former value of the pair(V),
-// then the iterator returned from [Box.Iter] stops.
+// When a pair from seq contains non-nil error, Box discards a former value of that pair(V),
+// then the iterator returned from [Box.IntoIter] stops.
 //
 // [*Box.Stop] must be called to release resource regardless of usage.
 func New[V any](seq iter.Seq2[V, error]) *Box[V] {
@@ -1027,17 +1107,21 @@ func New[V any](seq iter.Seq2[V, error]) *Box[V] {
 }
 
 // Stop releases resources allocated by [New].
-// After calling Stop, iterators returned  from [Box.Iter] yields nothing.
+// After calling Stop, iterators returned from [Box.IntoIter] produce no more data.
 func (b *Box[V]) Stop() {
     b.stop()
 }
 
-// Iter returns a stateful iterator which yields values from the input iterator.
-func (b *Box[V]) Iter() iter.Seq[V] {
+// IntoIter returns an iterator which yields values from the input iterator.
+//
+// As the name IntoIter suggests, the iterator is stateful;
+// breaking and calling seq again continues its iteration without replaying data.
+// If the iterator finds an error, it stops iteration and will no longer produce any data.
+// In that case the error can be inspected by calling [*Box.Err].
+func (b *Box[V]) IntoIter() iter.Seq[V] {
     return func(yield func(V) bool) {
         for {
             if b.err != nil {
-                b.stop()
                 return
             }
             v, err, ok := b.next()
@@ -1061,6 +1145,8 @@ func (b *Box[V]) Err() error {
 ```
 
 iteratorからnon-nil errorが返されたらこれを保存し、`Err`メソッドで確認できるようにするというシンプルなものです。
+
+`iter.Seq[V, error]`を実装するもののラッパーも定義しておきます。
 
 ```go
 type JsonDecoder struct {
@@ -1100,9 +1186,42 @@ func NewSqlRows[V any](rows *sql.Rows, scanner func(*sql.Rows) (V, error)) *SqlR
 
 `*bufio.Scanner`と似たような方式なので筆者的には違和感が少ないと思います。
 
-EDIT 2024-09-18: godocのexample testのリンクを追加しておきます
+EDIT 2024-09-19: 使ってみると以下のような感じ。
 
-https://pkg.go.dev/github.com/ngicks/go-iterator-helper@v0.0.11/hiter/errbox#pkg-overview
+```go
+func ExampleNewSqlRows_successful() {
+    type TestRow struct {
+        Id    int
+        Title string
+        Body  string
+    }
+
+    mock := testhelper.OpenMockDB(false)
+    defer mock.Close()
+
+    rows, err := mock.Query("SELECT id, title, body FROM posts")
+    if err != nil {
+        panic(err)
+    }
+
+    scanner := func(r *sql.Rows) (TestRow, error) {
+        var t TestRow
+        err := r.Scan(&t.Id, &t.Title, &t.Body)
+        return t, err
+    }
+
+    boxed := errbox.NewSqlRows(rows, scanner)
+    for row := range boxed.IntoIter() {
+        fmt.Printf("row = %#v\n", row)
+    }
+    fmt.Printf("stored err: %v\n", boxed.Err())
+    // Output:
+    // row = errbox_test.TestRow{Id:1, Title:"post 1", Body:"hello"}
+    // row = errbox_test.TestRow{Id:2, Title:"post 2", Body:"world"}
+    // row = errbox_test.TestRow{Id:3, Title:"post 3", Body:"iter"}
+    // stored err: <nil>
+}
+```
 
 ### container/heap, container/list, container/ring
 
@@ -1126,14 +1245,14 @@ func Heap[V any](h heap.Interface) iter.Seq[V] {
 
 // ListAll returns an iterator over all element of l starting from l.Front().
 // ListAll assumes Values of all element are type V.
-// If other than that or nil, the returned iterator panics.
+// If other than that or nil, the returned iterator may panic on invocation.
 func ListAll[V any](l *list.List) iter.Seq[V] {
     return ListElementAll[V](l.Front())
 }
 
 // ListElementAll returns an iterator over from ele to end of the list.
 // ListElementAll assumes Values of all element are type V.
-// If other than that or nil, the returned iterator panics.
+// If other than that or nil, the returned iterator may panic on invocation.
 func ListElementAll[V any](ele *list.Element) iter.Seq[V] {
     return func(yield func(V) bool) {
         // shadowing ele, no state in the seq closure as much as possible.
@@ -1147,14 +1266,14 @@ func ListElementAll[V any](ele *list.Element) iter.Seq[V] {
 
 // ListBackward returns an iterator over all element of l starting from l.Back().
 // ListBackward assumes Values of all element are type V.
-// If other than that or nil, the returned iterator panics.
+// If other than that or nil, the returned iterator may panic on invocation.
 func ListBackward[V any](l *list.List) iter.Seq[V] {
     return ListElementBackward[V](l.Back())
 }
 
 // ListElementBackward returns an iterator over from ele to start of the list.
 // ListElementBackward assumes Values of all element are type V.
-// If other than that or nil, the returned iterator panics.
+// If other than that or nil, the returned iterator may panic on invocation.
 func ListElementBackward[V any](ele *list.Element) iter.Seq[V] {
     return func(yield func(V) bool) {
         // no state in in the seq closure as much as possible.
@@ -1291,7 +1410,6 @@ func main() {
     )
     // []int{303, 304, 505, 606, 607, 908, 309, 310, 11}
 }
-
 ```
 
 ### Third party: github.com/rsc/omap
@@ -1395,63 +1513,7 @@ README.mdで述べていますが
 
 `deno`の`jsr:@std/collection`からいくつかアイデアを盗んで`iter.Seq`がかかわって便利そうなものを実装します。
 
-### Compact(ADDED 2024-09-18)
-
-`slices.Compact`のiterator版です
-
-```go
-// Compact skips consecutive runs of equal elements from seq.
-// The returned iterator is pure and stateless as long as seq is so.
-func Compact[V comparable](seq iter.Seq[V]) iter.Seq[V] {
-    return func(yield func(V) bool) {
-        var (
-            first bool = true
-            prev  V
-        )
-        for t := range seq {
-            if first {
-                first = false
-                if !yield(t) {
-                    return
-                }
-            } else if prev != t {
-                if !yield(t) {
-                    return
-                }
-            }
-            prev = t
-        }
-    }
-}
-```
-
-`xiter`にMergeがあるのでCompactもあると便利だなと思って実装しました。下記が典型的な使用例です。
-
-```go
-func Example_compact() {
-    m := xiter.Merge(
-        xiter.Map(func(i int) int { return 2 * i }, hiter.Range(1, 11)),
-        xiter.Map(func(i int) int { return 1 << i }, hiter.Range(1, 11)),
-    )
-
-    first := true
-    for i := range Compact(m) {
-        if !first {
-            fmt.Printf(", ")
-        }
-        fmt.Printf("%d", i)
-        first = false
-    }
-    fmt.Println()
-    // Output:
-    // 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 32, 64, 128, 256, 512, 1024
-}
-```
-
-ベンチをとるときに要素数ごとにベンチをとりたい、32以下とかまでの数字は2の倍数全部をテストして、以降は`2^n`だけをテストしたいとかそういうときに使いやすいです。
-なくても困ってなかったんですがあると便利ですね。なんとなく手続きの塊から論理の塊になるみたいで面白いです。
-
-### Permutation
+### Permutations
 
 `[]int{1, 2, 3}`に対して、`[][]int{{1,2,3}, {1,3,2}, {2,1,3}, {2,3,1}, {3,1,2}, {3,2,1}}`をPermutations(置換)と言います。
 テスト目的に使われることがたびたびあるのを目にします。
@@ -1610,6 +1672,10 @@ EDIT 2024-09-18: `Sum`も実装しました。
 ```go
 func Alternate[V any](seqs ...iter.Seq[V]) iter.Seq[V]
 func Alternate2[K, V any](seqs ...iter.Seq2[K, V]) iter.Seq2[K, V]
+func Compact[V comparable](seq iter.Seq[V]) iter.Seq[V]
+func Compact2[K, V comparable](seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func CompactFunc[V any](seq iter.Seq[V], eq func(i, j V) bool) iter.Seq[V]
+func CompactFunc2[K, V any](seq iter.Seq2[K, V], eq func(k1 K, v1 V, k2 K, v2 V) bool) iter.Seq2[K, V]
 func Decorate[V any](prepend, append Iterable[V], seq iter.Seq[V]) iter.Seq[V]
 func Decorate2[K, V any](prepend, append Iterable2[K, V], seq iter.Seq2[K, V]) iter.Seq2[K, V]
 func Enumerate[T any](seq iter.Seq[T]) iter.Seq2[int, T]
@@ -1618,15 +1684,9 @@ func FlattenF[S1 ~[]E1, E1 any, E2 any](seq iter.Seq2[S1, E2]) iter.Seq2[E1, E2]
 func FlattenL[S2 ~[]E2, E1 any, E2 any](seq iter.Seq2[E1, S2]) iter.Seq2[E1, E2]
 func LimitUntil[V any](f func(V) bool, seq iter.Seq[V]) iter.Seq[V]
 func LimitUntil2[K, V any](f func(K, V) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V]
-func Omit[K any](seq iter.Seq[K]) func(yield func() bool)
-func Omit2[K, V any](seq iter.Seq2[K, V]) func(yield func() bool)
 func OmitF[K, V any](seq iter.Seq2[K, V]) iter.Seq[V]
 func OmitL[K, V any](seq iter.Seq2[K, V]) iter.Seq[K]
 func Pairs[K, V any](seq1 iter.Seq[K], seq2 iter.Seq[V]) iter.Seq2[K, V]
-func Repeat[V any](v V, n int) iter.Seq[V]
-func Repeat2[K, V any](k K, v V, n int) iter.Seq2[K, V]
-func RepeatFunc[V any](fnV func() V, n int) iter.Seq[V]
-func RepeatFunc2[K, V any](fnK func() K, fnV func() V, n int) iter.Seq2[K, V]
 func Skip[V any](n int, seq iter.Seq[V]) iter.Seq[V]
 func Skip2[K, V any](n int, seq iter.Seq2[K, V]) iter.Seq2[K, V]
 func SkipLast[V any](n int, seq iter.Seq[V]) iter.Seq[V]
@@ -1641,6 +1701,62 @@ func Transpose[K, V any](seq iter.Seq2[K, V]) iter.Seq2[V, K]
 `xiter`が、`seq iter.Seq[V]`を引数に受けるときに末尾で受けるという`callback-first style`ないしは`seq-last style`になっているのでそれに追従しています。組み合わせて使っても違和感がないはずです。
 
 以下でいくつか使ってみます。
+
+### Compact(ADDED 2024-09-18)
+
+`slices.Compact`のiterator版です
+
+```go
+// Compact skips consecutive runs of equal elements from seq.
+// The returned iterator is pure and stateless as long as seq is so.
+func Compact[V comparable](seq iter.Seq[V]) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        var (
+            first bool = true
+            prev  V
+        )
+        for t := range seq {
+            if first {
+                first = false
+                if !yield(t) {
+                    return
+                }
+            } else if prev != t {
+                if !yield(t) {
+                    return
+                }
+            }
+            prev = t
+        }
+    }
+}
+```
+
+`xiter`にMergeがあるのでCompactもあると便利だなと思って実装しました。下記が典型的な使用例です。
+
+```go
+func Example_compact() {
+    m := xiter.Merge(
+        xiter.Map(func(i int) int { return 2 * i }, hiter.Range(1, 11)),
+        xiter.Map(func(i int) int { return 1 << i }, hiter.Range(1, 11)),
+    )
+
+    first := true
+    for i := range Compact(m) {
+        if !first {
+            fmt.Printf(", ")
+        }
+        fmt.Printf("%d", i)
+        first = false
+    }
+    fmt.Println()
+    // Output:
+    // 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 32, 64, 128, 256, 512, 1024
+}
+```
+
+ベンチをとるときに要素数ごとにベンチをとりたい、32以下とかまでの数字は2の倍数全部をテストして、以降は`2^n`だけをテストしたいとかそういうときに使いやすいです。
+なくても困ってなかったんですがあると便利ですね。なんとなく手続きの塊から論理の塊になるみたいで面白いです。
 
 ### Merge sort
 
@@ -2003,7 +2119,7 @@ Benchmark_deque_merge_sort_slice_conversion/[]*bigStruct/2048/no_conversion-24  
 以下のようになります。
 
 ```go
-func Example_decorate_string() {
+func ExampleDecorate() {
     src := "foo bar baz"
     var num atomic.Int32
     numListTitle := iterable.RepeatableFunc[string]{
@@ -2035,6 +2151,7 @@ func Example_decorate_string() {
 ```go
 // Decorate decorates seq by prepend and append,
 // by yielding additional elements before and after seq yields.
+// Both prepend and append are allowed to be nil; only non-nil [Iterable] is used as decoration.
 func Decorate[V any](prepend, append Iterable[V], seq iter.Seq[V]) iter.Seq[V] {
     return func(yield func(V) bool) {
         for v := range seq {
@@ -2089,7 +2206,7 @@ Decorateの作り的に末尾にも空白が入ってしまいますが、今回
 そのため、それを消すために最後のN要素を消すadapterを実装します。
 
 ```go
-// SkipLast returns an iterator over seq that skips last n elements.
+// SkipLast returns an iterator over seq that skips last n elements of seq.
 func SkipLast[V any](n int, seq iter.Seq[V]) iter.Seq[V] {
     return func(yield func(V) bool) {
         var ( // easy implementation for ring buffer.
@@ -2158,12 +2275,12 @@ func SkipLast[V any](n int, seq iter.Seq[V]) iter.Seq[V] {
 `Window`のユースケースに移動平均があるので、これができることをしめします。
 
 ```go
-func Example_moving_average() {
+func ExampleWindow_moving_average() {
     src := []int{1, 0, 1, 0, 1, 0, 5, 3, 2, 3, 4, 6, 5, 3, 6, 7, 7, 8, 9, 5, 7, 7, 8}
     movingAverage := slices.Collect(
         xiter.Map(
             func(s []int) float64 {
-                return float64(collection.SumOf(slices.Values(s), func(e int) int { return e })) / float64(len(s))
+                return float64(hiter.Sum(slices.Values(s))) / float64(len(s))
             },
             hiter.Window(src, 5),
         ),
@@ -2182,7 +2299,7 @@ func Example_moving_average() {
 以下で7の倍数を50より下の範囲でiterateする例を示します。
 
 ```go
-func Example_range_map() {
+func ExampleRange_prevent_off_by_one() {
     for i := range hiter.LimitUntil(
         func(i int) bool { return i < 50 },
         xiter.Map(
