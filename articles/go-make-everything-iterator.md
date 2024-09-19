@@ -41,10 +41,11 @@ https://github.com/ngicks/go-iterator-helper
   - `xiter.Zipped[T, error]`を使えばエラーをchannel経由で伝搬できると書いたが、`KeyValue[T, error]`のほうがシンプルなのでそう変更。
   - `Chan`のctxがnilでもよいという仕様をなくした。なぜnilでもいいという風に書いた・・・？
   - `Chan`がctx cancellationを優先して確認するように変更。
-  - `ChanSend`のexampleを追記。書いといてなんだけど筆者自身がこれを使っている自分を想像できない。
+  - `ChanSend`のexampleを追記。
   - `*Box`(`iter.Seq2[V, error]` -> `iter.Seq[V]`に変換することができる`Err`メソッドのあるstruct)はstatefulなiteratorを返すのでIntoIterを実装すべきだった。
   - `*Box`で`*sql.Rows`をスキャンするexampleを追記。このAPIスタイル好きかも。
   - `Compact`をadapterの項目以下に移動。
+  - `SumOf`, `ReduceGroup`, `RunningReduce`がseq-lastじゃなかったので修正
 
 ## iterator
 
@@ -1583,7 +1584,7 @@ slices.Collect(
 `maps.Collect`と違って`iter.Seq2`が同値の`K`を返す時に単に上書きしたくないときに有効です。
 
 ```go
-func ReduceGroup[K comparable, V, Sum any](seq iter.Seq2[K, V], reducer func(accumulator Sum, current V) Sum, initial Sum) map[K]Sum {
+func ReduceGroup[K comparable, V, Sum any](reducer func(accumulator Sum, current V) Sum, initial Sum, seq iter.Seq2[K, V]) map[K]Sum {
     m := make(map[K]Sum)
     for k, v := range seq {
         if _, ok := m[k]; !ok {
@@ -1600,7 +1601,7 @@ func ReduceGroup[K comparable, V, Sum any](seq iter.Seq2[K, V], reducer func(acc
 `Reduce`だが、`reducer`実行のたびに中間の結果をyieldできるというもの。何かで使い道がありそう。
 
 ```go
-func RunningReduce[V, Sum any](seq iter.Seq[V], reducer func(accumulator Sum, current V, i int) Sum, initial Sum) iter.Seq[Sum] {
+func RunningReduce[V, Sum any](reducer func(accumulator Sum, current V, i int) Sum, initial Sum, seq iter.Seq[V]) iter.Seq[Sum] {
     return func(yield func(Sum) bool) {
         var i int
         for v := range seq {
@@ -1637,7 +1638,7 @@ func Sum[S Summable](seq iter.Seq[S]) S {
     )
 }
 
-func SumOf[V any, S Summable](seq iter.Seq[V], selector func(ele V) S) S {
+func SumOf[V any, S Summable](selector func(ele V) S, seq iter.Seq[V]) S {
     return reduce(
         seq,
         func(e S, t V) S { return e + selector(t) },
@@ -1674,8 +1675,8 @@ func Alternate[V any](seqs ...iter.Seq[V]) iter.Seq[V]
 func Alternate2[K, V any](seqs ...iter.Seq2[K, V]) iter.Seq2[K, V]
 func Compact[V comparable](seq iter.Seq[V]) iter.Seq[V]
 func Compact2[K, V comparable](seq iter.Seq2[K, V]) iter.Seq2[K, V]
-func CompactFunc[V any](seq iter.Seq[V], eq func(i, j V) bool) iter.Seq[V]
-func CompactFunc2[K, V any](seq iter.Seq2[K, V], eq func(k1 K, v1 V, k2 K, v2 V) bool) iter.Seq2[K, V]
+func CompactFunc[V any](eq func(i, j V) bool, seq iter.Seq[V]) iter.Seq[V]
+func CompactFunc2[K, V any](eq func(k1 K, v1 V, k2 K, v2 V) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V]
 func Decorate[V any](prepend, append Iterable[V], seq iter.Seq[V]) iter.Seq[V]
 func Decorate2[K, V any](prepend, append Iterable2[K, V], seq iter.Seq2[K, V]) iter.Seq2[K, V]
 func Enumerate[T any](seq iter.Seq[T]) iter.Seq2[int, T]
