@@ -72,10 +72,10 @@ for range func(func() bool) {} {
 仕組みとしては以下のように、loop-bodyを関数に変換してそれを引数にiteratorを呼び出すようにrewriteされれます([ここ](https://github.com/golang/go/blob/go1.23.0/src/cmd/compile/internal/rangefunc/rewrite.go))。
 
 ```go
-func(func() bool {
+func(func() bool) {}((func() bool {
     // ...loop body...
     return true
-})
+}))
 ```
 
 `func(func() bool)`以外の二つは、`iter`パッケージで[iter.Seq\[V\]](https://pkg.go.dev/iter@go1.23.0#Seq), [iter.Seq2\[K, V\]](https://pkg.go.dev/iter@go1.23.0#Seq2)という型として定義されるので、これを用いると少しわかりやすくなります。
