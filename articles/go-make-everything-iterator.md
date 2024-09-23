@@ -46,6 +46,8 @@ https://github.com/ngicks/go-iterator-helper
   - `*Box`で`*sql.Rows`をスキャンするexampleを追記。このAPIスタイル好きかも。
   - `Compact`をadapterの項目以下に移動。
   - `SumOf`, `ReduceGroup`, `RunningReduce`がseq-lastじゃなかったので修正
+- 2024-09-24:
+  - `*errbox.Box`がドキュメントに反してresumableでなかったはさすがにまずいので修正
 
 ## iterator
 
@@ -1079,6 +1081,52 @@ EDIT 2024-09-14: `Err`メソッドのあるstructを新規追加しました。
 上記の`*(json|xml).Decoder`/`*sql.Rows`は`iter.Seq2[V, error]`となっており、non-nil errorが帰ってくるとその直後にiteratorが止まるというものでしたが、これはなんとなくぎこちなさを感じるものでした。
 ということでラッパーとなるstructを定義して`iter.Seq2[V, error]`を`iter.Seq[V]`に変換しましょう。
 
+まず`iter.Pull2`を使って`iter.Seq[V, error]`をresumableに変換します。
+
+```go
+// Resumable2 converts the input [iter.Seq2][K, V] into stateful form by calling [iter.Pull2].
+//
+// The zero value of Resumable2 is not valid. Allocate one by [NewResumable2].
+type Resumable2[K, V any] struct {
+    next func() (K, V, bool)
+    stop func()
+}
+
+// NewResumable2 wraps seq into stateful form so that the iterator can be break-ed and resumed.
+// The caller must call [*Resumable2.Stop] to release resources regardless of usage.
+func NewResumable2[K, V any](seq iter.Seq2[K, V]) *Resumable2[K, V] {
+    next, stop := iter.Pull2(seq)
+    return &Resumable2[K, V]{
+        next: next,
+        stop: stop,
+    }
+}
+
+// Stop releases resources allocated by [NewResumable2].
+func (r *Resumable2[K, V]) Stop() {
+    r.stop()
+}
+
+// IntoIter2 returns an iterator over the input iterator.
+// The iterator can be paused by break and later resumed without replaying data.
+func (r *Resumable2[K, V]) IntoIter2() iter.Seq2[K, V] {
+    return func(yield func(K, V) bool) {
+        for {
+            k, v, ok := r.next()
+            if !ok {
+                return
+            }
+            if !yield(k, v) {
+                return
+            }
+        }
+    }
+}
+```
+
+これをさらに包み、`iter.Seq[V, error]`がnon-nil errorを返したときにこれを記録し、iterationが止まるようにします。
+記録されたerrorは`Err`メソッドで確認可能にします。これは`*bufio.Scanner`と同じ様式です。
+
 ```go
 // Box boxes an input [iter.Seq2][V, error] to [iter.Seq][V] by stripping nil errors from the input iterator.
 // The first non-nil error causes the boxed iterator to be stopped and Box stores the error.
@@ -1092,9 +1140,8 @@ EDIT 2024-09-14: `Err`メソッドのあるstructを新規追加しました。
 //
 // The zero Box is invalid and it must be allocated by [New].
 type Box[V any] struct {
-    err  error
-    next func() (V, error, bool)
-    stop func()
+    err       error
+    resumable *iterable.Resumable2[V, error]
 }
 
 // New returns a newly allocated Box.
@@ -1104,17 +1151,15 @@ type Box[V any] struct {
 //
 // [*Box.Stop] must be called to release resource regardless of usage.
 func New[V any](seq iter.Seq2[V, error]) *Box[V] {
-    next, stop := iter.Pull2(seq)
     return &Box[V]{
-        next: next,
-        stop: stop,
+        resumable: iterable.NewResumable2(seq),
     }
 }
 
 // Stop releases resources allocated by [New].
 // After calling Stop, iterators returned from [Box.IntoIter] produce no more data.
 func (b *Box[V]) Stop() {
-    b.stop()
+    b.resumable.Stop()
 }
 
 // IntoIter returns an iterator which yields values from the input iterator.
@@ -1125,17 +1170,13 @@ func (b *Box[V]) Stop() {
 // In that case the error can be inspected by calling [*Box.Err].
 func (b *Box[V]) IntoIter() iter.Seq[V] {
     return func(yield func(V) bool) {
-        for {
-            if b.err != nil {
-                return
-            }
-            v, err, ok := b.next()
-            if !ok {
-                return
-            }
-            if err != nil || !yield(v) {
-                b.stop()
+        for v, err := range b.resumable.IntoIter2() {
+            if err != nil {
+                b.Stop()
                 b.err = err
+                return
+            }
+            if !yield(v) {
                 return
             }
         }
@@ -1149,9 +1190,7 @@ func (b *Box[V]) Err() error {
 }
 ```
 
-iteratorからnon-nil errorが返されたらこれを保存し、`Err`メソッドで確認できるようにするというシンプルなものです。
-
-`iter.Seq[V, error]`を実装するもののラッパーも定義しておきます。
+前述の`*(json|xml).Decoder`/`*sql.Rows`を向けのラッパーはあらかじめ定義しておきましょう。
 
 ```go
 type JsonDecoder struct {
@@ -1188,8 +1227,6 @@ func NewSqlRows[V any](rows *sql.Rows, scanner func(*sql.Rows) (V, error)) *SqlR
     }
 }
 ```
-
-`*bufio.Scanner`と似たような方式なので筆者的には違和感が少ないと思います。
 
 EDIT 2024-09-19: 使ってみると以下のような感じ。
 
