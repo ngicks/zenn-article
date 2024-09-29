@@ -255,6 +255,137 @@ type Numeric interface {
 func Range[T Numeric](start, end T) iter.Seq[T]
 ```
 
+### Step
+
+`Range`と近いようで微妙に違うものとして`Step`があります。
+
+```go
+// Step returns an iterator over numerics values starting from initial and added step at each step.
+// The iterator iterates forever. The caller might want to limit it by [xiter.Limit].
+func Step[N Numeric](initial, step N) iter.Seq[N] {
+	return func(yield func(N) bool) {
+		for n := initial; ; n += step {
+			if !yield(n) {
+				return
+			}
+		}
+	}
+}
+
+// StepBy returns an iterator over pair of index and value associated the index.
+// The index starts from initial and steps by step.
+func StepBy[V any](initial, step int, v []V) iter.Seq2[int, V] {
+	return func(yield func(int, V) bool) {
+		if initial < 0 {
+			return
+		}
+		for i := initial; 0 <= i && i < len(v); i += step {
+			if !yield(i, v[i]) {
+				return
+			}
+		}
+	}
+}
+```
+
+`Rust`の[core::iter::Iteratorにstep_byメソッドがあります](https://doc.rust-lang.org/beta/core/iter/trait.Iterator.html#method.step_by)。
+筆者は使ったことはないんですが`Go`にもあるといいのかなあと思って実装しておきます。
+
+### Once, Empty
+
+1度だけ値を返すiteratorも欲しくなるので定義しておきましょう。これは主に`xiter.Concat`などとともに使われると思われます。
+また、値を何も返さないiteratorも欲しくなります。iteratorは関数ですから単に`nil`を渡してしまうと`nil`関数の呼び出しでpanicしてしまうことがあるためですね。
+
+```go
+// Once adapts a single value as an iterator;
+// the iterator yields v and stops.
+func Once[V any](v V) iter.Seq[V] {
+	return func(yield func(V) bool) {
+		yield(v)
+	}
+}
+
+// Once2 adapts a single k-v pair as an iterator;
+// the iterator yields k, v and stops.
+func Once2[K, V any](k K, v V) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		yield(k, v)
+	}
+}
+
+// Empty returns an iterator over nothing.
+func Empty[V any]() iter.Seq[V] {
+	return func(yield func(V) bool) {}
+}
+
+// Empty2 returns an iterator over nothing.
+func Empty2[K, V any]() iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {}
+}
+```
+
+### Repeat / RepeatFunc
+
+単一要素の繰り返し、単一関数の繰り返しをiterator扱いしたいことはよくあるので実装しておきます。
+
+```go
+// Repeat returns an iterator over v repeated n times.
+// If n < 0, the returned iterator repeats forever.
+func Repeat[V any](v V, n int) iter.Seq[V] {
+	if n < 0 {
+		return func(yield func(V) bool) {
+			for {
+				if !yield(v) {
+					return
+				}
+			}
+		}
+	}
+	return func(yield func(V) bool) {
+		// no state in the seq.
+		for n := n; n != 0; n-- {
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
+
+// RepeatFunc returns an iterator that generates result from fnV n times.
+// If n < 0, the returned iterator repeats forever.
+func RepeatFunc[V any](fnV func() V, n int) iter.Seq[V]  {
+	if n < 0 {
+		return func(yield func(V) bool) {
+			for {
+				if !yield(fnV()) {
+					return
+				}
+			}
+		}
+	}
+	return func(yield func(V) bool) {
+		for n := n; n != 0; n-- {
+			if !yield(fnV()) {
+				return
+			}
+		}
+	}
+}
+```
+
+`n < 0`のケースでも`n--`し続けるといつかアンダーフローしてしまうため本当に無限ループにするために`n < 0`の時は別なiteratorを返すようになっています。実際の運用上ありうるのかはわかりません。
+
+`iter.Seq2[K, V]`版も当然実装してあります。
+
+```go
+// Repeat2 returns an iterator over the pair of k and v repeated n times.
+// If n < 0, the returned iterator repeats forever.
+func Repeat2[K, V any](k K, v V, n int) iter.Seq2[K, V]
+// RepeatFunc2 returns an iterator that generates result of fnK and fnV n times.
+// If n < 0, the returned iterator repeats forever.
+func RepeatFunc2[K, V any](fnK func() K, fnV func() V, n int) iter.Seq2[K, V]
+```
+
 ### chan V
 
 `chan V`そのものはすでにfor-rangeで処理可能ですが、他のアダプタに渡せるようにするために`iter.Seq[V]`に変換できたほうが何かと便利です。
@@ -531,6 +662,35 @@ func SyncMap[K, V any](m *sync.Map) iter.Seq2[K, V] {
 
 やっていることはtype assertionだけなのでkey, valueにそれぞれ複数の型を使っている場合には適合しませんが、あんまりないことだと思っています。
 
+### reflect.Value.Seq, reflect.Value.Se2
+
+[reflect.Value.Seq](https://pkg.go.dev/reflect@go1.23.1#Value.Seq)および[reflect.Value.Seq2](https://pkg.go.dev/reflect@go1.23.1#Value.Seq2)で`iter.Seq[reflect.Value]`、`iter.Seq2[reflect.Value, reflect.Value]`をそれぞれ`reflect`を通じて得られるようになりました。これを`type assertion`を通して別の型になするadapterを定義しておきます。
+
+```go
+// AssertValue returns an iterator over seq but each value returned by [reflect.Value.Interface] is type-asserted to be type V.
+func AssertValue[V any](seq iter.Seq[reflect.Value]) iter.Seq[V] {
+	return mapIter(func(v reflect.Value) V { return v.Interface().(V) }, seq)
+}
+
+// Assert2 returns an iterator over seq but internal values returned by [reflect.Value.Interface] of each key-value pair
+// are type-asserted to be type K and V respectively.
+func AssertValue2[K, V any](seq iter.Seq2[reflect.Value, reflect.Value]) iter.Seq2[K, V] {
+	return mapIter2(func(k, v reflect.Value) (K, V) { return k.Interface().(K), v.Interface().(V) }, seq)
+}
+
+// Assert returns an iterator over seq but each value is type-asserted to be type V.
+func Assert[V any](seq iter.Seq[any]) iter.Seq[V] {
+	return mapIter(func(v any) V { return v.(V) }, seq)
+}
+
+// Assert2 returns an iterator over seq but each key-value pair is type-asserted to be type K and V respectively.
+func Assert2[K, V any](seq iter.Seq2[any, any]) iter.Seq2[K, V] {
+	return mapIter2(func(k, v any) (K, V) { return k.(K), v.(V) }, seq)
+}
+```
+
+やってることは特化した`xiter.Map`なので実装されている必然性のようなものは薄いですが、網羅性のために実装します。
+
 ### Third party: github.com/wk8/go-ordered-map/v2
 
 [github.com/wk8/go-ordered-map/v2](httos://github.com/wk8/go-ordered-map): 挿入順序という意味のordered-map実装です。内部的に`map[K]*V`+`*list.List`の組み合わせで実現されています。
@@ -572,6 +732,178 @@ func IndexAccessible[A Atter[T], T any](a A, indices iter.Seq[int]) iter.Seq2[in
 }
 ```
 
+### Third party: github.com/ngicks/und/option
+
+自作モジュールです。
+この記事: [GoのJSONのT | null | undefinedは[]Option[T]で表現できる](https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice)で実装した`und`モジュールの各typeに`Iter`メソッドを実装しました。
+
+```go
+// Iter returns an iterator over the internal value.
+// If o is some, the iterator yields the [Option.Value](), otherwise nothing.
+func (o Option[T]) Iter() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		if o.IsSome() {
+			yield(o.Value())
+		}
+	}
+}
+```
+
+これは`Rust`の[core::option::Optionのiterメソッド](https://doc.rust-lang.org/core/option/enum.Option.html#method.iter)をそのままパクったものです。
+
+まだまだ色々いじるところがあってしばらくタグ付けるつもりはないのですが・・・。
+
+### \*bufio.Scanner
+
+`*bufio.Scanner`は以下のように変換できます。
+`Scanner`には`Err`メソッドがあるためこれをチェックするものとするとして`iter.Seq[string]`を返してもいいのですが、`iter.Seq2[V, error]`を前提としたエラーハンドリングをいろいろ実装しているため互換性のために`iter.Seq2[V, error]`版も実装しておきます。
+
+```go
+// Scanner wraps scanner with an iterator over scanned text.
+// The caller should check [bufio.Scanner.Err] after the returned iterator stops
+// to see if it has been stopped for an error.
+func Scan(scanner *bufio.Scanner) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for scanner.Scan() {
+			if !yield(scanner.Text()) {
+				return
+			}
+		}
+	}
+}
+
+// ScanErr is like [Scan] but also yields scanner's error if any.
+func ScanErr(scanner *bufio.Scanner) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		for scanner.Scan() {
+			if !yield(scanner.Text(), nil) {
+				return
+			}
+		}
+		if scanner.Err() != nil {
+			yield("", scanner.Err())
+			return
+		}
+	}
+}
+```
+
+### \*sql.Rows / Nexter interface { Next() bool }
+
+`*sql.Rows`も以下のようにするとiteratorとして利用できます。
+`Nexter`版を実装しておくと、[\*sqlx.Rows](https://pkg.go.dev/github.com/jmoiron/sqlx@v1.4.0#Rows)も同じように利用できます。
+
+```go
+// SqlRows returns an iterator over scanned rows from r.
+// scanner will be called against [*sql.Rows] after each time [*sql.Rows.Next] returns true.
+// It must either call [*sql.Rows.Scan] once per invocation or do nothing and return.
+// If the scan result or [*sql.Rows.Err] returns a non-nil error,
+// the iterator stops its iteration immediately after yielding the error.
+func SqlRows[T any](r *sql.Rows, scanner func(*sql.Rows) (T, error)) iter.Seq2[T, error] {
+	return Nexter(r, scanner)
+}
+
+// Nexter is like [SqlRows] but extends the input to arbitrary implementors, e.g. sqlx.
+func Nexter[
+	T any,
+	Nexter interface {
+		Next() bool
+		Err() error
+	},
+](n Nexter, scanner func(Nexter) (T, error)) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		for n.Next() {
+			t, err := scanner(n)
+			if !yield(t, err) {
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+		if n.Err() != nil {
+			yield(*new(T), n.Err())
+			return
+		}
+	}
+}
+```
+
+`Nexter`版は[こちらのスクラップ](https://zenn.dev/macopy/scraps/55ae36007fc8ce)を見てなるほどと思って実装しました。皆さんの情報発信に助けられております。
+
+### encoding/json.Decoder, ending/xml.Decoder
+
+`*(json|xml).Decoder`も以下のようにするとiteratorへと変換できます。
+基本的に、`Token`メソッドを呼び出す時は同時にdecoderそのものにアクセスして[Decode](https://pkg.go.dev/encoding/json@go1.23.1#Decoder.Decode)メソッドを呼び出したかったりするはずです。
+そのため、decoderに対して特化した処理を書くことはほとんど必ずするので`iter.Seq`への変換は大した利益を及ぼさないかもしれません。
+
+```go
+// JsonDecoder returns an iterator over json tokens.
+// The first non-nil error encountered stops iteration after yielding it.
+// [io.EOF] is excluded from result.
+func JsonDecoder(dec *json.Decoder) iter.Seq2[json.Token, error] {
+	return tokener(dec)
+}
+
+// XmlDecoder returns an iterator over xml tokens.
+// The first non-nil error encountered stops iteration after yielding it.
+// [io.EOF] is excluded from result.
+// The caller should call [xml.CopyToken] before going to next iteration if they need to retain tokens.
+func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error] {
+	return tokener(dec)
+}
+
+func tokener[Dec interface{ Token() (V, error) }, V any](dec Dec) iter.Seq2[V, error] {
+	return func(yield func(V, error) bool) {
+		for {
+			t, err := dec.Token()
+			if err != nil {
+				if err == io.EOF {
+					return
+				}
+				yield(*new(V), err)
+				return
+			}
+			if !yield(t, nil) {
+				return
+			}
+		}
+	}
+}
+```
+
+### Dec interface{ Decode(any) error }
+
+上記の`JsonDecoder`と`XmlDecoder`よりももう少しジェネリックに、`Dec`インターフェイスをiteratorに変換できるものを定義します。
+`Dec interface{ Decode(any) error }`は`*(json|xml).Decoder`が制約を満たすことができるので、
+
+```go
+// Decode returns an iterator over consecutive decode results of dec.
+//
+// The iterator stops if and only if dec returns io.EOF. Handling other errors is caller's responsibility.
+// If the first error should stop the iterator, use [LimitUntil], [LimitAfter] or [*errbox.Box].
+func Decode[V any, Dec interface{ Decode(any) error }](dec Dec) iter.Seq2[V, error] {
+	return func(yield func(V, error) bool) {
+		for {
+			var v V
+			err := dec.Decode(&v)
+			if err == io.EOF {
+				return
+			}
+			if !yield(v, err) {
+				return
+			}
+		}
+	}
+}
+```
+
+エラーの取り扱いが少し面倒で、呼び出し側に終了かどうかを選ばせる必要があります。
+なぜかというと、`Decode`に渡された値の型(`*V`)と入力の型が合わないという意味論的エラーの場合は次の`Decode`呼び出しが行えるかもしれないですが、
+`Dec`内部の`io.Reader`がエラーを返した場合はそのエラーがキャッシュされて何度呼び出しても同じエラーが帰ってくることになります。
+例えば、`encoding/json`は[UnmarshalTypeError](https://pkg.go.dev/encoding/json@go1.23.1#UnmarshalTypeError)というエラーを返す時は次の呼び出しで次のjson valueのデコードに移れますが、
+`io.Reader`からエラーが帰ってきた場合は`Decode`を何度呼び出してもそのエラーが帰ってくる挙動になっています。
+
 ### Moving Window([]V, iter.Seq[V])
 
 移動平均をとるときなどにmoving windowは便利です。
@@ -594,7 +926,7 @@ func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
 			if end > len(s) {
 				return
 			}
-			if !yield(s[start:end]) {
+			if !yield(s[start:end:end]) {
 				return
 			}
 			start++
@@ -603,6 +935,8 @@ func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
 	}
 }
 ```
+
+どこかにサブスライスを渡す場合、capも指定する(`[start:end:cap]`)とappend呼び出し時にsliceがコピーされるため元となったsliceに書き込みされなくなります。そのためなるだけこうしたほうがいいです。(おそらく[この行](https://github.com/golang/go/blob/go1.23.1/src/cmd/compile/internal/ssagen/ssa.go#L3531))
 
 ついでに`iter.Seq[V]`を引数にとる`WindowSeq`も実装(これは前の記事には含まれない)
 
@@ -677,12 +1011,10 @@ type KeyValue[K, V any] struct {
 	V V
 }
 
-// KeyValues adds the Iter2 method to slice of KeyValue-s.
-type KeyValues[K, V any] []KeyValue[K, V]
-
-func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
+// Values2 returns an iterator that yields the KeyValue slice elements in order.
+func Values2[S ~[]KeyValue[K, V], K, V any](s S) iter.Seq2[K, V] {
 	return func(yield func(K, V) bool) {
-		for _, kv := range v {
+		for _, kv := range s {
 			if !yield(kv.K, kv.V) {
 				return
 			}
@@ -703,49 +1035,212 @@ func AppendSeq2[S ~[]KeyValue[K, V], K, V any](s S, seq iter.Seq2[K, V]) S {
 func Collect2[K, V any](seq iter.Seq2[K, V]) []KeyValue[K, V] {
 	return AppendSeq2[[]KeyValue[K, V]](nil, seq)
 }
-```
 
-### 単一要素: Single
-
-```go
-// Single adapts a single value as an iterator;
-// the iterator yields v and stops.
-func Single[V any](v V) iter.Seq[V] {
-	return func(yield func(V) bool) {
-		yield(v)
-	}
-}
-
-// Single2 adapts a single k-v pair as an iterator;
-// the iterator yields k, v and stops.
-func Single2[K, V any](k K, v V) iter.Seq2[K, V] {
-	return func(yield func(K, V) bool) {
-		yield(k, v)
-	}
-}
-```
-
-### 同一要素の繰り返し: Repeat
-
-単一要素の繰り返し、単一関数の繰り返しをiterator扱いしたいことはよくあるので実装しておきます。
-`n < 0`のケースでも`n--`し続けるといつかアンダーフローしてしまうため本当に無限ループにするために`n < 0`の時は別なiteratorを返すようになっています。実際の運用上ありうるのかはわかりません。
-
-```go
-// Repeat returns an iterator over v repeated n times.
-// If n < 0, the returned iterator repeats forever.
-func Repeat[V any](v V, n int) iter.Seq[V] {
-	if n < 0 {
-		return func(yield func(V) bool) {
-			for {
-				if !yield(v) {
-					return
-				}
+// ToKeyValue converts [iter.Seq2][K, V] into iter.Seq[KeyValue[K, V]].
+// This functions is particularly useful when sending values from [iter.Seq2][K, V] through
+// some data transfer mechanism that only allows data to be single value, e.g. channels.
+func ToKeyValue[K, V any](seq iter.Seq2[K, V]) iter.Seq[KeyValue[K, V]] {
+	return func(yield func(KeyValue[K, V]) bool) {
+		for k, v := range seq {
+			if !yield(KeyValue[K, V]{k, v}) {
+				return
 			}
 		}
 	}
+}
+
+// FromKeyValue unwraps iter.Seq[KeyValue[K, V]] into iter.Seq2[K, V] to counter-part,
+// serving a counterpart for [ToKeyValue].
+//
+// In case values from seq needs to be sent through some data transfer mechanism
+// that only allows data to be single value, like channels,
+// some caller might decide to wrap values into KeyValue[K, V], maybe by [ToKeyValue].
+// If target helpers only accept iter.Seq2[K, V], then FromKeyValues is useful.
+func FromKeyValue[K, V any](seq iter.Seq[KeyValue[K, V]]) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		for kv := range seq {
+			if !yield(kv.K, kv.V) {
+				return
+			}
+		}
+	}
+}
+
+var _ Iterable2[any, any] = KeyValues[any, any](nil)
+
+// KeyValues adds the Iter2 method to slice of KeyValue-s.
+type KeyValues[K, V any] []KeyValue[K, V]
+
+func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
+	return Values2(v)
+}
+```
+
+## Resumable / Peekable
+
+iteratorはresumableかもしれないし、resumableではないかもしれません。
+
+### iteratorはresumableかもしれないし、そうでないかもしれない
+
+iteratorは以下のシグネチャを持つ関数です。
+
+```go
+func(func() bool)
+func(func(V) bool)
+func(func(K, V) bool)
+```
+
+`Go`は仕様的にメソッドを関数シグネチャに渡してもいいですし、クロージャーを渡してもよいということになっています。
+しかるにiteratorも同様にstateを持つかもしれないし、持たないかもしれません。
+
+具体的には以下のような感じです。
+
+[playground](https://go.dev/play/p/LhMOHbyE89V)
+
+```go
+func seq1[V any](v V, n int) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        for m := n; m != 0; m-- {
+            if !yield(v) {
+                return
+            }
+        }
+    }
+}
+
+func seq2[V any](v V, n int) iter.Seq[V] {
+    return func(yield func(V) bool) {
+        for ; n != 0; n-- {
+            if !yield(v) {
+                return
+            }
+        }
+    }
+}
+```
+
+上記二つは以下のように、breakして再度for-rangeにかけると違った挙動をします。
+
+```go
+func breakAndResume[V any](seq iter.Seq[V], n int) {
+    i := n
+    for v := range seq {
+        fmt.Printf("%v, ", v)
+        i--
+        if i <= 0 {
+            break
+        }
+    }
+    fmt.Println()
+    for v := range seq {
+        fmt.Printf("%v, ", v)
+    }
+    fmt.Println()
+}
+
+func main() {
+    fmt.Println("seq1:")
+    breakAndResume(seq1(5, 5), 3)
+    /*
+        seq1:
+        5, 5, 5,
+        5, 5, 5, 5, 5,
+    */
+    fmt.Println("\nseq2:")
+    breakAndResume(seq2(5, 5), 3)
+    /*
+        seq2:
+        5, 5, 5,
+        5, 5, 5,
+    */
+}
+```
+
+`seq1`はstatelessですが、`seq2`は`n`をシャドーイングしていないのに`n--`してしまっているのでstatefulになっています。
+
+これらは[iter.Pull](https://pkg.go.dev/iter@go1.23.1#Pull)でラップすることで同じように扱うことができます。
+
+```go
+func wrapPull[V any](seq iter.Seq[V]) (iter.Seq[V], func()) {
+    next, stop := iter.Pull(seq)
+    return func(yield func(V) bool) {
+        for {
+            v, ok := next()
+            if !ok || !yield(v) {
+                return
+            }
+        }
+    }, stop
+}
+
+func main() {
+    fmt.Println("\nseq1:")
+    seq, stop := wrapPull(seq1(5, 5))
+    breakAndResume(seq, 3)
+    stop()
+    /*
+        seq1:
+        5, 5, 5,
+        5, 5,
+    */
+    fmt.Println("\nseq2:")
+    seq, stop = wrapPull(seq2(5, 5))
+    breakAndResume(seq, 3)
+    stop()
+    /*
+        seq2:
+        5, 5, 5,
+        5, 5,
+    */
+}
+```
+
+[iter.Pull](https://pkg.go.dev/iter@go1.23.1#Pull)および[iter.Pull2](https://pkg.go.dev/iter@go1.23.1#Pull2)は特有のコントロールを行うことでスケジューラの処理をスキップする`goroutine`をallocateし、その中で`iter.Seq`を呼び出すというものです。
+そのため`stop`が呼ばれるか、seqを最後までiterateするかをしないと`goroutine`が終了しないため`goroutine leak`となってしまいます。
+`iter.Pull`を不用意に呼ぶとうっかり`goroutine leak`をしてしまうかもしれないのでやらんでいいならやらないほうがいいですね。
+
+### Resumable
+
+ここから本題です。
+
+iteratorがresumable/statefulなのかstatelessなのかわからないのであればとりあえず問答無用で`iter.Pull`でラップしてしまえばresumableであるとして扱えますね。
+ということでそういうものを定義します。
+
+やってることは`iter.Pull`でiteratorをラップして返された`next`, `stop`を構造体のフィールドにあてているだけで大したことはしていないのですが、他の構造体に埋め込む前提なのでこうしています。
+
+```go
+// Resumable converts the input [iter.Seq][V] into stateful form by calling [iter.Pull].
+//
+// The zero value of Resumable is not valid. Allocate one by [NewResumable].
+type Resumable[V any] struct {
+	next func() (V, bool)
+	stop func()
+}
+
+// NewResumable wraps seq into stateful form so that the iterator can be break-ed and resumed.
+// The caller must call [*Resumable.Stop] to release resources regardless of usage.
+func NewResumable[V any](seq iter.Seq[V]) *Resumable[V] {
+	next, stop := iter.Pull(seq)
+	return &Resumable[V]{
+		next: next,
+		stop: stop,
+	}
+}
+
+// Stop releases resources allocated by [NewResumable].
+func (r *Resumable[V]) Stop() {
+	r.stop()
+}
+
+// IntoIter returns an iterator over the input iterator.
+// The iterator can be paused by break and later resumed without replaying data.
+func (r *Resumable[V]) IntoIter() iter.Seq[V] {
 	return func(yield func(V) bool) {
-		// no state in the seq.
-		for n := n; n != 0; n-- {
+		for {
+			v, ok := r.next()
+			if !ok {
+				return
+			}
 			if !yield(v) {
 				return
 			}
@@ -753,41 +1248,140 @@ func Repeat[V any](v V, n int) iter.Seq[V] {
 	}
 }
 
-// RepeatFunc returns an iterator that generates result from fnV n times.
-// If n < 0, the returned iterator repeats forever.
-func RepeatFunc[V any](fnV func() V, n int) iter.Seq[V]  {
-	if n < 0 {
-		return func(yield func(V) bool) {
-			for {
-				if !yield(fnV()) {
+type Resumable2[K, V any] struct { ... }
+func NewResumable2[K, V any](seq iter.Seq2[K, V]) *Resumable2[K, V]
+func (r *Resumable2[K, V]) Stop()
+func (r *Resumable2[K, V]) IntoIter2() iter.Seq2[K, V]
+```
+
+### Peekable
+
+iteratorを任意にresumableにラップできるようになったことで、任意の要素数peekして読み込むこともできるようになりました。
+
+```go
+// First returns the first value from seq.
+// ok is false if seq yields no value.
+func First[V any](seq iter.Seq[V]) (k V, ok bool) {
+	for v := range seq {
+		return v, true
+	}
+	return *new(V), false
+}
+
+func main() {
+	src := hiter.Range(0, 10)
+	resumable := iterable.NewResumable(src)
+
+	v0, _ := hiter.First(resumable.IntoIter())
+	fmt.Printf("first:  %d\n", v0)
+	v1, _ := hiter.First(resumable.IntoIter())
+	fmt.Printf("second: %d\n", v1)
+
+	fmt.Println()
+	fmt.Println("reconnect them to whole iterator.")
+	first = true
+	for v := range xiter.Concat(hiter.Once(v0), hiter.Once(v1), resumable.IntoIter()) {
+		if !first {
+			fmt.Print(", ")
+		}
+		first = false
+		fmt.Printf("%d", v)
+	}
+	fmt.Println()
+	// first:  0
+	// second: 1
+	//
+	// reconnect them to whole iterator.
+	// 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+}
+```
+
+これは少し煩雑なので、Resumable同様に型にまとめておきます。
+
+```go
+type Peekable[V any] struct {
+	r      *Resumable[V]
+	peeked []V
+}
+
+func NewPeekable[V any](seq iter.Seq[V]) *Peekable[V] {
+	return &Peekable[V]{
+		r: NewResumable(seq),
+	}
+}
+
+func (p *Peekable[V]) Stop() {
+	p.r.Stop()
+}
+
+func (p *Peekable[V]) Peek(n int) []V {
+	// internal behavior might need some change to use ring buffer.
+	if diff := n - len(p.peeked); diff > 0 {
+		p.peeked = slices.AppendSeq(p.peeked, xiter.Limit(p.r.IntoIter(), diff))
+	}
+	if len(p.peeked) > n {
+		return p.peeked[:n:n]
+	}
+	return slices.Clip(p.peeked)
+}
+
+func (p *Peekable[V]) pop() V {
+	v0 := p.peeked[0]
+	p.peeked[0] = *new(V)
+	p.peeked = p.peeked[1:]
+	return v0
+}
+
+func (p *Peekable[V]) IntoIter() iter.Seq[V] {
+	return func(yield func(V) bool) {
+		for len(p.peeked) > 0 {
+			if !yield(p.pop()) {
+				return
+			}
+		}
+		for v := range p.r.IntoIter() {
+			if !yield(v) {
+				return
+			}
+			for len(p.peeked) > 0 {
+				if !yield(p.pop()) {
 					return
 				}
 			}
 		}
 	}
-	return func(yield func(V) bool) {
-		for n := n; n != 0; n-- {
-			if !yield(fnV()) {
-				return
-			}
-		}
-	}
 }
+
+type Peekable2[K, V any] struct { ... }
+
+func NewPeekable2[K, V any](seq iter.Seq2[K, V]) *Peekable2[K, V]
+func (p *Peekable2[K, V]) Stop()
+func (p *Peekable2[K, V]) Peek(n int) []hiter.KeyValue[K, V]
+func (p *Peekable2[K, V]) IntoIter2() iter.Seq2[K, V]
 ```
 
-`iter.Seq2[K, V]`版も当然実装してあります。
+先ほどのpeekのexampleを`Peekable`を使って書き直すと以下のようになります。
 
 ```go
-// Repeat2 returns an iterator over the pair of k and v repeated n times.
-// If n < 0, the returned iterator repeats forever.
-func Repeat2[K, V any](k K, v V, n int) iter.Seq2[K, V]
-// RepeatFunc2 returns an iterator that generates result of fnK and fnV n times.
-// If n < 0, the returned iterator repeats forever.
-func RepeatFunc2[K, V any](fnK func() K, fnV func() V, n int) iter.Seq2[K, V]
+func main() {
+	fmt.Println("\nYou can achieve above also with iterable.Peekable")
+	peekable := iterable.NewPeekable(src)
+	fmt.Printf("%#v\n", peekable.Peek(5))
+	first = true
+	for v := range peekable.IntoIter() {
+		if !first {
+			fmt.Print(", ")
+		}
+		first = false
+		fmt.Printf("%d", v)
+	}
+	fmt.Println()
+	// You can achieve above also with iterable.Peekable
+	// []int{0, 1, 2, 3, 4}
+	// 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+}
 ```
 
 ## エラーハンドル
 
-ここから主題です。
-
-`iter.Seq[V, error]`で
+`iter.Seq2[V, error]`でエラー

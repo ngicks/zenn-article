@@ -22,6 +22,7 @@
     "millis",
     "ngicks",
     "omitempty",
+    "Peekable",
     "struct",
     "typeparamcommon",
     "unexported",
