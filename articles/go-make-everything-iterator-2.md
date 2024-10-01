@@ -8,6 +8,22 @@ published: false
 
 ## 続・なるだけ~~すべてを~~iteratorにする
 
+[前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator)を書いた後にもいろいろ考えたので続き的な記事です。
+
+前回から引き続きソースコードはすべて以下に上がります。
+
+https://github.com/ngicks/go-iterator-helper
+
+前回から引き続き、この記事ではなるだけiteratorとしてものを利用できるように考えてみたり実装してみたりします。
+各種データコンテナやシーケンスデータを返すものをiteratorになるように包んだり、アダプタツールを整えてiteratorでいろんな処理ができるようにします。
+なるだけiteratorにする都合上、記事上で言及しておいて「実際使うことは少ないでしょう」というようなコメントを添えているものもあります。
+
+この記事では`Go 1.23.0`を対象バージョンとします。環境は`linux/amd64`ですが、特にOSやarchがかかわる話はしません。
+
+また、この記事は`func(func() bool)`, `iter.Seq[V]`もしくは`func(func(V) bool)`, `iter.Seq2[K,V]`もしくは`func(func(K,V) bool)`のことをカジュアルにiteratorと呼びます。この慣習はstdのドキュメントなどでも同様です。
+
+前回の記事からさらにエラーハンドリング、別goroutineでの処理などについて考えています。
+
 ## おさらい
 
 [前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator)のおさらいです。
@@ -43,7 +59,7 @@ func(func() bool) {}(func() bool {
 })
 ```
 
-`func(func() bool)`以外の二つは、`iter`パッケージで[iter.Seq\[V\]](https://pkg.go.dev/iter@go1.23.0#Seq), [iter.Seq2\[K, V\]](https://pkg.go.dev/iter@go1.23.0#Seq2)という型として定義されるので、これを用いるとよいです。
+`func(func() bool)`以外の二つは、`iter`パッケージで[iter.Seq\[V\]](https://pkg.go.dev/iter@go1.23.1#Seq), [iter.Seq2\[K, V\]](https://pkg.go.dev/iter@go1.23.1#Seq2)という型として定義されるので、これを用いるとよいです。
 
 ```go
 func someIter[K, V any]() iter.Seq2[K, V] {
@@ -201,7 +217,7 @@ func SortedStableFunc[E any](seq iter.Seq[E], cmp func(E, E) int) []E
 
 [proposal: x/exp/xiter: new package with iterator adapters(#61898)](https://github.com/golang/go/issues/61898)で`x/exp/xiter`が提案されています。
 
-以下のようなadapter群が提案されています。(`2024-09-08`現在)
+以下のようなadapter群が提案されています。(`2024-10-01`現在)
 
 ```go
 func Concat[V any](seqs ...iter.Seq[V]) iter.Seq[V]
@@ -936,7 +952,7 @@ func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
 }
 ```
 
-どこかにサブスライスを渡す場合、capも指定する(`[start:end:cap]`)とappend呼び出し時にsliceがコピーされるため元となったsliceに書き込みされなくなります。そのためなるだけこうしたほうがいいです。(おそらく[この行](https://github.com/golang/go/blob/go1.23.1/src/cmd/compile/internal/ssagen/ssa.go#L3531))
+どこかにサブスライスを渡す場合、capも指定(`[start:end:cap]`)してlengthとcapを一致させると次のappend呼び出し時にlengthがcapを超えるのでsliceがコピーされます([この行](https://github.com/golang/go/blob/go1.23.1/src/cmd/compile/internal/ssagen/ssa.go#L3531))。コピーが起きないと元のsliceと同じunderlying arrayへ書き込みを行ってしまいますので、こういった気遣いをしておくと親切なケースがあります。
 
 ついでに`iter.Seq[V]`を引数にとる`WindowSeq`も実装(これは前の記事には含まれない)
 
@@ -998,6 +1014,7 @@ func sliceRing[S ~[]E, E any](s S, start int) iter.Seq[E] {
 }
 ```
 
+`iter.Seq[V]`を引数にmoving windowをするということは要素をiteratorから得てFIFOでバッファする必要があります。
 ring buffer的なものを効率的に実装しないと使い物にならないけどここに凝った実装したくありませんでした。かといってテスト目的以外の依存性も追加したくないですし、ちょっと悩んでしまいました。
 しかしこういう感じで`iter.Seq[T]`を返せばなんとなくいい感じになるのに気づいたので解決です。
 
@@ -1076,9 +1093,88 @@ func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
 }
 ```
 
+### Permutations
+
+`[]int{1, 2, 3}`に対して、`[][]int{{1,2,3}, {1,3,2}, {2,1,3}, {2,3,1}, {3,1,2}, {3,2,1}}`をPermutations(置換)と言います。
+テスト目的に使われることがたびたびあるのを目にします。
+これはリンク先のHeap's algorithmを実装しただけです。
+
+```go
+// Permutations returns an iterator that yields permutations of in.
+// The returned iterator reorders in in-place.
+// The caller should not retain in or slices from the iterator,
+// Or should explicitly clone yielded values.
+func Permutations[S ~[]E, E any](in S) iter.Seq[S] {
+	// implementation of Heap's algorithm
+	// https://en.wikipedia.org/wiki/Heap%27s_algorithm
+	return func(yield func(S) bool) {
+		k := len(in)
+		c := make([]int, k)
+
+		if !yield(in) {
+			return
+		}
+
+		if k < 2 {
+			// no reordering
+			return
+		}
+
+		i := 1
+
+		for i < k {
+			if c[i] < i {
+				if i%2 == 0 {
+					in[0], in[i] = in[i], in[0]
+				} else {
+					in[c[i]], in[i] = in[i], in[c[i]]
+				}
+
+				if !yield(in) {
+					return
+				}
+
+				c[i] += 1
+				i = 1
+			} else {
+				c[i] = 0
+				i += 1
+			}
+		}
+	}
+}
+```
+
+### RunningReduce: reduceの中間結果を得られるiterator
+
+`Reduce`だが、`reducer`実行のたびに中間の結果をyieldできるというもの。何かで使い道がありそう。
+
+```go
+// RunningReduce returns an iterator over every intermediate reducer results.
+func RunningReduce[V, Sum any](
+	reducer func(accumulator Sum, current V, i int) Sum,
+	initial Sum,
+	seq iter.Seq[V],
+) iter.Seq[Sum] {
+	return func(yield func(Sum) bool) {
+		var i int
+		for v := range seq {
+			initial = reducer(initial, v, i)
+			i++
+			if !yield(initial) {
+				return
+			}
+		}
+	}
+}
+```
+
 ## Resumable / Peekable
 
 iteratorはresumableかもしれないし、resumableではないかもしれません。
+そこで`Resumable`になるようにiteratorをラップできるようになると便利なケースが多分あります。
+また、次の要素を消費せずに取得して先読みしたいケースはよくあると思います。
+典型的なユースケースの例はJSONのデコードで、次のトークンが`null`か`{`以外のとき`UnmarshalTypeError`を返し、`{`の時は別のデコード処理にそのままのトークンストリーム(=`{`から始まる)を渡す、みたいなときに先読みができると便利です。
 
 ### iteratorはresumableかもしれないし、そうでないかもしれない
 
@@ -1195,18 +1291,17 @@ func main() {
 }
 ```
 
-[iter.Pull](https://pkg.go.dev/iter@go1.23.1#Pull)および[iter.Pull2](https://pkg.go.dev/iter@go1.23.1#Pull2)は特有のコントロールを行うことでスケジューラの処理をスキップする`goroutine`をallocateし、その中で`iter.Seq`を呼び出すというものです。
-そのため`stop`が呼ばれるか、seqを最後までiterateするかをしないと`goroutine`が終了しないため`goroutine leak`となってしまいます。
-`iter.Pull`を不用意に呼ぶとうっかり`goroutine leak`をしてしまうかもしれないのでやらんでいいならやらないほうがいいですね。
+[iter.Pull](https://pkg.go.dev/iter@go1.23.1#Pull)および[iter.Pull2](https://pkg.go.dev/iter@go1.23.1#Pull2)は特有のコントロールを行うことでスケジューラの処理をスキップする`goroutine`をallocateし、その中で`iter.Seq`を実行するというものです。
+そのため`stop`を呼ぶか、seqを最後まで消費しきるかしないと`goroutine`が終了しないため`goroutine leak`となってしまいます。
 
 ### Resumable
 
 ここから本題です。
 
 iteratorがresumable/statefulなのかstatelessなのかわからないのであればとりあえず問答無用で`iter.Pull`でラップしてしまえばresumableであるとして扱えますね。
-ということでそういうものを定義します。
+ということでそういう構造体を定義します。
 
-やってることは`iter.Pull`でiteratorをラップして返された`next`, `stop`を構造体のフィールドにあてているだけで大したことはしていないのですが、他の構造体に埋め込む前提なのでこうしています。
+やってることは`iter.Pull`でiteratorをラップして返された`next`, `stop`を構造体のフィールドに代入しているだけで大したことはしていないのですが、他の構造体に埋め込む前提なのでこうしています。
 
 ```go
 // Resumable converts the input [iter.Seq][V] into stateful form by calling [iter.Pull].
@@ -1256,7 +1351,7 @@ func (r *Resumable2[K, V]) IntoIter2() iter.Seq2[K, V]
 
 ### Peekable
 
-iteratorを任意にresumableにラップできるようになったことで、任意の要素数peekして読み込むこともできるようになりました。
+iteratorを任意にresumableにラップできるようになったことで、任意の要素数をpeekして読み込むこともできるようになりました。
 
 ```go
 // First returns the first value from seq.
@@ -1296,7 +1391,7 @@ func main() {
 }
 ```
 
-これは少し煩雑なので、Resumable同様に型にまとめておきます。
+これは少し煩雑なので、`Resumable`同様に型にまとめておきます。
 
 ```go
 type Peekable[V any] struct {
@@ -1353,12 +1448,14 @@ func (p *Peekable[V]) IntoIter() iter.Seq[V] {
 }
 
 type Peekable2[K, V any] struct { ... }
-
 func NewPeekable2[K, V any](seq iter.Seq2[K, V]) *Peekable2[K, V]
 func (p *Peekable2[K, V]) Stop()
 func (p *Peekable2[K, V]) Peek(n int) []hiter.KeyValue[K, V]
 func (p *Peekable2[K, V]) IntoIter2() iter.Seq2[K, V]
 ```
+
+ポイントとしてはiteratorを返す構造体は返されたiteratorの`yield`関数の中でその構造体を操作している可能性があることです。
+このケースで言うと`yield`の中でさらに`Peek`を呼んでいるかもしれないので`yield`を抜けたらもう１度`peeked`のチェックが必要です。
 
 先ほどのpeekのexampleを`Peekable`を使って書き直すと以下のようになります。
 
@@ -1382,6 +1479,974 @@ func main() {
 }
 ```
 
-## エラーハンドル
+前述の`WindowSeq`(moving windowの`iter.Seq`を引数に受け付けるバージョン)と組み合わせることを前提に考えているので`Peek`はn個要素を先読みできるようになっています。
 
-`iter.Seq2[V, error]`でエラー
+`Peek`の返り値はこの実装では`[]V`ですが内部的にring bufferやlistを用いるようにリファクタした場合は`iter.Seq[V]`を返すようにしたほうが`[]V`へのコピーが生じないので有利な気がします。ただ下手ないじり方をすると逆に遅くなるのはたびたび体験しているのでおとなしくコピーしておけばよい気もします。
+
+## error handling
+
+`iter.Seq2[V, error]`でエラーを表現するiteratorをいくつか定義しました。
+
+```go
+func Decode[V any, Dec interface{ Decode(any) error }](dec Dec) iter.Seq2[V, error]
+func JsonDecoder(dec *json.Decoder) iter.Seq2[json.Token, error]
+func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error]
+func ScanErr(scanner *bufio.Scanner) iter.Seq2[string, error]
+func SqlRows[T any](r *sql.Rows, scanner func(*sql.Rows) (T, error)) iter.Seq2[T, error]
+func Nexter[T any, Nexter interface { Next() bool; Err() error }](n Nexter, scanner func(Nexter) (T, error)) iter.Seq2[T, error]
+```
+
+エラーしうるiteratorの表現にこれを使うように導かれるのはなんだか自然に思います。
+これに対するエラーハンドルはどのように行うかについていくつか考えます。
+
+### for v, err := range seq { if err != nil { return err } }
+
+もっとも単純なのは単にfor-range-funcで要素を消費しながら、最初のエラーでreturnしてしまうことです。
+
+```go
+func handle[V any](seq iter.Seq2[V, error]) error {
+	for v, err := range seq {
+		if err != nil {
+			// handle error
+			return err
+		}
+		// handle v.
+	}
+}
+```
+
+特にいうことはないですね。大抵はこれでいいはずです。
+
+### TryFind, TryForEach, TryReduce
+
+`Find`, `ForEach`, `Reduce`のカウンターパーツとして`TryFind`, `TryForEach`, `TryReduce`を実装します。
+上記の「最初のエラーでreturn」と同等のことをするが若干特化したヘルパーです。`slices.Collect`と同じぐらい多用するでしょうからまあ定義しておけばよいでしょう。
+
+```go
+// TryFind is like [FindFunc] but stops if seq yields non-nil error.
+func TryFind[V any](f func(V) bool, seq iter.Seq2[V, error]) (v V, idx int, err error) {
+	var i int
+	for v, err := range seq {
+		if err != nil {
+			return *new(V), -1, err
+		}
+		if f(v) {
+			return v, i, nil
+		}
+		i++
+	}
+	return *new(V), -1, nil
+}
+
+// TryForEach is like [ForEach] but returns an error if seq yields non-nil error.
+func TryForEach[V any](f func(V), seq iter.Seq2[V, error]) error {
+	for v, err := range seq {
+		if err != nil {
+			return err
+		}
+		f(v)
+	}
+	return nil
+}
+
+// TryReduce is like [xiter.Reduce] but returns an error if seq yields non-nil error.
+func TryReduce[Sum, V any](f func(Sum, V) Sum, sum Sum, seq iter.Seq2[V, error]) (Sum, error) {
+	for v, err := range seq {
+		if err != nil {
+			return sum, err
+		}
+		sum = f(sum, v)
+	}
+	return sum, nil
+}
+```
+
+`TryCollect`, `TryAppendSeq`もついでに実装しておきます。
+
+```go
+// TryCollect is like [slices.Collect] but stops collecting at the first error and
+// returns the extended result before the error.
+func TryCollect[E any](seq iter.Seq2[E, error]) ([]E, error) {
+	return TryAppendSeq[[]E](nil, seq)
+}
+
+// TryAppendSeq is like [slices.AppendSeq] but stops collecting at the first error
+// and returns the extended result before the error.
+func TryAppendSeq[S ~[]E, E any](s S, seq iter.Seq2[E, error]) (S, error) {
+	for e, err := range seq {
+		if err != nil {
+			return s, err
+		}
+		s = append(s, e)
+	}
+	return s, nil
+}
+```
+
+### LimitAfter2
+
+前述した`hiter.Collect2`で`iter.Seq2[K, V]`を`[]hiter.KeyValue[K, V]`に回収できますが、最初のエラーで停止しない`iter.Seq2[V, error]`を引数に取ると無限ループにははまってしまうのでテストその他で結構面倒になります。前述の`func Decode[V any, Dec interface{ Decode(any) error }](dec Dec) iter.Seq2[V, error]`はエラーが発生しても`io.EOF`以外の時は停止しないように作ったので実際このケースで困ることが筆者自身ありました。
+
+こういったケースには[LimitUntil](https://pkg.go.dev/github.com/ngicks/go-iterator-helper/hiter#LimitUntil)を用いることができますが、最後のerrorをyieldできないという問題が生じます。
+`LimitUntil`は[Rustのcore::iterator::Iterator::take_while](https://doc.rust-lang.org/beta/core/iter/trait.Iterator.html#method.take_while)のカウンターパートとして実装しました。そっくりそのままな仕様なのでコールバック関数がfalseを返したらその値をyieldせずにiteratorは停止します。
+なのでさらに以下のように`LimitAfter2`を定義します。
+
+```go
+// LimitAfter2 is like [LimitUntil2] but also yields the first pair dissatisfying f(k, v).
+func LimitAfter2[K, V any](f func(K, V) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		for k, v := range seq {
+			if !f(k, v) {
+				yield(k, v)
+				return
+			}
+			if !yield(k, v) {
+				return
+			}
+		}
+	}
+}
+```
+
+これは以下のように利用できます。
+
+```go
+type sample struct {
+	V string
+}
+
+src := []byte(`
+{"V":"foo"}
+{"V":"bar"}
+{"V":"baz"}
+`)
+
+dec := json.NewDecoder(io.MultiReader(bytes.NewReader(src), iotest.ErrReader(errSample)))
+
+result := hiter.Collect2(
+	hiter.LimitAfter2(
+		func(_ sample, err error) bool { return err == nil },
+		hiter.Decode[sample](dec),
+	),
+)
+// []hiter.KeyValue[sample, error]{
+//     {K: sample{"foo"}},
+//     {K: sample{"bar"}},
+//     {K: sample{"baz"}},
+//     {V: errSample},
+// }
+```
+
+最初のエラーで停止するがエラー値をyieldできるようになりました。
+
+### HandleErr adapter
+
+別口の発想としてnon-nil errorが得られたときhandleコールバック関数を実行することとして`iter.Seq2[V, error]`を`iter.Seq[V]`に変換するアダプターを実装します。
+
+```go
+// HandleErr returns an iterator over only former value of seq.
+// If latter value the seq yields is non-nil then it calls handle.
+// If handle returns false the iterator stops.
+// Even if handle returns true, values paired to non-nil error are excluded from the returned iterator.
+func HandleErr[V any](handle func(V, error) bool, seq iter.Seq2[V, error]) iter.Seq[V] {
+	return hiter.OmitL(
+		filter2(
+			func(_ V, err error) bool { return err == nil },
+			hiter.LimitUntil2(func(v V, err error) bool { return err == nil || handle(v, err) }, seq),
+		),
+	)
+}
+```
+
+こうすれば`iter.Seq[V]`を処理するすべての関数を使うことができますし、最初のエラー=停止ではないときに便利です。
+典型的なパターンにはまらないハンドリングは結局自分で定義することになるでしょうしここで定義すべきものはこんなもんでいいでしょう。
+
+### \*errbox.Box: 最初のエラーを永続化する構造体
+
+`*bufio.Scanner`や`*sql.Rows`は`Err`メソッドを備え、エラーが発生したときにも`Scan`、`Next`メソッドがfalseを返すようにすることで慣習的にエラーをチェックさえるものです。
+このAPIスタイルに寄せるの目的で`iter.Seq2[V, error]` -> `iter.Seq[V]`に変換する構造体を定義し、最初のエラーを保存して`Err`メソッドでそれを返せるようにします。
+
+```go
+// Box boxes an input [iter.Seq2][V, error] to [iter.Seq][V] by stripping nil errors from the input iterator.
+// The first non-nil error causes the boxed iterator to be stopped and Box stores the error.
+// Later the error can be examined by [*Box.Err].
+//
+// Box converts input iterator stateful form by calling [iter.Pull2].
+// [*Box.IntoIter] returns the iterator as [iter.Seq][V].
+// While consuming values from the iterator, it might conditionally yield a non-nil error.
+// In that case Box stores the error and stops without yielding the value V paired to the error.
+// [*Box.Err] returns that error otherwise nil.
+//
+// The zero Box is invalid and it must be allocated by [New].
+type Box[V any] struct {
+	err       error
+	resumable *iterable.Resumable2[V, error]
+}
+
+// New returns a newly allocated Box.
+//
+// When a pair from seq contains non-nil error, Box discards a former value of that pair(V),
+// then the iterator returned from [Box.IntoIter] stops.
+//
+// [*Box.Stop] must be called to release resource regardless of usage.
+func New[V any](seq iter.Seq2[V, error]) *Box[V] {
+	return &Box[V]{
+		resumable: iterable.NewResumable2(seq),
+	}
+}
+
+// Stop releases resources allocated by [New].
+// After calling Stop, iterators returned from [Box.IntoIter] produce no more data.
+func (b *Box[V]) Stop() {
+	b.resumable.Stop()
+}
+
+// IntoIter returns an iterator which yields values from the input iterator.
+//
+// As the name IntoIter suggests, the iterator is stateful;
+// breaking and calling seq again continues its iteration without replaying data.
+// If the iterator finds an error, it stops iteration and will no longer produce any data.
+// In that case the error can be inspected by calling [*Box.Err].
+func (b *Box[V]) IntoIter() iter.Seq[V] {
+	return func(yield func(V) bool) {
+		for v, err := range b.resumable.IntoIter2() {
+			if err != nil {
+				b.Stop()
+				b.err = err
+				return
+			}
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
+
+// Err returns an error the input iterator has returned.
+// If the iterator has not yet encountered an error, Err returns nil.
+func (b *Box[V]) Err() error {
+	return b.err
+}
+```
+
+前述の`*(json|xml).Decoder`/`*sql.Rows`/`Nexter interface{ Next() bool; Err() error }`を向けのラッパーはあらかじめ定義しておきます。
+
+```go
+type JsonDecoder struct { *Box[json.Token];	Dec *json.Decoder }
+type XmlDecoder struct { *Box[xml.Token]; Dec *xml.Decoder }
+type SqlRows[V any] struct { *Box[V] }
+type Nexter[V any] struct { *Box[V] }
+```
+
+### Example
+
+上記したものをそれぞれ使ったエラーハンドリングの例を示します。
+
+```go
+// Example error handle demonstrates various way to handle error.
+func Example_error_handle() {
+	var (
+		errSample  = errors.New("sample")
+		errSample2 = errors.New("sample2")
+	)
+
+	erroneous := hiter.Pairs(
+		hiter.Range(0, 6),
+		xiter.Concat(
+			hiter.Repeat(error(nil), 2),
+			hiter.Repeat(errSample2, 2),
+			hiter.Once(errSample),
+			hiter.Once(error(nil)),
+		),
+	)
+
+	fmt.Println("TryFind:")
+	v, idx, err := hiter.TryFind(func(i int) bool { return i > 0 }, erroneous)
+	fmt.Printf("v = %d, idx = %d, err = %v\n", v, idx, err)
+	v, idx, err = hiter.TryFind(func(i int) bool { return i > 5 }, erroneous)
+	fmt.Printf("v = %d, idx = %d, err = %v\n", v, idx, err)
+	fmt.Println()
+	// TryFind:
+	// v = 1, idx = 1, err = <nil>
+	// v = 0, idx = -1, err = sample2
+
+	fmt.Println("TryForEach:")
+	err = hiter.TryForEach(func(i int) { fmt.Printf("i = %d\n", i) }, erroneous)
+	fmt.Printf("err = %v\n", err)
+	fmt.Println()
+	// TryForEach:
+	// i = 0
+	// i = 1
+	// err = sample2
+
+	fmt.Println("TryReduce:")
+	collected, err := hiter.TryReduce(func(c []int, i int) []int { return append(c, i) }, nil, erroneous)
+	fmt.Printf("collected = %#v, err = %v\n", collected, err)
+	fmt.Println()
+	// TryReduce:
+	// collected = []int{0, 1}, err = sample2
+
+	fmt.Println("HandleErr:")
+	var handled error
+	collected = slices.Collect(
+		sh.HandleErr(
+			func(i int, err error) bool {
+				handled = err
+				return errors.Is(err, errSample2)
+			},
+			erroneous,
+		),
+	)
+	fmt.Printf("collected = %#v, err = %v\n", collected, handled)
+	fmt.Println()
+	// HandleErr:
+	// collected = []int{0, 1}, err = sample
+
+	fmt.Println("*errbox.Box:")
+	box := errbox.New(erroneous)
+	collected = slices.Collect(box.IntoIter())
+	fmt.Printf("collected = %#v, err = %v\n", collected, box.Err())
+	fmt.Println()
+	// *errbox.Box:
+	// collected = []int{0, 1}, err = sample2
+}
+```
+
+## async work
+
+iteratorから得られたデータを別のgoroutineで処理する方法について考えます。
+
+### ForEachGo
+
+シンプルに[\*errgroup.Group](https://pkg.go.dev/golang.org/x/sync/errgroup#Group)で処理できるラッパーを実装します。
+
+```go
+type GoGroup interface {
+	Go(f func() error)
+	Wait() error
+}
+
+// ForEachGo iterates over seq and calls fn with every value from seq in G's Go method.
+// After all values are consumed, the result of Wait is returned.
+// You may want to use [*errgroup.Group](https://pkg.go.dev/golang.org/x/sync/errgroup#Group) as implementor.
+func ForEachGo[V any, G GoGroup](ctx context.Context, g G, fn func(context.Context, V) error, seq iter.Seq[V]) error {
+	for v := range seq {
+		g.Go(func() error {
+			return fn(ctx, v)
+		})
+	}
+	return g.Wait()
+}
+
+func ForEachGo2[K, V any, G GoGroup](ctx context.Context, g G, fn func(context.Context, K, V) error, seq iter.Seq2[K, V]) error
+```
+
+これはわざわざ実装することはない気もしますが、網羅性のためには必要です！
+
+実は以下のように、`fn`がパニックしたときの手当ても実装しておこうかと思っていたんですが、
+
+```go
+func ForEachGo[V any, G GoGroup](ctx context.Context, g G, fn func(context.Context, V) error, seq iter.Seq[V]) error {
+	var (
+		panicOnce sync.Once
+		panicVal any
+	)
+	for v := range seq {
+		g.Go(func() (err error) {
+			defer func() {
+				rec := recover()
+				if rec != nil {
+					var first bool
+					panicOnce.Do(func() {
+						first = true
+						panicVal = rec
+					})
+					if first {
+						err = fmt.Errorf("panicked: %v", rec)
+					}
+				}
+			}()
+			err = fn(ctx, v)
+			return
+		})
+	}
+	err := g.Wait()
+	if panicVal != nil {
+		panic(err)
+	}
+	return err
+}
+```
+
+`*errgroup.Group`が改善されたときに重複になって無駄なのでとりあえず`GoGroup`の実装がなんとかしろで置いておくことにします。
+
+### channel
+
+`Chan`で`chan V`を`iter.Seq[V]`に変換し`ChanSend`で`iter.Seq[V]`のすべてのデータをchannelに送信します。
+別のgoroutineで動作するworker上でchannelからデータを受信し、なにかしらの関数を実行して結果を送り返します。
+channelは１つの値しか送れないため、エラーしうる関数の結果を送り返すには`KeyValue[V, error]`に詰めて送信します。
+`FromKeyValue`で`iter.Seq[KeyValue[K, V]]`を`iter.Seq2[K, V]`に変換します。網羅性のためだけにこれを実装しました。
+
+これは普通な感じですね。無理してiteratorで処理してる感があります。
+単にchannel sendしてchannel receiveしているだけなのでworkerから帰ってくるデータの順序が送った順序と一致しているわけではないのがポイントです。
+
+```go
+// Chan returns an iterator over ch.
+// Either cancelling ctx or closing ch stops iteration.
+func Chan[V any](ctx context.Context, ch <-chan V) iter.Seq[V] {
+	return func(yield func(V) bool) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				select {
+				case <-ctx.Done():
+					return
+				case v, ok := <-ch:
+					if !ok || !yield(v) {
+						return
+					}
+				}
+			}
+		}
+	}
+}
+
+// ChanSend sends values from seq to c.
+// It unblocks after either ctx is cancelled or all values from seq are consumed.
+// sentAll is true only when all values are sent to c.
+// Otherwise sentAll is false and v is the value that is being blocked on sending to the channel.
+func ChanSend[V any](ctx context.Context, c chan<- V, seq iter.Seq[V]) (v V, sentAll bool) {
+	for v := range seq {
+		select {
+		case <-ctx.Done():
+			return v, false
+		case c <- v:
+		}
+	}
+	return *new(V), true
+}
+
+// FromKeyValue unwraps iter.Seq[KeyValue[K, V]] into iter.Seq2[K, V]
+// serving as a counterpart for [ToKeyValue].
+//
+// In case values from seq needs to be sent through some data transfer mechanism
+// that only allows data to be single value, like channels,
+// some caller might decide to wrap values into KeyValue[K, V], maybe by [ToKeyValue].
+// If target helpers only accept iter.Seq2[K, V], then FromKeyValues is useful.
+func FromKeyValue[K, V any](seq iter.Seq[KeyValue[K, V]]) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		for kv := range seq {
+			if !yield(kv.K, kv.V) {
+				return
+			}
+		}
+	}
+}
+
+func Example_async_worker_channel() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	works := []string{"foo", "bar", "baz"}
+
+	in := make(chan string, 5)
+	out := make(chan hiter.KeyValue[string, error])
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	for range 3 {
+		go func() {
+			defer wg.Done()
+			_, _ = hiter.ChanSend(
+				ctx,
+				out,
+				xiter.Map(
+					func(s string) hiter.KeyValue[string, error] {
+						return hiter.KeyValue[string, error]{
+							K: "✨" + s + "✨" + s + "✨",
+							V: nil,
+						}
+					},
+					hiter.Chan(ctx, in),
+				),
+			)
+		}()
+	}
+
+	var wg2 sync.WaitGroup
+	wg2.Add(1)
+	go func() {
+		defer wg2.Done()
+		wg.Wait()
+		close(out)
+	}()
+
+	_, _ = hiter.ChanSend(ctx, in, slices.Values(works))
+	close(in)
+
+	results := maps.Collect(hiter.FromKeyValue(hiter.Chan(ctx, out)))
+
+	for result, err := range iterable.MapSorted[string, error](results).Iter2() {
+		fmt.Printf("result = %s, err = %v\n", result, err)
+	}
+
+	wg2.Wait()
+
+	// Output:
+	// result = ✨bar✨bar✨, err = <nil>
+	// result = ✨baz✨baz✨, err = <nil>
+	// result = ✨foo✨foo✨, err = <nil>
+}
+```
+
+### async.Map
+
+前記のchannel版と違って入力のデータの順序を保ったまま別のgoroutineで処理を行うことができる`Map`です。
+これも前述の[こちらのスクラップ](https://zenn.dev/macopy/scraps/55ae36007fc8ce)を見てなるほどと思って実装したものです。違いとしてはメモリ消費量がunboundではないのでたくさん要素を返す`iter.Seq[V]`+consumerのほうが遅いという状況でメモリ消費量がかさんでいかないのが違いです。
+
+- `reservations chan chan hiter.KeyValue[V, error]`を定義し、
+- `iter.Seq[V]`がデータを返すたびに`chan hiter.KeyValue[V, error]`を*reservation*としてこのチャネルに送信します。
+- `Map`が返すiteratorは`for reservation := range reservations`という形でrange-over-channelすることで返すデータの順序を保証します。
+- `mapper`の呼び出しは`go func() {}()`で新しい`goroutine`の中で行います。
+- `mapper`の結果は*reservation*を通じて送信されます。
+- `reservations`のバッファーサイズがトータルのメモリ消費量の制限、`mapper`を呼び出す`goroutine`の個数の制限が`mapper`のconcurrentな実行数の制限となります。
+- さらに、channelのcloseや処理が中断された場合への少しややこしい考慮を加え、
+- 新しく作られた各`goroutine`内で起きたパニックを拾って`Map`の中でre-panicする手当を実装して完成です。
+
+`go`で新しい`goroutine`を呼び出し出すといろいろ考慮が必要でコードが一気に膨らみますね。
+
+- 順序を保つ都合上、どこかで処理に長いことかかる要素が出てくるとそこで詰まって全体が止まります。
+  - 要素ごとに`mapper`処理時間はあまりばらつかないという前提があります。
+- 実装の都合上渡されたbreakされたり、ctxがcancelされたりすると`iter.Seq[V]`から受け取ったデータが宙に浮いたまま消費されずに忘れさらられることがあり得ます。
+  - そのためキャンセルしたい場合`iter.Seq[V]`と`mapper`をキャンセルする穏当なキャンセルをさらに実装したほうがいいかもしれないです。
+
+```go
+type resultLike[V any] hiter.KeyValue[V, error]
+
+// Map maps values from seq asynchronously.
+//
+// Map applies mapper to values from seq in separate goroutines while keeping output order.
+// When the order does not need to be kept, just send all values to workers through a channel using [hiter.ChanSend]
+// and receive results via other channel using [hiter.Chan].
+//
+// queueLimit limits max amounts of possible simultaneous resource allocated.
+// queueLimit must not be less than 1, otherwise Map panics.
+// workerLimit limits max possible concurrent invocation of mapper.
+// workerLimit is ok to be less than 1.
+// When queueLimit > workerLimit, the total number of workers is only limited by queueLimit.
+//
+// Cancelling ctx may stop the returned iterator early.
+// mapper should respect the ctx, otherwise it delays the iterator to return.
+//
+// If mapper panics Map panics with the first panic value.
+//
+// The counter part of Map for [iter.Seq2][K, V] does not exist since mapper is allowed to return error as second ret value.
+// If you need to map [iter.Seq2][K, V], convert it into [iter.Seq][V] by [hiter.ToKeyValue].
+func Map[V1, V2 any](
+	ctx context.Context,
+	queueLimit int,
+	workerLimit int,
+	mapper func(context.Context, V1) (V2, error),
+	seq iter.Seq[V1],
+) iter.Seq2[V2, error] {
+	if queueLimit <= 0 {
+		panic("queueLimit must be greater than 0")
+	}
+	return func(yield func(V2, error) bool) {
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		var (
+			reservations = make(chan chan resultLike[V2], queueLimit-1)
+			workerSem    chan struct{}
+			wg           sync.WaitGroup
+			panicVal     any
+			panicOnce    sync.Once
+		)
+		if workerLimit > 0 {
+			workerSem = make(chan struct{}, workerLimit)
+		}
+
+		recordPanicOnce := func() {
+			rec := recover()
+			if rec != nil {
+				cancel()
+				panicOnce.Do(func() {
+					panicVal = rec
+				})
+			}
+		}
+
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+				close(reservations)
+			}()
+			defer recordPanicOnce()
+			for v := range seq {
+				rsv := make(chan resultLike[V2], 1)
+
+				select {
+				case <-ctx.Done():
+					return
+				case reservations <- rsv:
+				}
+
+				if workerSem != nil {
+					select {
+					case <-ctx.Done():
+						// close rsv in all paths
+						close(rsv)
+						return
+					case workerSem <- struct{}{}:
+					}
+				}
+
+				wg.Add(1)
+				go func() {
+					defer func() {
+						close(rsv)
+						if workerSem != nil {
+							<-workerSem
+						}
+						wg.Done()
+					}()
+					defer recordPanicOnce()
+					v2, err := mapper(ctx, v)
+					rsv <- resultLike[V2]{K: v2, V: err}
+				}()
+			}
+		}()
+
+		defer func() {
+			cancel()
+			wg.Wait()
+			if panicVal != nil {
+				panic(panicVal)
+			}
+		}()
+		// record panic in case simultaneously multiple sources have panicked.
+		defer recordPanicOnce()
+		for rsv := range reservations {
+			result, ok := <-rsv
+			if !ok {
+				// TODO: ignore when ok is false and return?
+				continue
+			}
+			if !yield(result.K, result.V) {
+				return
+			}
+		}
+	}
+}
+```
+
+キャンセルの例は適当に以下のような感じです。
+
+```go
+func Example_async_worker_map_graceful_cancellation() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	works := []string{"foo", "bar", "baz"}
+
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+
+	for result, err := range async.Map(
+		ctx,
+		/*queueLimit*/ 1,
+		/*workerLimit*/ 1,
+		/*mapper*/ func(ctx context.Context, s string) (string, error) {
+			combined, cancel := context.WithCancel(ctx)
+			defer cancel()
+			go func() {
+				select {
+				case <-ctx.Done():
+				case <-combined.Done():
+				case <-workerCtx.Done():
+				}
+				cancel()
+			}()
+			if combined.Err() != nil {
+				return "", combined.Err()
+			}
+			return "✨" + s + "✨" + s + "✨", nil
+		},
+		sh.Cancellable(1, workerCtx, slices.Values(works)),
+	) {
+		fmt.Printf("result = %s, err = %v\n", result, err)
+		cancelWorker()
+	}
+	// Output:
+	// result = ✨foo✨foo✨, err = <nil>
+	// result = ✨bar✨bar✨, err = <nil>
+}
+```
+
+### async.Chunk
+
+`slices.Chunk`で`[]T`を`iter.Seq[[]T]`に変換可能ですが、`iter.Seq[V]` -> `iter.Seq[[]V]`の変換は存在しません。
+何かの都合でn要素ずつまとめて処理したいという需要はあると見越してそういったものを実装します。
+
+ただし、前述の`chan V`、`*sql.Rows`、`Dec interface { Decode(any) error }`から変換された`iter.Seq[V]`はioを挟む都合上どこかで長時間ブロックすることがありあえます。
+タイムアウトが実装されないと`n`個に到達しないが取得された要素が下流に流されず宙に浮いたままになることがあり得ます。
+
+そこでタイムアウトを持ったChunk処理を実装します。
+
+- 別の`goroutine`の中で`for range seq`で要素を取り出し、channelに送信します。
+- `Chunk`呼び出し`goroutine`でchannelからデータを受信し、
+- 受信のたびにタイマーを`timeout time.Duration`でリセットします。
+- タイムアウトするかn要素取得できた時iteratorから`[]V`が得られます。
+
+こちらも上記の`async.Map`と同様にbreakされると`iter.Seq[V]`から受け取ったデータが宙に浮いたまま消費されずに忘れさらられることがあり得ます。
+こちらも同様に引数に渡す`iter.Seq[V]`のほうをキャンセルするとよいでしょう。
+
+```go
+var (
+	clock = clockwork.NewRealClock()
+)
+
+// Chunk returns an iterator over consecutive values of up to n elements from seq.
+//
+// The returned iterator reuses the buffer it yields. Apply [sh.Clone] if the caller needs to retain slices.
+//
+// Chunk may yield slices where 0 < len(s) <= n.
+// Values may be shorter than n if timeout > 0 and the timeout duration passed since last time seq generated a value.
+//
+// Chunk panics if n is less than 1.
+func Chunk[V any](timeout time.Duration, n int, seq iter.Seq[V]) iter.Seq[[]V] {
+	if n <= 0 {
+		panic("n cannot be less than 1")
+	}
+	return func(yield func([]V) bool) {
+		var wg sync.WaitGroup
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		var (
+			ch        = make(chan V)
+			panicVal  any
+			panicOnce sync.Once
+		)
+
+		recordPanicOnce := func() {
+			rec := recover()
+			if rec != nil {
+				cancel()
+				panicOnce.Do(func() {
+					panicVal = rec
+				})
+			}
+		}
+
+		wg.Add(1)
+		go func() {
+			defer func() {
+				close(ch)
+				wg.Done()
+			}()
+			defer recordPanicOnce()
+			for v := range seq {
+				select {
+				case <-ctx.Done():
+					return
+				case ch <- v:
+				}
+			}
+		}()
+
+		timer := clock.NewTimer(timeout)
+		// reset when first value is yielded.
+		// As of Go 1.23, this is really safe.
+		timer.Stop()
+
+		defer func() {
+			cancel()
+			wg.Wait()
+			if panicVal != nil {
+				panic(panicVal)
+			}
+		}()
+		// record panic in case both seq and consumer have panicked.
+		defer recordPanicOnce()
+
+		buf := make([]V, n)
+		idx := 0
+		for {
+			select {
+			case v, ok := <-ch:
+				if !ok {
+					if idx > 0 {
+						yield(buf[:idx:idx])
+					}
+					return
+				}
+
+				buf[idx] = v
+				idx++
+				if idx != n {
+					if timeout > 0 {
+						timer.Reset(timeout)
+					}
+				} else {
+					if !yield(buf) {
+						return
+					}
+					timer.Stop()
+					idx = 0
+				}
+			case <-timer.Chan():
+				if idx > 0 {
+					if !yield(buf[:idx:idx]) {
+						return
+					}
+					idx = 0
+				}
+			}
+		}
+	}
+}
+```
+
+## cancellation
+
+皆さんは大きなファイルの`io.Copy(w, r)`がcancellableになっていないせいで`Ctrl+C`が効かなくて痛い目にあったことはありませんか？筆者はあります。頻繁にあります。
+
+それで毎度`io.Reader`をcancellableにするラッパーを定義しています。あんまりに毎度実装しているので自作ライブラリに加えておきました。
+
+https://github.com/ngicks/go-fsys-helper/blob/e7a9c10b017198e539f01bf9f0444420abec8cab/stream/cancellable.go#L8-L51
+
+これがiteratorで起きるかと言われると微妙なところです。ただ以下のように、`Decoder` -> `Encoder`のラウンドトリップをiteratorで実装している場合、長い処理時間を要するiterator間の処理というのはあり得るはあり得ます。
+
+以下の例では入力は数行の`ndjson`(newline-delimited json)ですが、大きなファイルの中身を処理していた場合は長時間この処理でブロックすることもあり得ます。
+
+```go
+// Decode returns an iterator over consecutive decode results of dec.
+//
+// The iterator stops if and only if dec returns io.EOF. Handling other errors is caller's responsibility.
+// If the first error should stop the iterator, use [LimitUntil], [LimitAfter] or [*errbox.Box].
+func Decode[V any, Dec interface{ Decode(any) error }](dec Dec) iter.Seq2[V, error] {
+	return func(yield func(V, error) bool) {
+		for {
+			var v V
+			err := dec.Decode(&v)
+			if err == io.EOF {
+				return
+			}
+			if !yield(v, err) {
+				return
+			}
+		}
+	}
+}
+
+func Encode[V any, Enc interface{ Encode(v any) error }](enc Enc, seq iter.Seq[V]) error {
+	for v := range seq {
+		if err := enc.Encode(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func Example_dec_enc_round_trip() {
+	src := []byte(`
+	{"foo":"foo"}
+	{"bar":"bar"}
+	{"baz":"baz"}
+	`)
+
+	rawDec := json.NewDecoder(bytes.NewReader(src))
+	dec := errbox.New(hiter.Decode[map[string]string](rawDec))
+	defer dec.Stop()
+
+	enc := json.NewEncoder(os.Stdout)
+
+	err := hiter.Encode(
+		enc,
+		xiter.Map(
+			func(m map[string]string) map[string]string {
+				return maps.Collect(
+					xiter.Map2(
+						func(k, v string) (string, string) { return k + k, v + v },
+						maps.All(m),
+					),
+				)
+			},
+			dec.IntoIter(),
+		),
+	)
+
+	fmt.Printf("dec error = %v\n", dec.Err())
+	fmt.Printf("enc error = %v\n", err)
+	// Output:
+	// {"foofoo":"foofoo"}
+	// {"barbar":"barbar"}
+	// {"bazbaz":"bazbaz"}
+	// dec error = <nil>
+	// enc error = <nil>
+}
+```
+
+ということで例によって例のごとく、必要性・実用性は置いといて網羅性のためにiteratorをcancellableにするラッパーを実装します。
+１要素の処理スピードによっては`ctx.Err`でmutexを取得する部分ほうが長いとか普通にあり得るかなと思ってn要素ごとにチェックができるようにしてあります。
+とりあえずn<=1にしておけば要素毎にチェックされるので大抵はそうしておけばよいでしょう！
+
+```go
+// Cancellable returns an iterator over seq but it also checks if ctx is cancelled each n elements seq yields.
+func Cancellable[V any](n int, ctx context.Context, seq iter.Seq[V]) iter.Seq[V] {
+	return hiter.CheckEach(n, func(V, int) bool { return ctx.Err() == nil }, seq)
+}
+
+// Cancellable2 returns an iterator over seq but it also checks if ctx is cancelled each n elements seq yields.
+func Cancellable2[K, V any](n int, ctx context.Context, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+
+// CheckEach returns an iterator over seq.
+// It also calls check after each n values yielded from seq.
+// fn receives a value from seq and the current count of it to inspect and decide to stop.
+// n is capped to 1 if it is less.
+func CheckEach[V any](n int, check func(v V, i int) bool, seq iter.Seq[V]) iter.Seq[V] {
+	if n <= 1 {
+		// The specialized case...Does it have any effect?
+		return func(yield func(V) bool) {
+			i := 0
+			for v := range seq {
+				if !check(v, i) {
+					return
+				}
+				i++
+				if !yield(v) {
+					return
+				}
+			}
+		}
+	}
+	return func(yield func(V) bool) {
+		i := 0
+		nn := n
+		for v := range seq {
+			nn--
+			if nn == 0 {
+				if !check(v, i) {
+					return
+				}
+				nn = n
+			}
+			i++
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
+
+// CheckEach2 returns an iterator over seq.
+// It also calls check after each n key-value pairs yielded from seq.
+// fn receives a key-value pair from seq and the current count of it to inspect and decide to stop.
+// n is capped to 1 if it is less.
+func CheckEach2[K, V any](n int, check func(k K, v V, i int) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+```
