@@ -454,7 +454,7 @@ func SumOf[V any, S Summable](selector func(ele V) S, seq iter.Seq[V]) S
 
 ## データソースからiteratorを作る
 
-[前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator)からの差分があるもののみ書いていきます。
+[前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator#%E6%97%A2%E5%AD%98%E3%81%AE%E3%83%87%E3%83%BC%E3%82%BF%E3%82%B7%E3%83%BC%E3%82%B1%E3%83%B3%E3%82%B9%E3%82%92iterator%E3%81%AB%E3%81%99%E3%82%8B)からの差分があるもののみ書いていきます。
 
 ### Range: [n, m)
 
