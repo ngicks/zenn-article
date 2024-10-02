@@ -3,7 +3,7 @@ title: "[Go]続・なるだけすべてをiteratorにする"
 emoji: "😵"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## 続・なるだけ~~すべてを~~iteratorにする
@@ -923,9 +923,8 @@ func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
 
 ## samber/lo使用部分をリファクタする
 
-[github.com/samber/lo](https://github.com/samber/lo)は有名なlodash-inspiredなライブラリでコレクション操作に便利な関数を多数実装していました。
-[lodash](https://github.com/lodash/lodash)っていうのはこれまた有名なjavascriptのlibraryです。
-`samber/lo`コレクション操作以外の機能も多数有しているのでここでいうリファクタするというのはそこ以外の話です。
+[github.com/samber/lo](https://github.com/samber/lo)は[lodash](https://github.com/lodash/lodash)という有名なjavascriptのコレクション操作ライブラリにインスパイアされたライブラリで、`Go`に便利なコレクション操作関数を多数提供します。。
+`samber/lo`はコレクション操作以外の機能も多数有しているのでここでいう「リファクタする」というのはそこ以外の話です。
 
 と言っても筆者自身は`Filter`と`FilterMap`ぐらいしか使ったことがないため普通どういう関数が関心を持たれているのかわかりません。
 とりあえず「samber/lo qiita」,「samber/lo zenn」でぐぐって上二つずつの記事に書いてあるものを典型として置き換えてみます。
@@ -957,7 +956,7 @@ func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
 `Chunk`, `Shuffle`, `Reverse`, `Keys`, `Values`, `IsSorted`は省略です。
 それぞれ`slice.Chunk`, `math/rand/v2.Shuffle`, `slices.Reverse`/`slices.Backward`, `maps.Keys`, `maps.Values`, `slices.IsSorted`で代替可能です。
 
-`ForEach`, `Times`, `Fill`, `Repeat`/`RepeatBy`, `Compact`,`Some`/`Find`,`Min`/`Max`は文字数の都合で削除
+`ForEach`, `Times`, `Fill`, `Repeat`/`RepeatBy`, `Compact`,`Some`/`Find`,`Min`/`Max`はまるきりそのままなカウンターパートを実装済みであるので文字数の都合もあり削除。
 
 一応注意しておきますが、`samber/lo`を使っていた部分をiteratorを使うように直すべきかは不明です。
 要素数やアダプタの使用数によってはそのままにしておいたほうがパフォーマンス的によいということは普通にあると思います。
@@ -1091,7 +1090,7 @@ func main() {
 
 ### Uniq
 
-同等のものは実装していません。多分しません。
+同等のものは実装していません。いつかするかも。
 なので外だしした`seen map[int]bool`を使ってFilterをかける方針で例示。
 
 [playground](https://go.dev/play/p/YBJyGaUvToa)
@@ -1155,7 +1154,6 @@ func main() {
 ### PartitionBy
 
 これも結構ややこしい挙動をしますね。
-同等のものはたぶん実装しないです。
 `GroupBy`同様`hiter.Divide`が大活躍です。別解もたくさんありありそうですね。
 
 [playground](https://go.dev/play/p/moJMeebhFLy)
@@ -1380,6 +1378,7 @@ iteratorはresumableかもしれないし、resumableではないかもしれま
 そこで`Resumable`になるようにiteratorをラップできるようになると便利なケースが多分あります。
 また、次の要素を消費せずに取得して先読みしたいケースはよくあると思います。
 典型的なユースケースの例はJSONのデコードで、次のトークンが`null`か`{`以外のとき`UnmarshalTypeError`を返し、`{`の時は別のデコード処理にそのままのトークンストリーム(=`{`から始まる)を渡す、みたいなときに先読みができると便利です。
+ということで`Resumable`と`Peekable`について実装してみます。
 
 ### iteratorはresumableかもしれないし、そうでないかもしれない
 
@@ -1781,7 +1780,7 @@ func TryReduce[Sum, V any](f func(Sum, V) Sum, sum Sum, seq iter.Seq2[V, error])
 
 前述した`hiter.Collect2`で`iter.Seq2[K, V]`を`[]hiter.KeyValue[K, V]`に回収できますが、最初のエラーで停止しない`iter.Seq2[V, error]`を引数に取ると無限ループにははまってしまうのでテストその他で結構面倒になります。前述の`func Decode[V any, Dec interface{ Decode(any) error }](dec Dec) iter.Seq2[V, error]`はエラーが発生しても`io.EOF`以外の時は停止しないように作ったので実際このケースで困ることが筆者自身ありました。
 
-こういったケースには[LimitUntil](https://pkg.go.dev/github.com/ngicks/go-iterator-helper/hiter#LimitUntil)を用いることができますが、最後のerrorをyieldできないという問題が生じます。
+こういったケースには[LimitUntil](https://pkg.go.dev/github.com/ngicks/go-iterator-helper/hiter#LimitUntil)を用いることができますが、最後のerrorをyieldできないという問題があります。
 `LimitUntil`は[Rustのcore::iterator::Iterator::take_while](https://doc.rust-lang.org/beta/core/iter/trait.Iterator.html#method.take_while)のカウンターパートとして実装しました。そっくりそのままな仕様なのでコールバック関数がfalseを返したらその値をyieldせずにiteratorは停止します。
 なのでさらに以下のように`LimitAfter2`を定義します。
 
@@ -1857,7 +1856,7 @@ func HandleErr[V any](handle func(V, error) bool, seq iter.Seq2[V, error]) iter.
 
 ### \*errbox.Box: 最初のエラーを永続化する構造体
 
-`*bufio.Scanner`や`*sql.Rows`は`Err`メソッドを備え、エラーが発生したときにも`Scan`、`Next`メソッドがfalseを返すようにすることで慣習的にエラーをチェックさえるものです。
+`*bufio.Scanner`や`*sql.Rows`は`Err`メソッドを備え、`Scan`、`Next`メソッドがfalseを返したら`Err`メソッドによりエラーをチェックさせるようになっています。
 このAPIスタイルに寄せるの目的で`iter.Seq2[V, error]` -> `iter.Seq[V]`に変換する構造体を定義し、最初のエラーを保存して`Err`メソッドでそれを返せるようにします。
 
 ```go
@@ -2050,14 +2049,10 @@ func ForEachGo[V any, G GoGroup](ctx context.Context, g G, fn func(context.Conte
             defer func() {
                 rec := recover()
                 if rec != nil {
-                    var first bool
                     panicOnce.Do(func() {
-                        first = true
                         panicVal = rec
                     })
-                    if first {
-                        err = fmt.Errorf("panicked: %v", rec)
-                    }
+                    err = fmt.Errorf("panicked: %v", rec)
                 }
             }()
             err = fn(ctx, v)
@@ -2195,7 +2190,7 @@ func Example_async_worker_channel() {
 - 順序を保つ都合上、どこかで処理に長いことかかる要素が出てくるとそこで詰まって全体が止まります。
   - 要素ごとに`mapper`処理時間はあまりばらつかないという前提があります。
 - 実装の都合上渡されたbreakされたり、ctxがcancelされたりすると`iter.Seq[V]`から受け取ったデータが宙に浮いたまま消費されずに忘れさらられることがあり得ます。
-  - そのためキャンセルしたい場合`iter.Seq[V]`と`mapper`をキャンセルする穏当なキャンセルをさらに実装したほうがいいかもしれないです。
+  - そのためキャンセルしたい場合`seq iter.Seq[V]`と`mapper`をキャンセルする穏当なキャンセルをさらに実装したほうがいいかもしれないです。
 
 ```go
 type resultLike[V any] hiter.KeyValue[V, error]
@@ -2319,7 +2314,7 @@ func Map[V1, V2 any](
 }
 ```
 
-キャンセルの例は適当に以下のような感じです。
+`seq`と`mapper`をキャンセルする例は適当に以下のような感じです。
 
 ```go
 func Example_async_worker_map_graceful_cancellation() {
@@ -2503,7 +2498,5 @@ func CheckEach2[K, V any](n int, check func(k K, v V, i int) bool, seq iter.Seq2
 
 ## おわりに
 
-- シャレのつもりで作ってたライブラリがあれもやろうこれもやろうとやるうちに大きくなってきた。
-  - そこそこ実用に耐える量のアダプタがそろってると思います。
-  - ただ`samber/lo`との比較を書いて他方の物量の多さに驚きましたね
 - ホットパスで採用するかは置いといても手元で動かすツール類は前より楽に作れるようになったかもしれません。
+- テストその他でiterator群を多用してみましたが、やっぱりやりすぎると逆に読みにくくなる気がします。
