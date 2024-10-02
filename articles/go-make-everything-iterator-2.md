@@ -23,7 +23,15 @@ https://github.com/ngicks/go-iterator-helper
 
 また、この記事は`func(func() bool)`, `iter.Seq[V]`もしくは`func(func(V) bool)`, `iter.Seq2[K,V]`もしくは`func(func(K,V) bool)`のことをカジュアルにiteratorと呼びます。この慣習はstdのドキュメントなどでも同様です。
 
-前回の記事からさらに`samber/lo`の置き換え、エラーハンドリング、別goroutineでの処理などについて考えています。
+前回の記事からさらにいくつか新規のiterator/adapterの追加、`samber/lo`使用部分をiteratorにリファクタ、エラーハンドリング、別goroutineでの処理などについて考えています。
+
+## go1.23.2に上げよう
+
+https://groups.google.com/g/golang-announce/c/NKEc8VT7Fz0
+
+https://github.com/golang/go/issues/69511
+
+for-range-funcにかかる重大めなバグが修正されているので`1.23.2`にあげましょう。
 
 ## おさらい
 
@@ -446,7 +454,7 @@ func SumOf[V any, S Summable](selector func(ele V) S, seq iter.Seq[V]) S
 
 ## データソースからiteratorを作る
 
-[前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator)からの差分のみ書いていきます。
+[前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator)からの差分があるもののみ書いていきます。
 
 ### Range: [n, m)
 
@@ -913,17 +921,14 @@ func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
 }
 ```
 
-## samber/loを置き換える
+## samber/lo使用部分をリファクタする
 
 [github.com/samber/lo](https://github.com/samber/lo)は有名なlodash-inspiredなライブラリでコレクション操作に便利な関数を多数実装していました。
-[lodash](https://github.com/lodash/lodash)っていうのはこれまた有名なjavascriptのlibraryです。知らない人にはわかりにくい表現ですが大手を振っていきなり書かれるってことはほぼ前提知識にしていいほど有名なんですかね？
-`samber/lo`コレクション操作以外の機能も多数有しているのでここでいう「置き換える」というのはそこ以外の話です。
+[lodash](https://github.com/lodash/lodash)っていうのはこれまた有名なjavascriptのlibraryです。
+`samber/lo`コレクション操作以外の機能も多数有しているのでここでいうリファクタするというのはそこ以外の話です。
 
 と言っても筆者自身は`Filter`と`FilterMap`ぐらいしか使ったことがないため普通どういう関数が関心を持たれているのかわかりません。
 とりあえず「samber/lo qiita」,「samber/lo zenn」でぐぐって上二つずつの記事に書いてあるものを典型として置き換えてみます。
-
-一応注意しておきますが、`samber/lo`を使っていた部分をiteratorを使うように直すべきかは不明です。
-要素数やアダプタの使用数によってはそのままにしておいたほうがパフォーマンス的によいということは普通にあると思います。
 
 ということシークレットウィンドウでググることでターゲット効果を低減させつつ、出てきた以下の四つを参考にします
 
