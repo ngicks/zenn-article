@@ -295,14 +295,161 @@ https://github.com/ngicks/go-iterator-helper
   - たとえproposalの内容が更新されてもこの内容を更新することはないので安定して使うことができる。
   - が、リリースされたら`hiter`以下は`x/exp/xiter`を使うようにリファクタすると思う多分。
 
-あとは上記リンク先のREADMEか[godoc](https://pkg.go.dev/github.com/ngicks/go-iterator-helper)をご覧ください
+てことで実装物は以下のようになります。
+
+```go
+func Chan[V any](ctx context.Context, ch <-chan V) iter.Seq[V]
+func Heap[V any](h heap.Interface) iter.Seq[V]
+func ListAll[V any](l *list.List) iter.Seq[V]
+func ListElementAll[V any](ele *list.Element) iter.Seq[V]
+func ListBackward[V any](l *list.List) iter.Seq[V]
+func ListElementBackward[V any](ele *list.Element) iter.Seq[V]
+func RingAll[V any](r *ring.Ring) iter.Seq[V]
+func RingBackward[V any](r *ring.Ring) iter.Seq[V]
+func Empty[V any]() iter.Seq[V]
+func Empty2[K, V any]() iter.Seq2[K, V]
+func JsonDecoder(dec *json.Decoder) iter.Seq2[json.Token, error]
+func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error]
+func IndexAccessible[A Atter[T], T any](a A, indices iter.Seq[int]) iter.Seq2[int, T]
+func Decode[V any, Dec interface{  Decode(any) error }](dec Dec) iter.Seq2[V, error]
+func Values2[S ~[]KeyValue[K, V], K, V any](s S) iter.Seq2[K, V]
+func MergeSort[S ~[]T, T cmp.Ordered](m S) iter.Seq[T]
+func MergeSortFunc[S ~[]T, T any](m S, cmp func(l, r T) int) iter.Seq[T]
+func MergeSortSliceLike[S SliceLike[T], T cmp.Ordered](s S) iter.Seq[T]
+func MergeSortSliceLikeFunc[S SliceLike[T], T any](s S, cmp func(l, r T) int) iter.Seq[T]
+func Once[V any](v V) iter.Seq[V]
+func Once2[K, V any](k K, v V) iter.Seq2[K, V]
+func Permutations[S ~[]E, E any](in S) iter.Seq[S]
+func Range[T Numeric](start, end T) iter.Seq[T]
+func RangeInclusive[T Numeric](start, end T, includeStart, includeEnd bool) iter.Seq[T]
+func Repeat[V any](v V, n int) iter.Seq[V]
+func Repeat2[K, V any](k K, v V, n int) iter.Seq2[K, V]
+func RepeatFunc[V any](fnV func() V, n int) iter.Seq[V]
+func RepeatFunc2[K, V any](fnK func() K, fnV func() V, n int) iter.Seq2[K, V]
+func Scan(scanner *bufio.Scanner) iter.Seq[string]
+func ScanErr(scanner *bufio.Scanner) iter.Seq2[string, error]
+func SqlRows[T any](r *sql.Rows, scanner func(*sql.Rows) (T, error)) iter.Seq2[T, error]
+func Nexter[T any, Nexter interface { Next() bool; Err() error }](n Nexter, scanner func(Nexter) (T, error)) iter.Seq2[T, error]
+func Step[N Numeric](initial, step N) iter.Seq[N]
+func StepBy[V any](initial, step int, v []V) iter.Seq2[int, V]
+func StringsChunk(s string, n int) iter.Seq[string]
+func StringsRuneChunk(s string, n int) iter.Seq[string]
+func StringsSplitFunc(s string, n int, splitFn StringsCutterFunc) iter.Seq[string]
+func SyncMap[K, V any](m *sync.Map) iter.Seq2[K, V]
+func Window[S ~[]E, E any](s S, n int) iter.Seq[S]
+```
+
+Iterator adapters: iteratorを受けとってiteratorを返すやつ
+
+```go
+func Alternate[V any](seqs ...iter.Seq[V]) iter.Seq[V]
+func Alternate2[K, V any](seqs ...iter.Seq2[K, V]) iter.Seq2[K, V]
+func AssertValue[V any](seq iter.Seq[reflect.Value]) iter.Seq[V]
+func AssertValue2[K, V any](seq iter.Seq2[reflect.Value, reflect.Value]) iter.Seq2[K, V]
+func Assert[V any](seq iter.Seq[any]) iter.Seq[V]
+func Assert2[K, V any](seq iter.Seq2[any, any]) iter.Seq2[K, V]
+func CheckEach[V any](n int, check func(v V, i int) bool, seq iter.Seq[V]) iter.Seq[V]
+func CheckEach2[K, V any](n int, check func(k K, v V, i int) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func Compact[V comparable](seq iter.Seq[V]) iter.Seq[V]
+func CompactFunc[V any](eq func(i, j V) bool, seq iter.Seq[V]) iter.Seq[V]
+func Compact2[K, V comparable](seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func CompactFunc2[K, V any](eq func(k1 K, v1 V, k2 K, v2 V) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func Decorate[V any](prepend, append Iterable[V], seq iter.Seq[V]) iter.Seq[V]
+func Decorate2[K, V any](prepend, append Iterable2[K, V], seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func Flatten[S ~[]E, E any](seq iter.Seq[S]) iter.Seq[E]
+func FlattenSeq[V any](seq iter.Seq[iter.Seq[V]]) iter.Seq[V]
+func FlattenSeq2[K, V any](seq iter.Seq[iter.Seq2[K, V]]) iter.Seq2[K, V]
+func FlattenF[S1 ~[]E1, E1 any, E2 any](seq iter.Seq2[S1, E2]) iter.Seq2[E1, E2]
+func FlattenL[S2 ~[]E2, E1 any, E2 any](seq iter.Seq2[E1, S2]) iter.Seq2[E1, E2]
+func FlattenSeqF[K, V any](seq iter.Seq2[iter.Seq[K], V]) iter.Seq2[K, V]
+func FlattenSeqL[K, V any](seq iter.Seq2[K, iter.Seq[V]]) iter.Seq2[K, V]
+func ToKeyValue[K, V any](seq iter.Seq2[K, V]) iter.Seq[KeyValue[K, V]]
+func FromKeyValue[K, V any](seq iter.Seq[KeyValue[K, V]]) iter.Seq2[K, V]
+func LimitUntil[V any](f func(V) bool, seq iter.Seq[V]) iter.Seq[V]
+func LimitUntil2[K, V any](f func(K, V) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func LimitAfter[V any](f func(V) bool, seq iter.Seq[V]) iter.Seq[V]
+func LimitAfter2[K, V any](f func(K, V) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func RunningReduce[V, Sum any](reducer func(accumulator Sum, current V, i int) Sum, initial Sum, seq iter.Seq[V]) iter.Seq[Sum]
+func Skip[V any](n int, seq iter.Seq[V]) iter.Seq[V]
+func Skip2[K, V any](n int, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func SkipLast[V any](n int, seq iter.Seq[V]) iter.Seq[V]
+func SkipLast2[K, V any](n int, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func SkipWhile[V any](f func(V) bool, seq iter.Seq[V]) iter.Seq[V]
+func SkipWhile2[K, V any](f func(K, V) bool, seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func Tap[V any](tap func(V), seq iter.Seq[V]) iter.Seq[V]
+func Tap2[K, V any](tap func(K, V), seq iter.Seq2[K, V]) iter.Seq2[K, V]
+func Enumerate[T any](seq iter.Seq[T]) iter.Seq2[int, T]
+func Pairs[K, V any](seq1 iter.Seq[K], seq2 iter.Seq[V]) iter.Seq2[K, V]
+func Transpose[K, V any](seq iter.Seq2[K, V]) iter.Seq2[V, K]
+func OmitL[K, V any](seq iter.Seq2[K, V]) iter.Seq[K]
+func OmitF[K, V any](seq iter.Seq2[K, V]) iter.Seq[V]
+func Omit[K any](seq iter.Seq[K]) func(yield func() bool)
+func Omit2[K, V any](seq iter.Seq2[K, V]) func(yield func() bool)
+func Unify[K, V, U any](fn func(K, V) U, seq iter.Seq2[K, V]) iter.Seq[U]
+func Divide[K, V, U any](fn func(U) (K, V), seq iter.Seq[U]) iter.Seq2[K, V]
+func WindowSeq[V any](n int, seq iter.Seq[V]) iter.Seq[iter.Seq[V]]
+```
+
+Collector: iteratorを消費しきって別の何かに変えるやつ
+
+```go
+func AppendBytes(b []byte, seq iter.Seq[[]byte]) []byte
+func ChanSend[V any](ctx context.Context, c chan<- V, seq iter.Seq[V]) (v V, sentAll bool)
+func Every[V any](fn func(V) bool, seq iter.Seq[V]) bool
+func Every2[K, V any](fn func(K, V) bool, seq iter.Seq2[K, V]) bool
+func Any[V any](fn func(V) bool, seq iter.Seq[V]) bool
+func Any2[K, V any](fn func(K, V) bool, seq iter.Seq2[K, V]) bool
+func Find[V comparable](v V, seq iter.Seq[V]) (V, int)
+func FindFunc[V any](f func(V) bool, seq iter.Seq[V]) (V, int)
+func Find2[K, V comparable](k K, v V, seq iter.Seq2[K, V]) (K, V, int)
+func FindFunc2[K, V any](fn func(K, V) bool, seq iter.Seq2[K, V]) (K, V, int)
+func FindLast[V comparable](v V, seq iter.Seq[V]) (found V, idx int)
+func FindLastFunc[V any](fn func(V) bool, seq iter.Seq[V]) (found V, idx int)
+func FindLast2[K, V comparable](k K, v V, seq iter.Seq2[K, V]) (foundK K, foundV V, idx int)
+func FindLastFunc2[K, V any](fn func(K, V) bool, seq iter.Seq2[K, V]) (foundK K, foundV V, idx int)
+func First[V any](seq iter.Seq[V]) (k V, ok bool)
+func First2[K, V any](seq iter.Seq2[K, V]) (k K, v V, ok bool)
+func Last[V any](seq iter.Seq[V]) (v V, ok bool)
+func Last2[K, V any](seq iter.Seq2[K, V]) (k K, v V, ok bool)
+func ForEach[V any](fn func(V), seq iter.Seq[V])
+func ForEach2[K, V any](fn func(K, V), seq iter.Seq2[K, V])
+func ForEachGo[V any, G GoGroup](ctx context.Context, g G, fn func(context.Context, V) error, seq iter.Seq[V]) error
+func ForEachGo2[K, V any, G GoGroup](ctx context.Context, g G, fn func(context.Context, K, V) error, seq iter.Seq2[K, V]) error
+func Discard[V any](seq iter.Seq[V])
+func Discard2[K, V any](seq iter.Seq2[K, V])
+func TryFind[V any](f func(V) bool, seq iter.Seq2[V, error]) (v V, idx int, err error)
+func TryForEach[V any](f func(V), seq iter.Seq2[V, error]) error
+func TryReduce[Sum, V any](f func(Sum, V) Sum, sum Sum, seq iter.Seq2[V, error]) (Sum, error)
+func TryCollect[E any](seq iter.Seq2[E, error]) ([]E, error)
+func TryAppendSeq[S ~[]E, E any](s S, seq iter.Seq2[E, error]) (S, error)
+func Write[V any](w io.Writer, marshaler func(v V, written int) ([]byte, error), seq iter.Seq[V]) (n int, er error)
+func Write2[K, V any](w io.Writer, marshaler func(k K, v V, written int) ([]byte, error), seq iter.Seq2[K, V]) (n int, er error)
+func Encode[V any, Enc interface{  Encode(v any) error }](enc Enc, seq iter.Seq[V]) error
+func AppendSeq2[S ~[]KeyValue[K, V], K, V any](s S, seq iter.Seq2[K, V]) S
+func Collect2[K, V any](seq iter.Seq2[K, V]) []KeyValue[K, V]
+func Min[V cmp.Ordered](seq iter.Seq[V]) V
+func MinFunc[V any](fn func(x, y V) int, seq iter.Seq[V]) V
+func Max[V cmp.Ordered](seq iter.Seq[V]) V
+func MaxFunc[V any](fn func(i, j V) int, seq iter.Seq[V]) V
+func Nth[V any](n int, seq iter.Seq[V]) (v V, ok bool)
+func Nth2[K, V any](n int, seq iter.Seq2[K, V]) (k K, v V, ok bool)
+func ReduceGroup[K comparable, V, Sum any](reducer func(accumulator Sum, current V) Sum, initial Sum, seq iter.Seq2[K, V]) map[K]Sum
+func InsertReduceGroup[Map ~map[K]Sum, K comparable, V, Sum any](m Map, reducer func(accumulator Sum, current V) Sum, initial Sum, seq iter.Seq2[K, V]) map[K]Sum
+func StringsCollect(sizeHint int, seq iter.Seq[string]) string
+func Sum[S Summable](seq iter.Seq[S]) S
+func SumOf[V any, S Summable](selector func(ele V) S, seq iter.Seq[V]) S
+```
+
+あとは[godoc](https://pkg.go.dev/github.com/ngicks/go-iterator-helper)をご覧ください
 
 ## データソースからiteratorを作る
+
+[前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator)空の差分のみ書いていきます。
 
 ### Range: [n, m)
 
 ほかの言語だとよくある`[n, m)`の代わり。
-`[n, m]`のほうがいいケースもある(というか`iterable.Range`に`Reverse`を実装するときにinclusivenessをコントロールできないと困った)ので`RangeInclusive`で`[n, m]`や`(n, m)`、`(n, m]`など好きに区間を設定できるようにしてあります。
+`[n, m]`のほうがいいケースもある(というか`iterable.Range`に`Reverse`を実装するときにinclusivenessをコントロールできないと困った)ので`RangeInclusive`で`[n, m]`や`(n, m)`、`(n, m]`など好きに区間を設定できるよう追加。
 
 ```go
 type Numeric interface {
@@ -436,345 +583,6 @@ func Empty2[K, V any]() iter.Seq2[K, V] {
 
 この辺は`xiter`に入れてほしい気もしますが、あれもこれもするより早くマージしてほしい気持ちがある。
 
-### Repeat / RepeatFunc
-
-単一要素の繰り返し、単一関数の繰り返しをiterator扱いしたいことはよくあるので実装しておきます。
-
-```go
-// Repeat returns an iterator over v repeated n times.
-// If n < 0, the returned iterator repeats forever.
-func Repeat[V any](v V, n int) iter.Seq[V] {
-    if n < 0 {
-        return func(yield func(V) bool) {
-            for {
-                if !yield(v) {
-                    return
-                }
-            }
-        }
-    }
-    return func(yield func(V) bool) {
-        // no state in the seq.
-        for n := n; n != 0; n-- {
-            if !yield(v) {
-                return
-            }
-        }
-    }
-}
-
-// RepeatFunc returns an iterator that generates result from fnV n times.
-// If n < 0, the returned iterator repeats forever.
-func RepeatFunc[V any](fnV func() V, n int) iter.Seq[V]  {
-    if n < 0 {
-        return func(yield func(V) bool) {
-            for {
-                if !yield(fnV()) {
-                    return
-                }
-            }
-        }
-    }
-    return func(yield func(V) bool) {
-        for n := n; n != 0; n-- {
-            if !yield(fnV()) {
-                return
-            }
-        }
-    }
-}
-```
-
-`n < 0`のケースでも`n--`し続けるといつかアンダーフローしてしまうため本当に無限ループにするために`n < 0`の時は別なiteratorを返すようになっています。実際の運用上ありうるのかはわかりません。
-
-`iter.Seq2[K, V]`版も当然実装してあります。
-
-```go
-// Repeat2 returns an iterator over the pair of k and v repeated n times.
-// If n < 0, the returned iterator repeats forever.
-func Repeat2[K, V any](k K, v V, n int) iter.Seq2[K, V]
-// RepeatFunc2 returns an iterator that generates result of fnK and fnV n times.
-// If n < 0, the returned iterator repeats forever.
-func RepeatFunc2[K, V any](fnK func() K, fnV func() V, n int) iter.Seq2[K, V]
-```
-
-### chan V
-
-`chan V`そのものはすでにfor-rangeで処理可能ですが、他のアダプタに渡せるようにするために`iter.Seq[V]`に変換できたほうが何かと便利です。
-
-```go
-// Chan returns an iterator over ch.
-// Either cancelling ctx or closing ch stops iteration.
-func Chan[V any](ctx context.Context, ch <-chan V) iter.Seq[V] {
-    return func(yield func(V) bool) {
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            default:
-                select {
-                case <-ctx.Done():
-                    return
-                case v, ok := <-ch:
-                    if !ok || !yield(v) {
-                        return
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-テストがたまに大変になるのでctxのキャンセレーションが優先的にチェックされます。
-筆者が未熟なだけかもしれないですが、タイミングが絡むライブラリのテストでrace conditionを防ぎきる辛さが骨身に沁みついているのでパフォーマンスが多少落ちてもこういうガードを外す決断が下せない。
-
-### string
-
-[bytes, strings: add iterator forms of existing functions (#61901)](https://github.com/golang/go/issues/61901)がリリースされると`bytes`, `strings`パッケージ以下にiteratorを返す関数が追加されるので必要性はその時に大幅低下しますがとりあえず当面あると便利なので以下のように実装します。
-
-```go
-// StringsChunk returns an iterator over non overlapping sub strings of n bytes.
-// Sub slicing may cut in mid of utf8 sequences.
-func StringsChunk(s string, n int) iter.Seq[string] {
-    return func(yield func(string) bool) {
-        s := s // no state in the seq.
-        if n <= 0 {
-            return
-        }
-        var cut string
-        for {
-            if len(s) >= n {
-                cut, s = s[:n], s[n:]
-            } else {
-                cut, s = s, ""
-            }
-            if cut == "" {
-                return
-            }
-            if !yield(cut) {
-                return
-            }
-        }
-    }
-}
-
-// StringsRuneChunk returns an iterator over non overlapping sub strings of n utf8 characters.
-func StringsRuneChunk(s string, n int) iter.Seq[string] {
-    return func(yield func(string) bool) {
-        s := s // no state in the seq.
-        for len(s) > 0 {
-            var i int
-            for range n {
-                _, j := utf8.DecodeRuneInString(s[i:])
-                if j == 0 {
-                    break
-                }
-                i += j
-            }
-            if i == 0 {
-                return
-            }
-            if !yield(s[:i]) {
-                return
-            }
-            s = s[i:]
-        }
-    }
-}
-```
-
-`bufio.Scanner`みたいに任意のsplitterを渡してsub stringに分割したいので以下のように定義します。
-
-```go
-// StringsCutterFunc is used with [StringsSplitFunc] to cut string from head.
-// s[:tokUntil] is yielded through StringsSplitFunc.
-// s[tokUntil:skipUntil] will be ignored.
-type StringsCutterFunc func(s string) (tokUntil, skipUntil int)
-
-// StringsSplitFunc returns an iterator over sub string of s cut by splitFn.
-// When n > 0, StringsSplitFunc cuts only n times and
-// the returned iterator yields rest of string after n sub strings, if non empty.
-// The sub strings from the iterator overlaps if splitFn decides so.
-// splitFn is allowed to return negative offsets.
-// In that case the returned iterator immediately yields rest of s and stops iteration.
-func StringsSplitFunc(s string, n int, splitFn StringsCutterFunc) iter.Seq[string] {
-    return func(yield func(string) bool) {
-        if splitFn == nil {
-            splitFn = StringsCutNewLine
-        }
-        s := s
-        n := n
-        for len(s) > 0 {
-            tokUntil, skipUntil := splitFn(s)
-            if tokUntil < 0 || skipUntil < 0 {
-                yield(s)
-                return
-            }
-            if !yield(s[:tokUntil]) {
-                return
-            }
-            s = s[skipUntil:]
-            n--
-            if n == 0 {
-                if len(s) > 0 {
-                    yield(s)
-                }
-                return
-            }
-        }
-    }
-}
-```
-
-コードジェネレーターを実装しているときにsnake_caseとPascalCaseとcamelCaseを相互変換したいときが頻繁にあるので以下のようなsplitterはあらかじめ定義しておきます。
-
-```go
-// StringsCutNewLine is used with [StringsSplitFunc].
-// The input strings will be splitted at "\n".
-// It also skips "\r" preceding "\n".
-func StringsCutNewLine(s string) (tokUntil int, skipUntil int)
-// StringsCutWord is a split function for a [StringsSplitFunc] that returns each space-separated word of text,
-// with surrounding spaces deleted. It will never return an empty string.
-// The definition of space is set by unicode.IsSpace.
-func StringsCutWord(s string) (tokUntil int, skipUntil int)
-// StringsCutUpperCase is a split function for a [StringsSplitFunc]
-// that splits "UpperCasedWords" into "Upper" "Cased" "Words"
-func StringsCutUpperCase(s string) (tokUntil int, skipUntil int)
-```
-
-`iter.Seq[string]`をstringにreduceするのは頻繁にやりそうなので以下のようなものがあると便利ですね
-
-```go
-// StringsCollect reduces seq to a single string.
-// sizeHint hints size of internal buffer.
-// Correctly sized sizeHint may reduce allocation.
-func StringsCollect(sizeHint int, seq iter.Seq[string]) string {
-    var buf strings.Builder
-    buf.Grow(sizeHint)
-    for s := range seq {
-        buf.WriteString(s)
-    }
-    return buf.String()
-}
-```
-
-### container/heap, container/list, container/ring
-
-stdの`container/heap`, `container/list`, `container/ring`を以下のようにするとiteratorに変換できます。
-こういったものはstdで実装してほしい気もしますが、`container`のgeneric版も出てきていないのであまり期待しちゃだめなのかも。
-
-```go
-// Heap returns an iterator over heap.Interface.
-// Consuming iter.Seq[V] also consumes h.
-// To avoid this, callers must clone input h before passing to Heap.
-func Heap[V any](h heap.Interface) iter.Seq[V] {
-    return func(yield func(V) bool) {
-        for h.Len() > 0 {
-            popped := heap.Pop(h)
-            if !yield(popped.(V)) {
-                return
-            }
-        }
-    }
-}
-
-// ListAll returns an iterator over all element of l starting from l.Front().
-// ListAll assumes Values of all element are type V.
-// If other than that or nil, the returned iterator may panic on invocation.
-func ListAll[V any](l *list.List) iter.Seq[V] {
-    return ListElementAll[V](l.Front())
-}
-
-// ListElementAll returns an iterator over from ele to end of the list.
-// ListElementAll assumes Values of all element are type V.
-// If other than that or nil, the returned iterator may panic on invocation.
-func ListElementAll[V any](ele *list.Element) iter.Seq[V] {
-    return func(yield func(V) bool) {
-        // shadowing ele, no state in the seq closure as much as possible.
-        for ele := ele; ele != nil; ele = ele.Next() {
-            if !yield(ele.Value.(V)) {
-                return
-            }
-        }
-    }
-}
-
-// ListBackward returns an iterator over all element of l starting from l.Back().
-// ListBackward assumes Values of all element are type V.
-// If other than that or nil, the returned iterator may panic on invocation.
-func ListBackward[V any](l *list.List) iter.Seq[V] {
-    return ListElementBackward[V](l.Back())
-}
-
-// ListElementBackward returns an iterator over from ele to start of the list.
-// ListElementBackward assumes Values of all element are type V.
-// If other than that or nil, the returned iterator may panic on invocation.
-func ListElementBackward[V any](ele *list.Element) iter.Seq[V] {
-    return func(yield func(V) bool) {
-        // no state in in the seq closure as much as possible.
-        for ele := ele; ele != nil; ele = ele.Prev() {
-            if !yield(ele.Value.(V)) {
-                return
-            }
-        }
-    }
-}
-
-// Ring returns an iterator over r.
-// The returned iterator generates data assuming Values of all ring elements are type V.
-// It yields r.Value traversing by consecutively calling Next, and stops when it finds r again.
-// Removing r from the ring after it started iteration may make it iterate forever.
-func RingAll[V any](r *ring.Ring) iter.Seq[V] {
-    return func(yield func(V) bool) {
-        if !yield(r.Value.(V)) {
-            return
-        }
-        for n := r.Next(); n != r; n = n.Next() {
-            if !yield(n.Value.(V)) {
-                return
-            }
-        }
-    }
-}
-
-// RingBackward returns an iterator over r.
-// The returned iterator generates data assuming Values of all ring elements are type V.
-// It yields r.Value traversing by consecutively calling Prev, and stops when it finds r again.
-// Removing r from the ring after it started iteration may make it iterate forever.
-func RingBackward[V any](r *ring.Ring) iter.Seq[V] {
-    return func(yield func(V) bool) {
-        if !yield(r.Value.(V)) {
-            return
-        }
-        for n := r.Prev(); n != r; n = n.Prev() {
-            if !yield(n.Value.(V)) {
-                return
-            }
-        }
-    }
-}
-```
-
-### sync.Map
-
-`sync.Map`の`Range`自体がすでに`iter.Seq2[any, any]`のシグネチャを満たしていますので不要と言えば不要ですが、以下のように`sync.Map`をiteratorに変換する関数を定義してあげると分かりやすいかもしれません。
-
-```go
-// SyncMap returns an iterator over m.
-// Breaking Seq2 may stop producing more data, however it might still be O(N).
-func SyncMap[K, V any](m *sync.Map) iter.Seq2[K, V] {
-    return func(yield func(K, V) bool) {
-        m.Range(func(key, value any) bool {
-            return yield(key.(K), value.(V))
-        })
-    }
-}
-```
-
-やっていることはtype assertionだけです。
-key, valueにそれぞれ複数の型を使っている場合には完全に無意味な処理ですが(`any`のままにすることになるので)、あんまりないことだと思っています。
-
 ### reflect.Value.Seq, reflect.Value.Se2
 
 [reflect.Value.Seq](https://pkg.go.dev/reflect@go1.23.1#Value.Seq)および[reflect.Value.Seq2](https://pkg.go.dev/reflect@go1.23.1#Value.Seq2)で`iter.Seq[reflect.Value]`、`iter.Seq2[reflect.Value, reflect.Value]`をそれぞれ`reflect`を通じて得られるようになりました。これを`type assertion`を通して別の型になするadapterを定義しておきます。
@@ -791,59 +599,11 @@ func Assert[V any](seq iter.Seq[any]) iter.Seq[V] {
     return mapIter(func(v any) V { return v.(V) }, seq)
 }
 
-// Assert2 returns an iterator over seq but internal values returned by [reflect.Value.Interface] of each key-value pair
-// are type-asserted to be type K and V respectively.
 func AssertValue2[K, V any](seq iter.Seq2[reflect.Value, reflect.Value]) iter.Seq2[K, V]
-// Assert2 returns an iterator over seq but each key-value pair is type-asserted to be type K and V respectively.
 func Assert2[K, V any](seq iter.Seq2[any, any]) iter.Seq2[K, V]
 ```
 
 やってることは特化した`xiter.Map`なので実装されている必然性のようなものは薄いですが、網羅性のために実装します。
-
-### Third party: github.com/wk8/go-ordered-map/v2
-
-[github.com/wk8/go-ordered-map/v2](httos://github.com/wk8/go-ordered-map): 挿入順序という意味のordered-map実装です。内部的に`map[K]*V`+`*list.List`の組み合わせで実現されています。
-
-まだリリースされていませんが、[#41](https://github.com/wk8/go-ordered-map/pull/41)でiteratorを返す関数が実装されています。`CircleCI/cimg-go`がgo1.23.0に対応していないためにリリースできないらしいですが、[CircleCI-Public/cimg-go#300](https://github.com/CircleCI-Public/cimg-go/pull/300)がマージされたためそのうちリリースされるはず。
-
-ということで特に何か実装する必要はないですね。
-
-### Third party: github.com/gammazero/deque
-
-[github.com/gammazero/deque](https://github.com/gammazero/deque): `[]T`ベースのdouble-ended queue実装です。`[]T`をリングバッファ的に用いることで効率性を追求していますのでqueue両端以外の要素が消されると`container/list.List`ベースな処理に比べるとややつらいはず。
-
-こちらは動きがないため`iter.Seq`を返すメソッドの実装はありません。必要になったらPRを出してみようかと思いますが活発ではないかもしれないので出したとてマージされないかも。
-
-なので、これをラップしてiteratorに変換できる関数を定義しましょう。
-
-この実装では、[(\*deque.Deque\[T\]).At(i int) T](https://pkg.go.dev/github.com/gammazero/deque#Deque.At)で各インデックスにアクセス可能です。stdでも`At`メソッドを実装する型に以下の4つがあります。
-
-- https://pkg.go.dev/encoding/asn1@go1.23.0#BitString.At
-- https://pkg.go.dev/go/types@go1.23.0#MethodSet.At
-- https://pkg.go.dev/go/types@go1.23.0#Tuple.At
-- https://pkg.go.dev/go/types@go1.23.0#TypeList.At
-
-そこそこ一般的なinterfaceであると判断して以下のように`At`をiteratorに変換する関数を用意します。
-
-```go
-type Atter[T any] interface {
-    At(i int) T
-}
-
-// IndexAccessible returns an iterator over indices and values of a associated to the indices.
-// If indices generates an out-of-range index, the behavior is not defined and may differs among Atter implementations.
-func IndexAccessible[A Atter[T], T any](a A, indices iter.Seq[int]) iter.Seq2[int, T] {
-    return func(yield func(int, T) bool) {
-        for i := range indices {
-            if !yield(i, a.At(i)) {
-                return
-            }
-        }
-    }
-}
-```
-
-`indices`には`hiter.Range(0, a.Len())`を渡しておけばとりあえずokです。
 
 ### Third party: github.com/ngicks/und/option
 
@@ -944,50 +704,9 @@ func Nexter[
 
 `Nexter`版は[こちらのスクラップ](https://zenn.dev/macopy/scraps/55ae36007fc8ce)を見てなるほどと思って実装しました。皆さんの情報発信に助けられております。
 
-### encoding/json.Decoder, ending/xml.Decoder
-
-`*(json|xml).Decoder`も以下のようにするとiteratorへと変換できます。
-基本的に、`Token`メソッドを呼び出す時は同時にdecoderそのものにアクセスして[Decode](https://pkg.go.dev/encoding/json@go1.23.1#Decoder.Decode)メソッドを呼び出したかったりするはずです。
-そのため、decoderに対して特化した処理を書くことはほとんど必ずするので`iter.Seq`への変換は大した利益を及ぼさないかもしれません。
-
-```go
-// JsonDecoder returns an iterator over json tokens.
-// The first non-nil error encountered stops iteration after yielding it.
-// [io.EOF] is excluded from result.
-func JsonDecoder(dec *json.Decoder) iter.Seq2[json.Token, error] {
-    return tokener(dec)
-}
-
-// XmlDecoder returns an iterator over xml tokens.
-// The first non-nil error encountered stops iteration after yielding it.
-// [io.EOF] is excluded from result.
-// The caller should call [xml.CopyToken] before going to next iteration if they need to retain tokens.
-func XmlDecoder(dec *xml.Decoder) iter.Seq2[xml.Token, error] {
-    return tokener(dec)
-}
-
-func tokener[Dec interface{ Token() (V, error) }, V any](dec Dec) iter.Seq2[V, error] {
-    return func(yield func(V, error) bool) {
-        for {
-            t, err := dec.Token()
-            if err != nil {
-                if err == io.EOF {
-                    return
-                }
-                yield(*new(V), err)
-                return
-            }
-            if !yield(t, nil) {
-                return
-            }
-        }
-    }
-}
-```
-
 ### Dec interface{ Decode(any) error }
 
-上記の`JsonDecoder`と`XmlDecoder`よりももう少しジェネリックに、`Dec`インターフェイスをiteratorに変換できるものを定義します。
+`*(json|xml).Decoder` -> `iter.Seq2[(json|xml).Token, error]`の変換である`JsonDecoder`と`XmlDecoder`よりももう少しジェネリックに、`Dec`インターフェイスをiteratorに変換できるものを定義します。
 `Dec interface{ Decode(any) error }`は`*(json|xml).Decoder`が制約を満たすことができるので、入力が`ndjson`であるときなどに利用できます。
 
 ```go
@@ -1119,6 +838,7 @@ func sliceRing[S ~[]E, E any](s S, start int) iter.Seq[E] {
 
 `map[K]V`の[iterate順序は言語仕様により未定義](https://go.dev/ref/spec#For_range)であるので順序を指定して`iter.Seq2[K, V]`を作成することができる型が欲しい。あるといろいろ便利なんですよね。
 また`iter.Seq[K, V]`で得られた`k K, v V`をchannelなどを通じて送信したい場合は一つの値に詰め込む必要があるので何するにしろ内部の処理ではこういう型を定義する必要があります。内部的にはすごく多用しています。
+前回の記事から`Values2`, `ToKeyValue`, `FromKeyValue`を追加しています。
 
 ```go
 type KeyValue[K, V any] struct {
@@ -1191,82 +911,6 @@ func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
 }
 ```
 
-### Permutations
-
-`[]int{1, 2, 3}`に対して、`[][]int{{1,2,3}, {1,3,2}, {2,1,3}, {2,3,1}, {3,1,2}, {3,2,1}}`をPermutations(置換)と言います。
-テスト目的に使われることがたびたびあるのを目にします。
-これはリンク先のHeap's algorithmを実装しただけです。
-
-```go
-// Permutations returns an iterator that yields permutations of in.
-// The returned iterator reorders in in-place.
-// The caller should not retain in or slices from the iterator,
-// Or should explicitly clone yielded values.
-func Permutations[S ~[]E, E any](in S) iter.Seq[S] {
-    // implementation of Heap's algorithm
-    // https://en.wikipedia.org/wiki/Heap%27s_algorithm
-    return func(yield func(S) bool) {
-        k := len(in)
-        c := make([]int, k)
-
-        if !yield(in) {
-            return
-        }
-
-        if k < 2 {
-            // no reordering
-            return
-        }
-
-        i := 1
-
-        for i < k {
-            if c[i] < i {
-                if i%2 == 0 {
-                    in[0], in[i] = in[i], in[0]
-                } else {
-                    in[c[i]], in[i] = in[i], in[c[i]]
-                }
-
-                if !yield(in) {
-                    return
-                }
-
-                c[i] += 1
-                i = 1
-            } else {
-                c[i] = 0
-                i += 1
-            }
-        }
-    }
-}
-```
-
-### RunningReduce: reduceの中間結果を得られるiterator
-
-`Reduce`だが、`reducer`実行のたびに中間の結果をyieldできるというもの。何かで使い道がありそう。
-
-```go
-// RunningReduce returns an iterator over every intermediate reducer results.
-func RunningReduce[V, Sum any](
-    reducer func(accumulator Sum, current V, i int) Sum,
-    initial Sum,
-    seq iter.Seq[V],
-) iter.Seq[Sum] {
-    return func(yield func(Sum) bool) {
-        var i int
-        for v := range seq {
-            initial = reducer(initial, v, i)
-            i++
-            if !yield(initial) {
-                return
-            }
-        }
-    }
-}
-```
-
 ## samber/loを置き換える
 
 [github.com/samber/lo](https://github.com/samber/lo)は有名なlodash-inspiredなライブラリでコレクション操作に便利な関数を多数実装していました。
@@ -1294,24 +938,19 @@ func RunningReduce[V, Sum any](
 - Filter/Map/FilterMap
 - Flatten/FlatMap
 - Reduce
-- ForEach
-- Times
 - Uniq
 - GroupBy
 - PartitionBy
-- Fill
-- Repeat/RepeatBy
 - KeyBy/Associate
 - Drop/DropRight/DropWhile
 - Replace/ReplaceAll
-- Compact
-- Some/Find
-- Min/Max
 
 5個ぐらい例を挙げれば終わりかなーと思っていたんですがめちゃくちゃ出てきちゃいました。
 
 `Chunk`, `Shuffle`, `Reverse`, `Keys`, `Values`, `IsSorted`は省略です。
 それぞれ`slice.Chunk`, `math/rand/v2.Shuffle`, `slices.Reverse`/`slices.Backward`, `maps.Keys`, `maps.Values`, `slices.IsSorted`で代替可能です。
+
+`ForEach`, `Times`, `Fill`, `Repeat`/`RepeatBy`, `Compact`,`Some`/`Find`,`Min`/`Max`は文字数の都合で削除
 
 ### Filter/Map/FilterMap
 
@@ -1440,64 +1079,6 @@ func main() {
 }
 ```
 
-### ForEach
-
-[playground](https://go.dev/play/p/jI0sQJk6CXz)
-
-```go
-func main() {
-    lo.ForEach(
-        []string{"hello", "world"},
-        func(x string, _ int) {
-            fmt.Println(x)
-        },
-    )
-    fmt.Println()
-    hiter.ForEach(
-        func(x string) {
-            fmt.Println(x)
-        },
-        slices.Values([]string{"hello", "world"}),
-    )
-    /*
-       hello
-       world
-
-       hello
-       world
-    */
-}
-```
-
-### Times
-
-[playground](https://go.dev/play/p/iaxi1wHEfw7)
-
-```go
-func main() {
-    fmt.Println(
-        lo.Times(3, func(i int) string {
-            return strconv.FormatInt(int64(i), 10)
-        }),
-    )
-
-    fmt.Println(
-        slices.Collect(
-            xiter.Map(
-                func(i int) string { return strconv.FormatInt(int64(i), 10) },
-                hiter.Range(0, 3),
-            ),
-        ),
-    )
-    /*
-        [0 1 2]
-        [0 1 2]
-    */
-}
-```
-
-これはなんか例が悪い気がする。
-
 ### Uniq
 
 同等のものは実装していません。多分しません。
@@ -1613,75 +1194,6 @@ func main() {
     /*
         [[-2 -1] [0 2 4] [1 3 5]]
         [[-2 -1] [0 2 4] [1 3 5]]
-    */
-}
-```
-
-### Fill
-
-コードを見る限り同等なんですがユースケースがいまいちわからないので的外れかも。
-
-[playground](https://go.dev/play/p/-sfhZDqdLLV)
-
-```go
-type foo struct {
-    bar string
-}
-
-func (f foo) Clone() foo {
-    return foo{f.bar}
-}
-
-func main() {
-    fmt.Println(lo.Fill([]foo{{"a"}, {"a"}}, foo{"b"}))
-    f := foo{"b"}
-    fmt.Println(slices.Collect(hiter.RepeatFunc(f.Clone, 2)))
-    /*
-        [{b} {b}]
-        [{b} {b}]
-    */
-}
-```
-
-### Repeat/RepeatBy
-
-repeatと言いながらmapしてますね`RepeatBy`のexampleは。
-
-[playground](https://go.dev/play/p/WJPjiFyY951)
-
-```go
-type foo struct {
-    bar string
-}
-
-func (f foo) Clone() foo {
-    return foo{f.bar}
-}
-
-func main() {
-    fmt.Println(lo.Repeat(2, foo{"a"}))
-    f := foo{"a"}
-    fmt.Println(slices.Collect(hiter.RepeatFunc(f.Clone, 2)))
-    /*
-        [{a} {a}]
-        [{a} {a}]
-    */
-    fmt.Println(lo.RepeatBy(5, func(i int) string {
-        return strconv.FormatInt(int64(math.Pow(float64(i), 2)), 10)
-    }))
-    fmt.Println(
-        slices.Collect(
-            xiter.Map(
-                func(i int) string {
-                    return strconv.FormatInt(int64(math.Pow(float64(i), 2)), 10)
-                },
-                hiter.Range(0, 5),
-            ),
-        ),
-    )
-    /*
-       [0 1 4 9 16]
-       [0 1 4 9 16]
     */
 }
 ```
@@ -1848,93 +1360,6 @@ func main() {
     /*
         [42 1 42 1 2 3 42]
         [42 1 42 1 2 3 42]
-    */
-}
-```
-
-### Compact
-
-`Compact`という名前は`slices.Compact`が別の意味で使っているのでzero valueをfilterするという用途で使いづらいですね。
-
-[playground](https://go.dev/play/p/reXKrI3kl6P)
-
-```go
-func main() {
-    in := []string{"", "foo", "", "bar", ""}
-
-    fmt.Println(lo.Compact(in))
-    fmt.Println(
-        slices.Collect(
-            xiter.Filter(
-                func(s string) bool { return s != "" },
-                slices.Values(in),
-            ),
-        ),
-    )
-    /*
-        [foo bar]
-        [foo bar]
-    */
-}
-```
-
-### Some/Find
-
-[playground](https://go.dev/play/p/s6zDcbtP4QR)
-
-```go
-func main() {
-    fmt.Println(lo.Some([]int{0, 1, 2, 3, 4, 5}, []int{0, 6}))
-    fmt.Println(
-        hiter.Any(
-            func(i int) bool { return slices.Contains([]int{0, 6}, i) },
-            slices.Values([]int{0, 1, 2, 3, 4, 5})),
-    )
-    /*
-        true
-        true
-    */
-    fmt.Println()
-
-    fmt.Println(
-        lo.Find(
-            []string{"a", "b", "c", "d"},
-            func(i string) bool {
-                return i == "b"
-            },
-        ),
-    )
-    fmt.Println(hiter.FindFunc(
-        func(i string) bool {
-            return i == "b"
-        },
-        slices.Values([]string{"a", "b", "c", "d"}),
-    ))
-    /*
-        b true
-        b 1
-    */
-}
-```
-
-### Min/Max
-
-[playground](https://go.dev/play/p/96zOFlrv24L)
-
-```go
-func main() {
-    fmt.Println(lo.Min([]int{1, 2, 3}))
-    fmt.Println(hiter.Min(slices.Values([]int{1, 2, 3})))
-    /*
-        1
-        1
-    */
-    fmt.Println()
-    fmt.Println(lo.Max([]int{1, 2, 3}))
-    fmt.Println(hiter.Max(slices.Values([]int{1, 2, 3})))
-    /*
-        3
-        3
     */
 }
 ```
@@ -2650,27 +2075,8 @@ channelは１つの値しか送れないため、エラーしうる関数の結�
 単にchannel sendしてchannel receiveしているだけなのでworkerから帰ってくるデータの順序が送った順序と一致しているわけではないのがポイントです。
 
 ```go
-// Chan returns an iterator over ch.
-// Either cancelling ctx or closing ch stops iteration.
-func Chan[V any](ctx context.Context, ch <-chan V) iter.Seq[V] {
-    return func(yield func(V) bool) {
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            default:
-                select {
-                case <-ctx.Done():
-                    return
-                case v, ok := <-ch:
-                    if !ok || !yield(v) {
-                        return
-                    }
-                }
-            }
-        }
-    }
-}
+// 前述
+func Chan[V any](ctx context.Context, ch <-chan V) iter.Seq[V]
 
 // ChanSend sends values from seq to c.
 // It unblocks after either ctx is cancelled or all values from seq are consumed.
