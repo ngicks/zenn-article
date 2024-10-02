@@ -31,7 +31,7 @@ https://groups.google.com/g/golang-announce/c/NKEc8VT7Fz0
 
 https://github.com/golang/go/issues/69511
 
-for-range-funcにかかる重大めなバグが修正されているので`1.23.2`にあげましょう。
+range-over-funcにかかる重大めなバグが修正されているので`1.23.2`にあげましょう。
 
 ## おさらい
 
