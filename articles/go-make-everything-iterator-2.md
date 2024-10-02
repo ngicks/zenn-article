@@ -19,7 +19,7 @@ https://github.com/ngicks/go-iterator-helper
 各種データコンテナやシーケンスデータを返すものをiteratorになるように包んだり、アダプタツールを整えてiteratorでいろんな処理ができるようにします。
 なるだけiteratorにする都合上、記事上で言及しておいて「実際使うことは少ないでしょう」というようなコメントを添えているものもあります。
 
-この記事では`Go 1.23.0`を対象バージョンとします。環境は`linux/amd64`ですが、特にOSやarchがかかわる話はしません。
+この記事では`Go 1.23.2`を対象バージョンとします。環境は`linux/amd64`ですが、特にOSやarchがかかわる話はしません。
 
 また、この記事は`func(func() bool)`, `iter.Seq[V]`もしくは`func(func(V) bool)`, `iter.Seq2[K,V]`もしくは`func(func(K,V) bool)`のことをカジュアルにiteratorと呼びます。この慣習はstdのドキュメントなどでも同様です。
 
@@ -31,7 +31,7 @@ https://github.com/ngicks/go-iterator-helper
 
 ### spec
 
-[Go1.23.0](https://tip.golang.org/doc/go1.23)で言語仕様に変更がはいり、for-rangeが以下の三つの関数を受け付けるようになりました。
+[go1.23](https://tip.golang.org/doc/go1.23)で言語仕様に変更がはいり、for-rangeが以下の三つの関数を受け付けるようになりました。
 
 ```
 https://go.dev/ref/spec#For_statements
@@ -51,7 +51,7 @@ for range func(func() bool) {} {
 }
 ```
 
-仕組みとしては以下のように、loop-bodyを関数に変換してそれを引数にiteratorを呼び出すようにrewriteされれます([ここ](https://github.com/golang/go/blob/go1.23.0/src/cmd/compile/internal/rangefunc/rewrite.go))。
+仕組みとしては以下のように、loop-bodyを関数に変換してそれを引数にiteratorを呼び出すようにrewriteされれます([ここ](https://github.com/golang/go/blob/go1.23.2/src/cmd/compile/internal/rangefunc/rewrite.go))。
 
 ```go
 func(func() bool) {}(func() bool {
@@ -60,7 +60,7 @@ func(func() bool) {}(func() bool {
 })
 ```
 
-`func(func() bool)`以外の二つは、`iter`パッケージで[iter.Seq\[V\]](https://pkg.go.dev/iter@go1.23.1#Seq), [iter.Seq2\[K, V\]](https://pkg.go.dev/iter@go1.23.1#Seq2)という型として定義されるので、これを用いるとよいです。
+`func(func() bool)`以外の二つは、`iter`パッケージで[iter.Seq\[V\]](https://pkg.go.dev/iter@go1.23.2#Seq), [iter.Seq2\[K, V\]](https://pkg.go.dev/iter@go1.23.2#Seq2)という型として定義されるので、これを用いるとよいです。
 
 ```go
 func someIter[K, V any]() iter.Seq2[K, V] {
@@ -70,7 +70,7 @@ func someIter[K, V any]() iter.Seq2[K, V] {
 }
 ```
 
-もちろん`iter.Seq[V]`, `iter.Seq2[K,V]`を用いなくてもrange-over-funcは機能するので、`Go1.23.0`以前のversionで作られたライブラリにiteratorを返すメソッドを追加したい場合は、直接`func(func(K, V) bool)`を返すとよいでしょう。
+もちろん`iter.Seq[V]`, `iter.Seq2[K,V]`を用いなくてもrange-over-funcは機能するので、`go1.23.2`以前のversionで作られたライブラリにiteratorを返すメソッドを追加したい場合は、直接`func(func(K, V) bool)`を返すとよいでしょう。
 
 ### 利点
 
@@ -146,40 +146,40 @@ func Foo[I []V | chan V, V any](i I) {
 `go/ast`
 
 ```go
-// https://pkg.go.dev/go/ast@go1.23.0#Preorder
+// https://pkg.go.dev/go/ast@go1.23.2#Preorder
 func Preorder(root Node) iter.Seq[Node]
 ```
 
 `maps`
 
 ```go
-// https://pkg.go.dev/maps@go1.23.0#All
+// https://pkg.go.dev/maps@go1.23.2#All
 func All[Map ~map[K]V, K comparable, V any](m Map) iter.Seq2[K, V]
-// https://pkg.go.dev/maps@go1.23.0#Keys
+// https://pkg.go.dev/maps@go1.23.2#Keys
 func Keys[Map ~map[K]V, K comparable, V any](m Map) iter.Seq[K]
-// https://pkg.go.dev/maps@go1.23.0#Values
+// https://pkg.go.dev/maps@go1.23.2#Values
 func Values[Map ~map[K]V, K comparable, V any](m Map) iter.Seq[V]
 ```
 
 `reflect`
 
 ```go
-// https://pkg.go.dev/reflect@go1.23.0#Value.Seq
+// https://pkg.go.dev/reflect@go1.23.2#Value.Seq
 func (v Value) Seq() iter.Seq[Value]
-// https://pkg.go.dev/reflect@go1.23.0#Value.Seq2
+// https://pkg.go.dev/reflect@go1.23.2#Value.Seq2
 func (v Value) Seq2() iter.Seq2[Value, Value]
 ```
 
 `slices`
 
 ```go
-// https://pkg.go.dev/slices@go1.23.0#All
+// https://pkg.go.dev/slices@go1.23.2#All
 func All[Slice ~[]E, E any](s Slice) iter.Seq2[int, E]
-// https://pkg.go.dev/slices@go1.23.0#Backward
+// https://pkg.go.dev/slices@go1.23.2#Backward
 func Backward[Slice ~[]E, E any](s Slice) iter.Seq2[int, E]
-// https://pkg.go.dev/slices@go1.23.0#Chunk
+// https://pkg.go.dev/slices@go1.23.2#Chunk
 func Chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice]
-// https://pkg.go.dev/slices@go1.23.0#Values
+// https://pkg.go.dev/slices@go1.23.2#Values
 func Values[Slice ~[]E, E any](s Slice) iter.Seq[E]
 ```
 
@@ -188,24 +188,24 @@ func Values[Slice ~[]E, E any](s Slice) iter.Seq[E]
 `maps`
 
 ```go
-// https://pkg.go.dev/maps@go1.23.0#Collect
+// https://pkg.go.dev/maps@go1.23.2#Collect
 func Collect[K comparable, V any](seq iter.Seq2[K, V]) map[K]V
-// https://pkg.go.dev/maps@go1.23.0#Insert
+// https://pkg.go.dev/maps@go1.23.2#Insert
 func Insert[Map ~map[K]V, K comparable, V any](m Map, seq iter.Seq2[K, V])
 ```
 
 `slices`
 
 ```go
-// https://pkg.go.dev/slices@go1.23.0#AppendSeq
+// https://pkg.go.dev/slices@go1.23.2#AppendSeq
 func AppendSeq[Slice ~[]E, E any](s Slice, seq iter.Seq[E]) Slice
-// https://pkg.go.dev/slices@go1.23.0#Collect
+// https://pkg.go.dev/slices@go1.23.2#Collect
 func Collect[E any](seq iter.Seq[E]) []E
-// https://pkg.go.dev/slices@go1.23.0#Sorted
+// https://pkg.go.dev/slices@go1.23.2#Sorted
 func Sorted[E cmp.Ordered](seq iter.Seq[E]) []E
-// https://pkg.go.dev/slices@go1.23.0#SortedFunc
+// https://pkg.go.dev/slices@go1.23.2#SortedFunc
 func SortedFunc[E any](seq iter.Seq[E], cmp func(E, E) int) []E
-// https://pkg.go.dev/slices@go1.23.0#SortedStableFunc
+// https://pkg.go.dev/slices@go1.23.2#SortedStableFunc
 func SortedStableFunc[E any](seq iter.Seq[E], cmp func(E, E) int) []E
 ```
 
@@ -214,11 +214,11 @@ func SortedStableFunc[E any](seq iter.Seq[E], cmp func(E, E) int) []E
 `Go`のソースコードを`func\s(\(.*\s\*?[A-Z][a-zA-Z]*\))?\s?[A-Z][a-zA-Z]*\(.*\sfunc\(.*\)\sbool`というクエリで雑に検索して調べてみると以下の３つはすでにiteratorのシグネチャを満たしていました。
 
 ```go
-// https://pkg.go.dev/go/token@go1.23.1#FileSet.Iterate
+// https://pkg.go.dev/go/token@go1.23.2#FileSet.Iterate
 func (s *FileSet) Iterate(f func(*File) bool)
-// https://pkg.go.dev/log/slog@go1.23.1#Record.Attrs
+// https://pkg.go.dev/log/slog@go1.23.2#Record.Attrs
 func (r Record) Attrs(f func(Attr) bool)
-// https://pkg.go.dev/sync@go1.23.1#Map.Range
+// https://pkg.go.dev/sync@go1.23.2#Map.Range
 func (m *Map) Range(f func(key, value any) bool)
 ```
 
@@ -587,7 +587,7 @@ func Empty2[K, V any]() iter.Seq2[K, V] {
 
 ### reflect.Value.Seq, reflect.Value.Se2
 
-[reflect.Value.Seq](https://pkg.go.dev/reflect@go1.23.1#Value.Seq)および[reflect.Value.Seq2](https://pkg.go.dev/reflect@go1.23.1#Value.Seq2)で`iter.Seq[reflect.Value]`、`iter.Seq2[reflect.Value, reflect.Value]`をそれぞれ`reflect`を通じて得られるようになりました。これを`type assertion`を通して別の型になするadapterを定義しておきます。
+[reflect.Value.Seq](https://pkg.go.dev/reflect@go1.23.2#Value.Seq)および[reflect.Value.Seq2](https://pkg.go.dev/reflect@go1.23.2#Value.Seq2)で`iter.Seq[reflect.Value]`、`iter.Seq2[reflect.Value, reflect.Value]`をそれぞれ`reflect`を通じて得られるようになりました。これを`type assertion`を通して別の型になするadapterを定義しておきます。
 
 ```go
 // AssertValue returns an iterator over seq but each value returned by [reflect.Value.Interface] is type-asserted to be type V.
@@ -735,7 +735,7 @@ func Decode[V any, Dec interface{ Decode(any) error }](dec Dec) iter.Seq2[V, err
 エラーの取り扱いが少し面倒で、呼び出し側に終了かどうかを選ばせる必要があります。
 なぜかというと、`Decode`に渡された値の型(`*V`)と入力の型が合わないという意味論的エラーの場合は次の`Decode`呼び出しが行えるかもしれないですが、
 `Dec`内部の`io.Reader`がエラーを返した場合はそのエラーがキャッシュされて何度呼び出しても同じエラーが帰ってくることになるからです。
-例えば、`encoding/json`は[\*json.UnmarshalTypeError](https://pkg.go.dev/encoding/json@go1.23.1#UnmarshalTypeError)というエラーを返す時は次の呼び出しで次のjson valueのデコードに移れますが、
+例えば、`encoding/json`は[\*json.UnmarshalTypeError](https://pkg.go.dev/encoding/json@go1.23.2#UnmarshalTypeError)というエラーを返す時は次の呼び出しで次のjson valueのデコードに移れますが、
 `io.Reader`からエラーが帰ってきた場合は`Decode`を何度呼び出してもそのエラーが帰ってくる挙動になっています。
 
 ### Moving Window([]V, iter.Seq[V])
@@ -770,7 +770,7 @@ func Window[S ~[]E, E any](s S, n int) iter.Seq[S] {
 }
 ```
 
-どこかにサブスライスを渡す場合、capも指定(`[start:end:cap]`)してlengthとcapを一致させると次のappend呼び出し時にlengthがcapを超えるのでsliceがコピーされます([この行](https://github.com/golang/go/blob/go1.23.1/src/cmd/compile/internal/ssagen/ssa.go#L3531))。コピーが起きないと元のsliceと同じunderlying arrayへ書き込みを行ってしまいますので、こういった気遣いをしておくと親切なケースがあります。
+どこかにサブスライスを渡す場合、capも指定(`[start:end:cap]`)してlengthとcapを一致させると次のappend呼び出し時にlengthがcapを超えるのでsliceがコピーされます([この行](https://github.com/golang/go/blob/go1.23.2/src/cmd/compile/internal/ssagen/ssa.go#L3531))。コピーが起きないと元のsliceと同じunderlying arrayへ書き込みを行ってしまいますので、こういった気遣いをしておくと親切なケースがあります。
 
 ついでに`iter.Seq[V]`を引数にとる`WindowSeq`も実装(これは前の記事には含まれない)
 
@@ -953,6 +953,9 @@ func (v KeyValues[K, V]) Iter2() iter.Seq2[K, V] {
 それぞれ`slice.Chunk`, `math/rand/v2.Shuffle`, `slices.Reverse`/`slices.Backward`, `maps.Keys`, `maps.Values`, `slices.IsSorted`で代替可能です。
 
 `ForEach`, `Times`, `Fill`, `Repeat`/`RepeatBy`, `Compact`,`Some`/`Find`,`Min`/`Max`は文字数の都合で削除
+
+一応注意しておきますが、`samber/lo`を使っていた部分をiteratorを使うように直すべきかは不明です。
+要素数やアダプタの使用数によってはそのままにしておいたほうがパフォーマンス的によいということは普通にあると思います。
 
 ### Filter/Map/FilterMap
 
@@ -1451,7 +1454,7 @@ func main() {
 
 `seq1`はstatelessですが、`seq2`は`n`をシャドーイングしていないのに`n--`してしまっているのでstatefulになっています。
 
-これらは[iter.Pull](https://pkg.go.dev/iter@go1.23.1#Pull)でラップすることで同じように扱うことができます。
+これらは[iter.Pull](https://pkg.go.dev/iter@go1.23.2#Pull)でラップすることで同じように扱うことができます。
 
 ```go
 func wrapPull[V any](seq iter.Seq[V]) (iter.Seq[V], func()) {
@@ -1488,7 +1491,7 @@ func main() {
 }
 ```
 
-[iter.Pull](https://pkg.go.dev/iter@go1.23.1#Pull)および[iter.Pull2](https://pkg.go.dev/iter@go1.23.1#Pull2)は特有のコントロールを行うことでスケジューラの処理をスキップする`goroutine`をallocateし、その中で`iter.Seq`を実行するというものです。
+[iter.Pull](https://pkg.go.dev/iter@go1.23.2#Pull)および[iter.Pull2](https://pkg.go.dev/iter@go1.23.2#Pull2)は特有のコントロールを行うことでスケジューラの処理をスキップする`goroutine`をallocateし、その中で`iter.Seq`を実行するというものです。
 そのため`stop`を呼ぶか、seqを最後まで消費しきるかしないと`goroutine`が終了しないため`goroutine leak`となってしまいます。
 
 ### Resumable
