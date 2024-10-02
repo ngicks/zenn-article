@@ -297,6 +297,8 @@ https://github.com/ngicks/go-iterator-helper
 
 てことで実装物は以下のようになります。
 
+Iterator source: 他のデータやらからiteratorを作るやつ
+
 ```go
 func Chan[V any](ctx context.Context, ch <-chan V) iter.Seq[V]
 func Heap[V any](h heap.Interface) iter.Seq[V]
@@ -444,7 +446,7 @@ func SumOf[V any, S Summable](selector func(ele V) S, seq iter.Seq[V]) S
 
 ## データソースからiteratorを作る
 
-[前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator)空の差分のみ書いていきます。
+[前回の記事:\[Go\]なるだけすべてをiteratorにする](https://zenn.dev/ngicks/articles/go-make-everything-iterator)からの差分のみ書いていきます。
 
 ### Range: [n, m)
 
