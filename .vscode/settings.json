@@ -23,6 +23,7 @@
     "ngicks",
     "omitempty",
     "Peekable",
+    "sliceelastic",
     "sliceund",
     "struct",
     "typeparamcommon",
