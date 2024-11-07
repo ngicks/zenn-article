@@ -23,6 +23,7 @@
     "ngicks",
     "omitempty",
     "Peekable",
+    "sliceund",
     "struct",
     "typeparamcommon",
     "unexported",
