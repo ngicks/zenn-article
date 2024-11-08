@@ -91,7 +91,7 @@ ast上では`slice`も`array`も同じ`ArrayType`になります。`Len`がnil�
 型上これらが出現するため追跡が容易です。
 これが`Vec<T>`のような名前付き型であったり、カスタムデータコンテナだと特別扱いしたい型が増えて大変になっていたかもしれません。
 
-## お題
+## 実現したいもの
 
 具体的にどういったものを実装するかについて述べます
 
@@ -109,13 +109,14 @@ https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
 - Patcher
   - 対象となるstruct typeの、あらゆるフィールドを[sliceund.Und]でラップし、`json:",omitempty"`を付け足した別の型を定義し、それを元となった方にApplyできるメソッドを実装することでpartial jsonによるpatchを実現する
 - Valdator
-  - `und:""` struct tagの内容でsomeじゃないいけないとか、Elasticの場合は`[]T`がn要素以上ないといけないとかを決められるようにしてあるため、この譲歩を用いてvalidateを行う
+  - `und:""` struct tagの内容でsomeじゃないいけないとか、Elasticの場合は`[]T`がn要素以上ないといけないとかを決められるようにしてあるため、この情報を用いてvalidateを行う
 - Plain
   - `und:""` struct tagの内容からsomeでないといけないなら`option.Option[T]`を`T`にアンラップしたような*Plain*な型を作成し、元となった型との相互変換を実現する。
+  - こうすることで、Marshal/Unmarshalの界面ではlosslessで`undefined | null | T`をデータ構造に当てはめることができるため、`map[string]any`などを介さずにフィールドの有り無しをvalidateし、その後扱いやすい型に変換してから内部処理を行うことができます。
 
 ## 生成されるコードのイメージ
 
-まずどういったコードを生成したら目標が実現できるかを思い描き、どういったらコードジェネレーターを実装するかを思い描きます
+まずどういったコードを生成したら目標が実現できるかを思い描き、そこから何を実装すべきかについて考えます。
 
 ### Patcher
 
@@ -435,416 +436,61 @@ Plainが実現したいのは、struct fieldがund typeであり`und:""`タグ�
 つまり以下のような型が入力であるとき
 
 ```go
-type All struct {
-	Foo string
-	Bar *string
-	Baz *struct{}
-	Qux []string
-
-	UntouchedOpt      option.Option[int] `json:",omitzero"`
-	UntouchedUnd      und.Und[int]       `json:",omitzero"`
-	UntouchedSliceUnd sliceund.Und[int]  `json:",omitzero"`
-
-	OptRequired       option.Option[string] `json:"opt_required,omitzero" und:"required"`
-	OptNullish        option.Option[string] `json:",omitzero" und:"nullish"`
-	OptDef            option.Option[string] `json:",omitzero" und:"def"`
-	OptNull           option.Option[string] `json:",omitzero" und:"null"`
-	OptUnd            option.Option[string] `json:",omitzero" und:"und"`
-	OptDefOrUnd       option.Option[string] `json:",omitzero" und:"def,und"`
-	OptDefOrNull      option.Option[string] `json:",omitzero" und:"def,null"`
-	OptNullOrUnd      option.Option[string] `json:",omitzero" und:"null,und"`
-	OptDefOrNullOrUnd option.Option[string] `json:",omitzero" und:"def,null,und"`
-
-	UndRequired       und.Und[string] `json:",omitzero" und:"required"`
-	UndNullish        und.Und[string] `json:",omitzero" und:"nullish"`
-	UndDef            und.Und[string] `json:",omitzero" und:"def"`
-	UndNull           und.Und[string] `json:",omitzero" und:"null"`
-	UndUnd            und.Und[string] `json:",omitzero" und:"und"`
-	UndDefOrUnd       und.Und[string] `json:",omitzero" und:"def,und"`
-	UndDefOrNull      und.Und[string] `json:",omitzero" und:"def,null"`
-	UndNullOrUnd      und.Und[string] `json:",omitzero" und:"null,und"`
-	UndDefOrNullOrUnd und.Und[string] `json:",omitzero" und:"def,null,und"`
-
-	ElaRequired       elastic.Elastic[string] `json:",omitzero" und:"required"`
-	ElaNullish        elastic.Elastic[string] `json:",omitzero" und:"nullish"`
-	ElaDef            elastic.Elastic[string] `json:",omitzero" und:"def"`
-	ElaNull           elastic.Elastic[string] `json:",omitzero" und:"null"`
-	ElaUnd            elastic.Elastic[string] `json:",omitzero" und:"und"`
-	ElaDefOrUnd       elastic.Elastic[string] `json:",omitzero" und:"def,und"`
-	ElaDefOrNull      elastic.Elastic[string] `json:",omitzero" und:"def,null"`
-	ElaNullOrUnd      elastic.Elastic[string] `json:",omitzero" und:"null,und"`
-	ElaDefOrNullOrUnd elastic.Elastic[string] `json:",omitzero" und:"def,null,und"`
-
-	ElaEqEq elastic.Elastic[string] `json:",omitzero" und:"len==1"`
-	ElaGr   elastic.Elastic[string] `json:",omitzero" und:"len>1"`
-	ElaGrEq elastic.Elastic[string] `json:",omitzero" und:"len>=1"`
-	ElaLe   elastic.Elastic[string] `json:",omitzero" und:"len<1"`
-	ElaLeEq elastic.Elastic[string] `json:",omitzero" und:"len<=1"`
-
-	ElaEqEquRequired elastic.Elastic[string] `json:",omitzero" und:"required,len==2"`
-	ElaEqEquNullish  elastic.Elastic[string] `json:",omitzero" und:"nullish,len==2"`
-	ElaEqEquDef      elastic.Elastic[string] `json:",omitzero" und:"def,len==2"`
-	ElaEqEquNull     elastic.Elastic[string] `json:",omitzero" und:"null,len==2"`
-	ElaEqEquUnd      elastic.Elastic[string] `json:",omitzero" und:"und,len==2"`
-
-	ElaEqEqNonNullSlice      elastic.Elastic[string] `json:",omitzero" und:"values:nonnull"`
-	ElaEqEqNonNullNullSlice  elastic.Elastic[string] `json:",omitzero" und:"null,values:nonnull"`
-	ElaEqEqNonNullSingle     elastic.Elastic[string] `json:",omitzero" und:"values:nonnull,len==1"`
-	ElaEqEqNonNullNullSingle elastic.Elastic[string] `json:",omitzero" und:"null,values:nonnull,len==1"`
-	ElaEqEqNonNull           elastic.Elastic[string] `json:",omitzero" und:"values:nonnull,len==3"`
-	ElaEqEqNonNullNull       elastic.Elastic[string] `json:",omitzero" und:"null,values:nonnull,len==3"`
+type Example struct {
+    Foo   string                    `json:"foo"`
+    Bar   option.Option[string]     `json:"bar" und:"required"`
+    Baz   und.Und[string]           `json:"baz" und:"def"`
+    Qux   und.Und[string]           `json:"qux" und:"def,null"`
+    Quux  sliceelastic.Elastic[int] `json:"quux" und:"len==3"`
+    Corge sliceelastic.Elastic[int] `json:"corge" und:"len>2,values:nonnull"`
 }
 ```
 
 以下が出力されるだろうということです
 
 ```go
-type AllPlain struct {
-	Foo string
-	Bar *string
-	Baz *struct{}
-	Qux []string
-
-	UntouchedOpt      option.Option[int] `json:",omitzero"`
-	UntouchedUnd      und.Und[int]       `json:",omitzero"`
-	UntouchedSliceUnd sliceund.Und[int]  `json:",omitzero"`
-
-	OptRequired       string                `json:"opt_required,omitzero" und:"required"`
-	OptNullish        conversion.Empty      `json:",omitzero" und:"nullish"`
-	OptDef            string                `json:",omitzero" und:"def"`
-	OptNull           conversion.Empty      `json:",omitzero" und:"null"`
-	OptUnd            conversion.Empty      `json:",omitzero" und:"und"`
-	OptDefOrUnd       option.Option[string] `json:",omitzero" und:"def,und"`
-	OptDefOrNull      option.Option[string] `json:",omitzero" und:"def,null"`
-	OptNullOrUnd      conversion.Empty      `json:",omitzero" und:"null,und"`
-	OptDefOrNullOrUnd option.Option[string] `json:",omitzero" und:"def,null,und"`
-
-	UndRequired       string                          `json:",omitzero" und:"required"`
-	UndNullish        option.Option[conversion.Empty] `json:",omitzero" und:"nullish"`
-	UndDef            string                          `json:",omitzero" und:"def"`
-	UndNull           conversion.Empty                `json:",omitzero" und:"null"`
-	UndUnd            conversion.Empty                `json:",omitzero" und:"und"`
-	UndDefOrUnd       option.Option[string]           `json:",omitzero" und:"def,und"`
-	UndDefOrNull      option.Option[string]           `json:",omitzero" und:"def,null"`
-	UndNullOrUnd      option.Option[conversion.Empty] `json:",omitzero" und:"null,und"`
-	UndDefOrNullOrUnd und.Und[string]                 `json:",omitzero" und:"def,null,und"`
-
-	ElaRequired       []option.Option[string]                `json:",omitzero" und:"required"`
-	ElaNullish        option.Option[conversion.Empty]        `json:",omitzero" und:"nullish"`
-	ElaDef            []option.Option[string]                `json:",omitzero" und:"def"`
-	ElaNull           conversion.Empty                       `json:",omitzero" und:"null"`
-	ElaUnd            conversion.Empty                       `json:",omitzero" und:"und"`
-	ElaDefOrUnd       option.Option[[]option.Option[string]] `json:",omitzero" und:"def,und"`
-	ElaDefOrNull      option.Option[[]option.Option[string]] `json:",omitzero" und:"def,null"`
-	ElaNullOrUnd      option.Option[conversion.Empty]        `json:",omitzero" und:"null,und"`
-	ElaDefOrNullOrUnd elastic.Elastic[string]                `json:",omitzero" und:"def,null,und"`
-
-	ElaEqEq option.Option[string]   `json:",omitzero" und:"len==1"`
-	ElaGr   []option.Option[string] `json:",omitzero" und:"len>1"`
-	ElaGrEq []option.Option[string] `json:",omitzero" und:"len>=1"`
-	ElaLe   []option.Option[string] `json:",omitzero" und:"len<1"`
-	ElaLeEq []option.Option[string] `json:",omitzero" und:"len<=1"`
-
-	ElaEqEquRequired [2]option.Option[string]                `json:",omitzero" und:"required,len==2"`
-	ElaEqEquNullish  und.Und[[2]option.Option[string]]       `json:",omitzero" und:"nullish,len==2"`
-	ElaEqEquDef      [2]option.Option[string]                `json:",omitzero" und:"def,len==2"`
-	ElaEqEquNull     option.Option[[2]option.Option[string]] `json:",omitzero" und:"null,len==2"`
-	ElaEqEquUnd      option.Option[[2]option.Option[string]] `json:",omitzero" und:"und,len==2"`
-
-	ElaEqEqNonNullSlice      und.Und[[]string]        `json:",omitzero" und:"values:nonnull"`
-	ElaEqEqNonNullNullSlice  conversion.Empty         `json:",omitzero" und:"null,values:nonnull"`
-	ElaEqEqNonNullSingle     string                   `json:",omitzero" und:"values:nonnull,len==1"`
-	ElaEqEqNonNullNullSingle option.Option[string]    `json:",omitzero" und:"null,values:nonnull,len==1"`
-	ElaEqEqNonNull           [3]string                `json:",omitzero" und:"values:nonnull,len==3"`
-	ElaEqEqNonNullNull       option.Option[[3]string] `json:",omitzero" und:"null,values:nonnull,len==3"`
+type ExamplePlain struct {
+    Foo   string                `json:"foo"`
+    Bar   string                `json:"bar" und:"required"`
+    Baz   string                `json:"baz" und:"def"`
+    Qux   option.Option[string] `json:"qux" und:"def,null"`
+    Quux  [3]option.Option[int] `json:"quux" und:"len==3"`
+    Corge []int                 `json:"corge" und:"len>2,values:nonnull"`
 }
 
-func (v All) UndPlain() AllPlain {
-	return AllPlain{
-		Foo:               v.Foo,
-		Bar:               v.Bar,
-		Baz:               v.Baz,
-		Qux:               v.Qux,
-		UntouchedOpt:      v.UntouchedOpt,
-		UntouchedUnd:      v.UntouchedUnd,
-		UntouchedSliceUnd: v.UntouchedSliceUnd,
-		OptRequired:       v.OptRequired.Value(),
-		OptNullish:        nil,
-		OptDef:            v.OptDef.Value(),
-		OptNull:           nil,
-		OptUnd:            nil,
-		OptDefOrUnd:       v.OptDefOrUnd,
-		OptDefOrNull:      v.OptDefOrNull,
-		OptNullOrUnd:      nil,
-		OptDefOrNullOrUnd: v.OptDefOrNullOrUnd,
-		UndRequired:       v.UndRequired.Value(),
-		UndNullish:        conversion.UndNullish(v.UndNullish),
-		UndDef:            v.UndDef.Value(),
-		UndNull:           nil,
-		UndUnd:            nil,
-		UndDefOrUnd:       v.UndDefOrUnd.Unwrap().Value(),
-		UndDefOrNull:      v.UndDefOrNull.Unwrap().Value(),
-		UndNullOrUnd:      conversion.UndNullish(v.UndNullOrUnd),
-		UndDefOrNullOrUnd: v.UndDefOrNullOrUnd,
-		ElaRequired:       v.ElaRequired.Unwrap().Value(),
-		ElaNullish:        conversion.UndNullish(v.ElaNullish),
-		ElaDef:            v.ElaDef.Unwrap().Value(),
-		ElaNull:           nil,
-		ElaUnd:            nil,
-		ElaDefOrUnd:       conversion.UnwrapElastic(v.ElaDefOrUnd).Unwrap().Value(),
-		ElaDefOrNull:      conversion.UnwrapElastic(v.ElaDefOrNull).Unwrap().Value(),
-		ElaNullOrUnd:      conversion.UndNullish(v.ElaNullOrUnd),
-		ElaDefOrNullOrUnd: v.ElaDefOrNullOrUnd,
-		ElaEqEq: conversion.UnwrapLen1(und.Map(
-			conversion.UnwrapElastic(v.ElaEqEq),
-			func(o []option.Option[string]) (out [1]option.Option[string]) {
-				copy(out[:], o)
-				return out
-			},
-		)).Value(),
-		ElaGr:   conversion.LenNAtLeast(2, conversion.UnwrapElastic(v.ElaGr)).Value(),
-		ElaGrEq: conversion.LenNAtLeast(1, conversion.UnwrapElastic(v.ElaGrEq)).Value(),
-		ElaLe:   conversion.LenNAtMost(0, conversion.UnwrapElastic(v.ElaLe)).Value(),
-		ElaLeEq: conversion.LenNAtMost(1, conversion.UnwrapElastic(v.ElaLeEq)).Value(),
-		ElaEqEquRequired: und.Map(
-			conversion.UnwrapElastic(v.ElaEqEquRequired),
-			func(o []option.Option[string]) (out [2]option.Option[string]) {
-				copy(out[:], o)
-				return out
-			},
-		).Value(),
-		ElaEqEquNullish: und.Map(
-			conversion.UnwrapElastic(v.ElaEqEquNullish),
-			func(o []option.Option[string]) (out [2]option.Option[string]) {
-				copy(out[:], o)
-				return out
-			},
-		),
-		ElaEqEquDef: und.Map(
-			conversion.UnwrapElastic(v.ElaEqEquDef),
-			func(o []option.Option[string]) (out [2]option.Option[string]) {
-				copy(out[:], o)
-				return out
-			},
-		).Value(),
-		ElaEqEquNull: und.Map(
-			conversion.UnwrapElastic(v.ElaEqEquNull),
-			func(o []option.Option[string]) (out [2]option.Option[string]) {
-				copy(out[:], o)
-				return out
-			},
-		).Unwrap().Value(),
-		ElaEqEquUnd: und.Map(
-			conversion.UnwrapElastic(v.ElaEqEquUnd),
-			func(o []option.Option[string]) (out [2]option.Option[string]) {
-				copy(out[:], o)
-				return out
-			},
-		).Unwrap().Value(),
-		ElaEqEqNonNullSlice:     conversion.NonNull(conversion.UnwrapElastic(v.ElaEqEqNonNullSlice)),
-		ElaEqEqNonNullNullSlice: nil,
-		ElaEqEqNonNullSingle: conversion.UnwrapLen1(und.Map(
-			und.Map(
-				conversion.UnwrapElastic(v.ElaEqEqNonNullSingle),
-				func(o []option.Option[string]) (out [1]option.Option[string]) {
-					copy(out[:], o)
-					return out
-				},
-			),
-			func(s [1]option.Option[string]) (r [1]string) {
-				for i := 0; i < 1; i++ {
-					r[i] = s[i].Value()
-				}
-				return
-			},
-		)).Value(),
-		ElaEqEqNonNullNullSingle: conversion.UnwrapLen1(und.Map(
-			und.Map(
-				conversion.UnwrapElastic(v.ElaEqEqNonNullNullSingle),
-				func(o []option.Option[string]) (out [1]option.Option[string]) {
-					copy(out[:], o)
-					return out
-				},
-			),
-			func(s [1]option.Option[string]) (r [1]string) {
-				for i := 0; i < 1; i++ {
-					r[i] = s[i].Value()
-				}
-				return
-			},
-		)).Unwrap().Value(),
-		ElaEqEqNonNull: und.Map(
-			und.Map(
-				conversion.UnwrapElastic(v.ElaEqEqNonNull),
-				func(o []option.Option[string]) (out [3]option.Option[string]) {
-					copy(out[:], o)
-					return out
-				},
-			),
-			func(s [3]option.Option[string]) (r [3]string) {
-				for i := 0; i < 3; i++ {
-					r[i] = s[i].Value()
-				}
-				return
-			},
-		).Value(),
-		ElaEqEqNonNullNull: und.Map(
-			und.Map(
-				conversion.UnwrapElastic(v.ElaEqEqNonNullNull),
-				func(o []option.Option[string]) (out [3]option.Option[string]) {
-					copy(out[:], o)
-					return out
-				},
-			),
-			func(s [3]option.Option[string]) (r [3]string) {
-				for i := 0; i < 3; i++ {
-					r[i] = s[i].Value()
-				}
-				return
-			},
-		).Unwrap().Value(),
-	}
+func (v Example) UndPlain() ExamplePlain {
+    return ExamplePlain{
+        Foo: v.Foo,
+        Bar: v.Bar.Value(),
+        Baz: v.Baz.Value(),
+        Qux: v.Qux.Unwrap().Value(),
+        Quux: sliceund.Map(
+            conversion.UnwrapElasticSlice(v.Quux),
+            func(o []option.Option[int]) (out [3]option.Option[int]) {
+                copy(out[:], o)
+                return out
+            },
+        ).Value(),
+        Corge: conversion.NonNullSlice(conversion.LenNAtLeastSlice(3, conversion.UnwrapElasticSlice(v.Corge))).Value(),
+    }
 }
 
-func (v AllPlain) UndRaw() All {
-	return All{
-		Foo:               v.Foo,
-		Bar:               v.Bar,
-		Baz:               v.Baz,
-		Qux:               v.Qux,
-		UntouchedOpt:      v.UntouchedOpt,
-		UntouchedUnd:      v.UntouchedUnd,
-		UntouchedSliceUnd: v.UntouchedSliceUnd,
-		OptRequired:       option.Some(v.OptRequired),
-		OptNullish:        option.None[string](),
-		OptDef:            option.Some(v.OptDef),
-		OptNull:           option.None[string](),
-		OptUnd:            option.None[string](),
-		OptDefOrUnd:       v.OptDefOrUnd,
-		OptDefOrNull:      v.OptDefOrNull,
-		OptNullOrUnd:      option.None[string](),
-		OptDefOrNullOrUnd: v.OptDefOrNullOrUnd,
-		UndRequired:       und.Defined(v.UndRequired),
-		UndNullish:        conversion.NullishUnd[string](v.UndNullish),
-		UndDef:            und.Defined(v.UndDef),
-		UndNull:           und.Null[string](),
-		UndUnd:            und.Undefined[string](),
-		UndDefOrUnd:       conversion.OptionUnd(false, v.UndDefOrUnd),
-		UndDefOrNull:      conversion.OptionUnd(true, v.UndDefOrNull),
-		UndNullOrUnd:      conversion.NullishUnd[string](v.UndNullOrUnd),
-		UndDefOrNullOrUnd: v.UndDefOrNullOrUnd,
-		ElaRequired:       elastic.FromOptions(v.ElaRequired...),
-		ElaNullish:        conversion.NullishElastic[string](v.ElaNullish),
-		ElaDef:            elastic.FromOptions(v.ElaDef...),
-		ElaNull:           elastic.Null[string](),
-		ElaUnd:            elastic.Undefined[string](),
-		ElaDefOrUnd:       conversion.OptionOptionElastic(false, v.ElaDefOrUnd),
-		ElaDefOrNull:      conversion.OptionOptionElastic(true, v.ElaDefOrNull),
-		ElaNullOrUnd:      conversion.NullishElastic[string](v.ElaNullOrUnd),
-		ElaDefOrNullOrUnd: v.ElaDefOrNullOrUnd,
-		ElaEqEq: elastic.FromUnd(und.Map(
-			conversion.WrapLen1(und.Defined(v.ElaEqEq)),
-			func(s [1]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaGr:   elastic.FromUnd(und.Defined(v.ElaGr)),
-		ElaGrEq: elastic.FromUnd(und.Defined(v.ElaGrEq)),
-		ElaLe:   elastic.FromUnd(und.Defined(v.ElaLe)),
-		ElaLeEq: elastic.FromUnd(und.Defined(v.ElaLeEq)),
-		ElaEqEquRequired: elastic.FromUnd(und.Map(
-			und.Defined(v.ElaEqEquRequired),
-			func(s [2]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaEqEquNullish: elastic.FromUnd(und.Map(
-			v.ElaEqEquNullish,
-			func(s [2]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaEqEquDef: elastic.FromUnd(und.Map(
-			und.Defined(v.ElaEqEquDef),
-			func(s [2]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaEqEquNull: elastic.FromUnd(und.Map(
-			conversion.OptionUnd(true, v.ElaEqEquNull),
-			func(s [2]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaEqEquUnd: elastic.FromUnd(und.Map(
-			conversion.OptionUnd(false, v.ElaEqEquUnd),
-			func(s [2]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaEqEqNonNullSlice:     elastic.FromUnd(conversion.Nullify(v.ElaEqEqNonNullSlice)),
-		ElaEqEqNonNullNullSlice: elastic.Null[string](),
-		ElaEqEqNonNullSingle: elastic.FromUnd(und.Map(
-			und.Map(
-				conversion.WrapLen1(und.Defined(v.ElaEqEqNonNullSingle)),
-				func(s [1]string) (out [1]option.Option[string]) {
-					for i := 0; i < 1; i++ {
-						out[i] = option.Some(s[i])
-					}
-					return
-				},
-			),
-			func(s [1]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaEqEqNonNullNullSingle: elastic.FromUnd(und.Map(
-			und.Map(
-				conversion.WrapLen1(conversion.OptionUnd(true, v.ElaEqEqNonNullNullSingle)),
-				func(s [1]string) (out [1]option.Option[string]) {
-					for i := 0; i < 1; i++ {
-						out[i] = option.Some(s[i])
-					}
-					return
-				},
-			),
-			func(s [1]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaEqEqNonNull: elastic.FromUnd(und.Map(
-			und.Map(
-				und.Defined(v.ElaEqEqNonNull),
-				func(s [3]string) (out [3]option.Option[string]) {
-					for i := 0; i < 3; i++ {
-						out[i] = option.Some(s[i])
-					}
-					return
-				},
-			),
-			func(s [3]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-		ElaEqEqNonNullNull: elastic.FromUnd(und.Map(
-			und.Map(
-				conversion.OptionUnd(true, v.ElaEqEqNonNullNull),
-				func(s [3]string) (out [3]option.Option[string]) {
-					for i := 0; i < 3; i++ {
-						out[i] = option.Some(s[i])
-					}
-					return
-				},
-			),
-			func(s [3]option.Option[string]) []option.Option[string] {
-				return s[:]
-			},
-		)),
-	}
+func (v ExamplePlain) UndRaw() Example {
+    return Example{
+        Foo: v.Foo,
+        Bar: option.Some(v.Bar),
+        Baz: und.Defined(v.Baz),
+        Qux: conversion.OptionUnd(true, v.Qux),
+        Quux: sliceelastic.FromUnd(sliceund.Map(
+            sliceund.Defined(v.Quux),
+            func(s [3]option.Option[int]) []option.Option[int] {
+                return s[:]
+            },
+        )),
+        Corge: sliceelastic.FromUnd(conversion.NullifySlice(sliceund.Defined(v.Corge))),
+    }
 }
 ```
-
-コード生成が楽になるようなヘルパーを定義してもこの生成量です。
 
 さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドをを実装する際にはそれを呼び出せるようにします。
 ObjectにObjectやArrayがネストしているJSONは普通に存在していますから、これができないと実用に耐えないですね。
@@ -852,36 +498,37 @@ ObjectにObjectやArrayがネストしているJSONは普通に存在してい�
 つまり以下のような、`IncludesImplementor`が存在すると
 
 ```go
+package sub
+
+type IncludesImplementor struct {
+    Foo sub2.Foo[int]
+}
+
+---
+
 package sub2
 
 type Foo[T any] struct {
-	T   T
-	Yay string
+    T   T
+    Yay string
 }
 
 func (f Foo[T]) UndPlain() FooPlain[T] {
-	return FooPlain[T]{
-		Nay: f.Yay,
-	}
+    return FooPlain[T]{
+        Nay: f.Yay,
+    }
 }
 
 
 type FooPlain[T any] struct {
-	T   T
-	Nay string
+    T   T
+    Nay string
 }
 
 func (f FooPlain[T]) UndRaw() Foo[T] {
-	return Foo[T]{
-		Yay: f.Nay,
-	}
-}
-
----
-package sub
-
-type IncludesImplementor struct {
-	Foo sub2.Foo[int]
+    return Foo[T]{
+        Yay: f.Nay,
+    }
 }
 ```
 
@@ -889,32 +536,263 @@ type IncludesImplementor struct {
 
 ```go
 type IncludesImplementorPlain struct {
-	Foo sub2.FooPlain[int]
+    Foo sub2.FooPlain[int]
 }
 
 func (v IncludesImplementor) UndPlain() IncludesImplementorPlain {
-	return IncludesImplementorPlain{
-		Foo: v.Foo.UndPlain(),
-	}
+    return IncludesImplementorPlain{
+        Foo: v.Foo.UndPlain(),
+    }
 }
 
 func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
-	return IncludesImplementor{
-		Foo: v.Foo.UndRaw(),
+    return IncludesImplementor{
+        Foo: v.Foo.UndRaw(),
+    }
+}
+```
+
+## 収集すべき情報
+
+前述したようなコードを生成するにはどのようなメタデータを収拾する必要があるかについて考えます。
+
+つまるところ以下を行いたいわけです
+
+- 1. und typeをフィールドに含み、そのフィールドに有効な`und:""`タグがあることの検知
+- 2. さらに、上記の型を含む型をの検知と、さらにその型を含む型・・・という感じで連鎖的な型の検知
+  - 連鎖的に検知し、それぞれコード生成の対象となった場合には`UndValidate`/`UndRaw`などのメソッドを実装しているという「てい」にして取り扱います。
+  - そうしないと、何度もコード生成を行わないと連鎖的にすべての型に対してメソッドが生成できませんので非常に不便です。
+- 3. コード生成対象外の場合でも、`UndValidate`や`UndRaw` -> `UndPlain` -> `UndRaw`の循環的な変換をサポートする型の検知
+  - これらを検知して、これらを含む型を連作的に検知します。そうしないと、分割されたモジュール間での連携ができなくなって非常に不便です。
+
+`1.`に関してはastか型情報を用いればよいでしょう。テキストとしてソースコードを読み込んでもよいと思いますが、コメントなどでパーザーが混乱させられることもあるのでロバストとはいいがたいです(`/* comment */`構文だとあらゆる箇所にコメントを入れられます。)また、`struct {}`リテラルなどで改行を含んだフィールドや、`struct {Foo, Bar string}`のように複数のフィールドを1行で書いたりできるため、テキストとして解析は案外大変だったりします。
+
+`2.`は型情報の依存性をグラフとして解析し、フィールドにund typeを含む型・・・以後`matched type`と呼ぶ・・・をまず見つけ、その型に依存している方に向けてtraverseすることで、そういった型をフィールドに含む型・・・以後`transitive`と呼ぶ・・・を見つけるという方式をとります。
+当初は`map[ident]type`なマップに`matched`を記録しておき、これらをフィールドに含む型を`transitive`としてさらにマップに記録していく方式をとっていました。この方法には明確な欠点があって、ソースコード上の出現順序と依存関係が逆だと、型の数と同じだけ解析処理を走らせないと網羅的にすべての`transitive`を発見できず、非常に非効率だし思いのほか処理の使いまわしがききませんでした。
+
+`3.`は型情報を解析して判定することとします。そもそもこういった循環的な関係性をinterfaceで表現する方法がわかりません。`Go`のinterfaceにはSelf type的なものがないためおそらく表現できないんじゃないかと思います。
+
+## packages.Loadによるast/型情報の取得
+
+astと型情報の解析は[golang.org/x/tools/go/packages]を用います。
+
+astの素朴な解析は`go/token`, `go/ast`, `go/parser`を用いることで行えます。
+
+```go
+package main
+
+import (
+	"go/parser"
+	"go/token"
+)
+
+func main() {
+	fset := token.NewFileSet()
+	/* *ast.File */file, err := parser.ParseFile(fset, "path/to/source/file", nil, parser.ParseComments|parser.AllErrors)
+	if err != nil {
+		// handle error
 	}
 }
 ```
 
-### 見つけたいもの
+さらに型チェックも同様に`go/types`, `go/importer`によって行えます
 
-上記のすべてを叶えるためには
+```diff go
+package main
 
-- 受け取ったパッケージ内のすべての型宣言を列挙
-- 特定の型（i.e.`option.Option[T]`）を含むフィールドの検知
-- 特定のメソッドを実装する型をフィールドに含む型の検知
-- さらに上記の2つの検知にかかった型をフィールドに含む方を含む方を芋づる式に検知
+import (
++	"go/importer"
+	"go/parser"
+	"go/token"
++	"go/types"
+)
 
-する必要がある
+func main() {
+	fset := token.NewFileSet()
+	/* *ast.File */file, err := parser.ParseFile(fset, "path/to/source/file", nil, parser.ParseComments|parser.AllErrors)
+	if err != nil {
+		// handle error
+	}
++	conf := &types.Config{
++		Importer: importer.Default(),
++		Sizes:    types.SizesFor("gc", "amd64"),
++	}
++	pkg := types.NewPackage(pkgPath, files[0].Name.Name)
++	typeInfo := &types.Info{
++		Types:      make(map[ast.Expr]types.TypeAndValue),
++		Defs:       make(map[*ast.Ident]types.Object),
++		Uses:       make(map[*ast.Ident]types.Object),
++		Implicits:  make(map[ast.Node]types.Object),
++		Instances:  make(map[*ast.Ident]types.Instance),
++		Scopes:     make(map[ast.Node]*types.Scope),
++		Selections: make(map[*ast.SelectorExpr]*types.Selection),
++	}
++	chk := types.NewChecker(conf, fset, pkg, typeInfo)
++	err := chk.Files(file)
++	if err != nil {
++		// handle error
++	}
+}
+```
+
+ただし直接使うには少し難しい部分があります。
+それはロード対象のソースコードが外部のモジュールなどをインポートしているとき、(多分)それらを手動で事前に`fset`にセットしておくなどしなければならないことです。
+
+なので、type-checkerを使いたいならば、`go list ./...`などでチェック対象のgo moduleの依存先を事前にリストしておき、リストされたモジュールの読み込みなどを先に済ませておき、importerの実装としてそれらを返せるようにしておく必要があります(多分)。
+
+・・・というのをやってくれるのが[golang.org/x/tools/go/packages]なわけです。
+
+中身をパパッと読む限り、`go list -json ...`によって依存モジュールを列挙、依存関係をDAG化、グラフをdepth-firstの順番でロード、タイプチェックと一通りやってくれます。
+
+type checkまで行うコードは以下のようになります
+
+```go
+import "golang.org/x/tools/go/packages"
+
+func main() {
+	cfg := &packages.Config{
+		Mode: packages.NeedName |
+			packages.NeedTypes |
+			packages.NeedSyntax |
+			packages.NeedTypesInfo |
+			packages.NeedTypesSizes,
+		Context: ctx,
+		Dir:     dir,
+	}
+	pkgs, err := packages.Load(cfg, "variadic", "package/match", "patterns")
+	if err != nil {
+		// handle error
+	}
+}
+```
+
+ずいぶん簡単になりましたね。
+
+PkgPath, Syntax(`[]*ast.File`), TypeInfo(`*types.Info`)を使いたい場合、以上のようにModeビットフラグを設定します。
+理由はわかりませんが、`NeedTypesSizes`フラグもないと`*types.Info`の各フィールドがpopulateされません。
+
+## und struct tagを持つund typeのフィールドの検知
+
+[go/types]で定義される型情報を用いて、type specを走査して`und:""` struct tagのついたund typeのフィールドを持つ型(=`matched` types)を見つけます。
+
+型周りの詳しい話は以下を読むといいかもしれません。
+
+https://github.com/golang/example/tree/master/gotypes
+
+何気に(予定上)`Go1.24`から導入される`generic type aliases`に合わせた更新も入ってます。
+
+### type specに対応するtype infoを探す
+
+[go/types]で型を探索するには、
+
+- [Scope.Lookup](https://pkg.go.dev/go/types@go1.23.3#Scope.Lookup)を使うか
+- [Info](https://pkg.go.dev/go/types@go1.23.3#Info)の`Defs`フィールドを走査する
+
+のいずれかをします。
+
+`Defs`から探す場合はキーの型が`*ast.Ident`なのでast情報も同様に必要になります。
+今回のケースに限ってはastも探索する前提なので`Defs`から探すこととします。
+
+以下みたいな感じです。
+
+```go
+var info *types.Info
+for _, f := range []*ast.File{...} {
+	for _, decl := range f.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			// func or bad decl
+			continue
+		}
+		if genDecl.Tok != token.TYPE {
+			// import, constant or variable spec
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			ts := spec.(*ast.TypeSpec)
+			typeInfo := info.Defs[ts.Name] // types.Object
+			switch typeInfo.Type().(type) {
+				case *types.Alias:
+					// alias...
+				case *types.Named:
+					// named...
+			}
+		}
+	}
+}
+```
+
+type specのidentで`Defs`を照会した場合、得られるのは名前付き型(`*types.Named`)もしくはalias(`*types.Alias`, `type A = B`)のみのようです。
+
+### und struct tagを持つund typeのフィールドを見つける
+
+こうして見つけた型がund typeかつ`und:""` struct tagがついているかは以下のように探索します。
+
+```go
+var st *types.Struct = typeInfo.Type().Underlying().(*types.Struct)
+for i := range st.NumFields() {
+	f := st.Field(i)
+	undTagValue, ok := reflect.StructTag(st.Tag(i)).Lookup("und")
+	if ok {
+		undOpt, err := undtag.ParseOption(undTagValue)
+		if err != nil {
+			return err
+		}
+		if !isUndType(f.Type()) {
+			return fmt.Errorf("tagged but not an und type is an error")
+		}
+	}
+}
+```
+
+`Defs`から得られた`types.Object`は`Type`メソッドで`types.Type`が得られます。これがnamed、もしくはalias typeである場合、`Underlying`でunderlying typeを取得します。
+
+`Underlying`の用語は[Go specのそれ](https://go.dev/ref/spec#Underlying_types)と一致しており、つまるところ以下のような感じです。
+
+```go
+type Foo struct {Foo string; Bar int}
+//       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//       this part is underlying
+```
+
+`type Foo`のunderlying typeは`struct {Foo string; Bar int}`というわけです。
+
+[*types.Struct]は[reflect.StructField](https://pkg.go.dev/reflect@go1.23.3#StructField)と違ってfieldではなく[*types.Struct]に`Tag`メソッドがあり、そこからstruct tagを取得します。
+
+上記の`isUndType`の具体的実装は以下のようになります。
+
+```go
+func isUndType(ty types.Type) bool {
+	named, ok := ty.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	pkg := obj.Pkg()
+	if pkg == nil {
+		// 組み込み型などの場合、Pkgからnilが帰ります。
+		// named typeではerror型がnilを返します。
+		// types.Objectを受けとるところではPkgのnil checkはしておくほうが無難ですね。
+		return false
+	}
+	name := obj.Name()
+	pkgPath := pkg.Path()
+	switch [2]string{pkgPath, name} {
+	case [2]string{"github.com/ngicks/und/option", "Option"},
+		[2]string{"github.com/ngicks/und", "Und"},
+		[2]string{"github.com/ngicks/und/elastic", "Elastic"},
+		[2]string{"github.com/ngicks/und/sliceund", "Und"},
+		[2]string{"github.com/ngicks/und/sliceund/elastic", "Elastic"}:
+		return true
+	default:
+		return false
+	}
+}
+```
+
+`types.Object`の`Name`でunqualified nameが得られ、`Pkg().Path()`でパッケージのパスが得られるため、これを比較すればよいです。
+
+## 型依存関係のグラフの作成
 
 ### 検知方法の検討
 
@@ -931,17 +809,19 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
 [Go1.18]: https://tip.golang.org/doc/go1.18
 [Go1.23]: https://tip.golang.org/doc/go1.23
 [GoのJSONのT | null | undefinedは\[\]Option\[T\]で表現できる]: https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
-[*ast.ArrayType]: https://pkg.go.dev/go/ast@go1.23.2#ArrayType
-[*ast.MapType]: https://pkg.go.dev/go/ast@go1.23.2#MapType
-[*ast.ChanType]: https://pkg.go.dev/go/ast@go1.23.2#ChanType
-[*types.Array]: https://pkg.go.dev/go/types@go1.23.2#Array
-[*types.Slice]: https://pkg.go.dev/go/types@go1.23.2#Slice
-[*types.Map]: https://pkg.go.dev/go/types@go1.23.2#Map
-[*types.Chan]: https://pkg.go.dev/go/types@go1.23.2#Chan
-[github.com/oapi-codegen/oapi-codegen]: https://github.com/oapi-codegen/oapi-codegen
-[github.com/dave/dst]: https://github.com/dave/dst
-[go/ast]: https://pkg.go.dev/go/ast@go1.22.6
+[go/ast]: https://pkg.go.dev/go/ast@go1.23.3
+[go/types]: https://pkg.go.dev/go/types@go1.23.3
+[*ast.ArrayType]: https://pkg.go.dev/go/ast@go1.23.3#ArrayType
+[*ast.MapType]: https://pkg.go.dev/go/ast@go1.23.3#MapType
+[*ast.ChanType]: https://pkg.go.dev/go/ast@go1.23.3#ChanType
+[*types.Array]: https://pkg.go.dev/go/types@go1.23.3#Array
+[*types.Slice]: https://pkg.go.dev/go/types@go1.23.3#Slice
+[*types.Map]: https://pkg.go.dev/go/types@go1.23.3#Map
+[*types.Chan]: https://pkg.go.dev/go/types@go1.23.3#Chan
+[*types.Struct]: https://pkg.go.dev/go/types@go1.23.3#Struct
 [golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages
+[github.com/dave/dst]: https://github.com/dave/dst
+[github.com/oapi-codegen/oapi-codegen]: https://github.com/oapi-codegen/oapi-codegen
 [github.com/ngicks/und]: https://github.com/ngicks/und
 [sliceund.Und]: https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/sliceund#Und
 [sliceelastic.Elastic]: https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/sliceund/elastic#Elastic
