@@ -26,6 +26,8 @@ published: false
   - 実際には[github.com/dave/dst]を用います。
 - `ast`のnode単位の部分的なプリント
 - 型情報から`ast`への変換
+- ファイルのimportの解析と連携
+- struct tagの編集
 - 型情報をグラフ化して、型定義の依存関係を上に向けて探索する
 
 これらを具体的な実装物を通じて説明します。
@@ -552,7 +554,27 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
 }
 ```
 
-## 収集すべき情報
+## 実装すべき機能
+
+### 機能
+
+- 1. astおよび型情報の収集
+- 2. struct tagの編集
+- 3. import情報の連携
+- 4. astのrewrite、およびrewriteによって生成されたコードと別の方法で生成されたコードを同じファイルに書き出せるようにする
+- 5. メタデータの収集
+
+`1.`には[golang.org/x/tools/go/packages]を用います。
+
+`2.`は解析器と編集機能を実装します。[encoding/json v2(候補)について紹介してundefined | null | Tを表現する](https://zenn.dev/ngicks/articles/go-json-undefined-or-null-v2)で解析器までは実装していたのでこれを改造します。
+
+`3.`はimport情報を保存し、ある`package path`に対して、ファイル内でどういったら`ident`でアクセスできるかを連携するための機能を実装します。これは、astのrewriteによって生成されるコードは既存のファイルのimport specを参照したコードになるため必要になります。
+
+`4.`について、astの書き換えはコメントオフセットの狂いによっておかしな出力がされるという問題があるため実際には[github.com/dave/dst]で行います。node単位でprintは`go/printer`を用います。
+
+`5.`は次のセクションで述べます
+
+### 収集したいメタデータ
 
 前述したようなコードを生成するにはどのようなメタデータを収拾する必要があるかについて考えます。
 
@@ -570,9 +592,9 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
 `2.`は型情報の依存性をグラフとして解析し、フィールドにund typeを含む型・・・以後`matched type`と呼ぶ・・・をまず見つけ、その型に依存している方に向けてtraverseすることで、そういった型をフィールドに含む型・・・以後`transitive`と呼ぶ・・・を見つけるという方式をとります。
 当初は`map[ident]type`なマップに`matched`を記録しておき、これらをフィールドに含む型を`transitive`としてさらにマップに記録していく方式をとっていました。この方法には明確な欠点があって、ソースコード上の出現順序と依存関係が逆だと、型の数と同じだけ解析処理を走らせないと網羅的にすべての`transitive`を発見できず、非常に非効率だし思いのほか処理の使いまわしがききませんでした。
 
-`3.`は型情報を解析して判定することとします。そもそもこういった循環的な関係性をinterfaceで表現する方法がわかりません。`Go`のinterfaceにはSelf type的なものがないためおそらく表現できないんじゃないかと思います。
+`3.`は型情報を解析して判定することとします。`types`には[types.AssignableTo](https://pkg.go.dev/go/types@go1.23.3#AssignableTo)、[types.Implements](https://pkg.go.dev/go/types@go1.23.3#Implements)、[types.Satisfies](https://pkg.go.dev/go/types@go1.23.3#Satisfies)などがありますが、そもそもこういった循環的な関係性をinterfaceで表現する方法がわかりません。`Go`のinterfaceにはSelf type的なものがないためおそらく表現できないんじゃないかと思います。そのため、もっと手続き的な方法で直接型情報をたどって検査します。
 
-## packages.Loadによるast/型情報の取得
+## astおよび型情報の収集: packages.Loadによるast/型情報の取得
 
 astと型情報の解析は[golang.org/x/tools/go/packages]を用います。
 
@@ -640,11 +662,11 @@ func main() {
 
 なので、type-checkerを使いたいならば、`go list ./...`などでチェック対象のgo moduleの依存先を事前にリストしておき、リストされたモジュールの読み込みなどを先に済ませておき、importerの実装としてそれらを返せるようにしておく必要があります(多分)。
 
-・・・というのをやってくれるのが[golang.org/x/tools/go/packages]なわけです。
+という上記のようなことを[golang.org/x/tools/go/packages]は行います。
 
-中身をパパッと読む限り、`go list -json ...`によって依存モジュールを列挙、依存関係をDAG化、グラフをdepth-firstの順番でロード、タイプチェックと一通りやってくれます。
+中身をパパッと読む限り、[golang.org/x/tools/go/packages]は`go list -json ...`によって依存モジュールを列挙、依存関係をDAG化、グラフをdepth-firstの順番でロード、タイプチェックと一通りやってくれます。
 
-type checkまで行うコードは以下のようになります
+[golang.org/x/tools/go/packages]でtype checkまで行うコードは以下のようになります
 
 ```go
 import "golang.org/x/tools/go/packages"
@@ -670,6 +692,198 @@ func main() {
 
 PkgPath, Syntax(`[]*ast.File`), TypeInfo(`*types.Info`)を使いたい場合、以上のようにModeビットフラグを設定します。
 理由はわかりませんが、`NeedTypesSizes`フラグもないと`*types.Info`の各フィールドがpopulateされません。
+
+## struct tagの編集
+
+struct tagの編集機能は以下で実装します。
+
+https://github.com/ngicks/go-codegen/tree/abc928f3177ebdb817474777b6563d1596875b0c/codegen/structtag
+
+これと言って語るべきことはないですね。
+
+`Go`のstdの[reflect.StructTag.Lookup](https://pkg.go.dev/reflect@go1.23.3#StructTag.Lookup)を改変してkey-valueのペアに解析できるように変更し、
+[encoding/json/v2 discussion](https://github.com/golang/go/discussions/63397)の[experimental実装のタグ解析部分](https://github.com/go-json-experiment/json/blob/ebd3a8989ca1eadb7a68e02a93448ecbbab5900c/fields.go#L350)を参考に、仕様をまねて`json:"name"`のname部分はsingle quotation(`'`)でescapeしてもよい、`option:value`という形式のオプションをとっても良いという形式にしてあります。
+
+## import情報の連携
+
+コードはast rewriteによって生成される部分と単なるテキストの書き出しで生成される部分があり、この時、既存のimport declをそのまま使いまわすため、importされたpackage pathに対してどのようなidentでアクセスできるかを把握し、生成されるコードはそのidentを使わなければなりません。
+
+また、生成されるコードが既存のファイルに存在していなかったimportを追加したいのはよくあると思います。例えば`fmt.Errorf`を使用するために`"fmt"`を追加するといったことですね。
+この場合、既存のファイルに存在していたimportと名前が被ってしまう可能性があります。
+普通に`Go`を書いてても`crypto/rand`と`math/rand/v2`がどちらも`rand`なので被ってしまいますよね。
+
+さらに、identを指定しないimport specはインポートされるパッケージがpackage clauseで付けた名前になります。つまり、
+
+```go
+import (
+    "github.com/charmbracelet/bubbletea" /* tea */
+)
+```
+
+上記は`bubbletea`が`package tea`で定義されるため、`tea`でアクセスできます
+
+https://github.com/charmbracelet/bubbletea/blob/1feb60b44b74d9a3a7dc54b90ffbecc8ffd6b40d/tea.go#L10
+
+package pathとpackage名が違う場合、linterが警告を出す場合がありますが、上記のようなpackage pathのbaseのサブストリングである場合は出ないようですね。
+`gopls`の設定で`"ui.semanticTokens": true`でsemantic tokensを有効にしてあると、`tea`の部分が緑色で表示されてidentであることがわかります。
+
+ということで以下を行うものとします
+
+- `[]*packages.Package`を引数に、生成対象とその依存先のモジュールのimportをリストする(`dependencies` imports)
+- またcode generatorが生成するコードで使用するimportを追加できるものとする(`extra` imports)
+- code generatorは、package pathを引数に`*ast.Expr`や`*dst.Expr`を生成できる
+- `*ast.File`を引数に、`ident`と`package path`の関係を洗い出す
+- 上記の`extra` importsやcode generatorが`*ast.Expr`のために引き出したpackage pathなどを`missing` importsとして記録しておく
+- `missing` importsを`*dst.File`の`Imports`や`GenDecls`のimport declにappendする
+
+依存先も`packages.Load`で解析したいので`cfg`の`Mode`ビットに[packages.NeedImports](https://pkg.go.dev/golang.org/x/tools@v0.27.0/go/packages#NeedImports)|[packages.NeedDeps](https://pkg.go.dev/golang.org/x/tools@v0.27.0/go/packages#NeedDeps)も加えます。
+
+`package.Visit`を使うとdependency orderでのvisitが可能です。適当にラップすれば[iterator](https://pkg.go.dev/iter)に変換できます。
+
+https://github.com/ngicks/go-codegen/blob/abc928f3177ebdb817474777b6563d1596875b0c/codegen/imports/parser.go#L90-L100
+
+`*types.Package`の`Scope()`で最上位スコープをとり、`Names()`ですべての名前を列挙します。`*types.Named`か`*types.Alias`がtype specで定義できる型なので、それだけが検出されるようにフィルターをかけます。これは最近出たiterator仕様をふんだんに使っています。割と読みやすい気がする。
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L52-L73
+
+`xiter`パッケージは以前の記事で作った[モジュール](https://github.com/ngicks/go-iterator-helper)下でベンダーされたものなので、`golang.org/x/exp`に存在しているわけではないことを述べておきます。
+
+`[]*package.Package`から解析された型情報を`dependencies`, code generatorが追加したいimportを`extra`、`*ast.File`から解析された`ident` - `package path`の関係を`ident`として保存しておきます。`extra`およびランタイムで問い合わせられたpackage pathのなかで`ident`に存在しないものは`missing`に記録します。
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L109-L117
+
+下記のような関数で`ident`から`package path`に対応するidentを取り出そうとし、ない場合`dependencies`から取り出して`missing`に記録します。
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L280
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L296
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L311
+
+identが被った場合に備えて`_%d`でsuffixしながらマップに追加できるようにします。
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L210-L227
+
+最後に、`*dst.File`に`missing`の内容を追加することで、のちのnode単位のast printingで出力できるようにします。
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L337-L394
+
+## dstによるastのrewrite、node単位のプリント
+
+`Go`のastは[astutil.Apply](https://pkg.go.dev/golang.org/x/tools/go/ast/astutil#Apply)があってastの書き換えがしやすいですが、実はast上コメントはバイトオフセットで表現されており、astノードの書き換えを行った時にこのオフセットが更新されないことで出力結果が狂ってしまうという問題があります。
+
+そこで[github.com/dave/dst]を使用します。
+
+> The go/ast package wasn't created with source manipulation as an intended use-case. Comments are stored by their byte offset instead of attached to nodes, so re-arranging nodes breaks the output. See this Go issue for more information.
+
+> The dst package enables manipulation of a Go syntax tree with high fidelity. Decorations (e.g. comments and line spacing) remain attached to the correct nodes as the tree is modified.
+
+とある通り、このライブラリはまさしくこの問題を解決するために開発されています。
+
+以下のようにすることで変換を行います。
+
+```go
+var pkgs []*packages.Package
+
+for _, pkg := range pkgs {
+    for _, file := range pkg.Syntax {
+        dec := decorator.NewDecorator(pkg.Fset)
+        /* *dst.File */ df, err := dec.DecorateFile(file)
+        if err != nil {
+            // ...
+        }
+    }
+}
+```
+
+変換前の`*ast.File`ないの`ast.Node`から`*dst.File`内部の変換先を参照するには以下のようにします
+
+```go
+var ts *ast.TypeSpec
+dts := dec.Dst.Nodes[ts].(*dst.TypeSpec)
+```
+
+`dst`のrewriteは`astutil.Apply`と対応づく`dstutil.Apply`があるため、ほぼ同じように行えます。
+
+書き換え自体はGo source codeと紐づくast表現の規則を覚えて気合と根性で何とかします。
+
+```go
+dstutil.Apply(
+    dts.Type,
+    func(c *dstutil.Cursor) bool {
+        node := c.Node()
+        switch field := node.(type) {
+        default:
+            return true
+        case *dst.Field:
+            // replace field...
+            //
+            // wrapping field type with sliceund.Und
+            // *unmodified field type* -> sliceund.Und[*unmodified field type*]
+            c.Replace(&dst.Field{
+                Names: field.Names,
+                Type: &dst.IndexExpr{
+                    X: &dst.SelectorExpr{
+                        X: &dst.Ident{
+                            Name: "sliceund",
+                        },
+                        Sel: &dst.Ident{
+                            Name: "Und",
+                        },
+                    },
+                    Index: field.Type,
+                },
+                Tag:  field.Tag,
+                Decs: field.Decs,
+            })
+            return false
+        }
+    },
+    nil,
+)
+```
+
+さらに、書き換えた`*dst.File`を`*ast.File`へ逆変換するには以下のようにします。
+
+```go
+res := decorator.NewRestorer()
+/* *ast.File */ af, err := res.RestoreFile(df)
+if err != nil {
+    // ...
+}
+```
+
+同様に`dst.Node`から`ast.Node`を引くことができます。
+
+```go
+var dts *dst.TypeSpec
+ats := res.Ast.Nodes[dts].(*ast.TypeSpec)
+```
+
+astのNode単位でのprintには[printer.Fprint](https://pkg.go.dev/go/printer@go1.23.3#Fprint)を用います。
+`dst`にも[decorator.Fprint](https://pkg.go.dev/github.com/dave/dst/decorator#Fprint)がありますが、こちらは`*dst.File`単位でしかprintできません。
+
+```go
+buf := new(bytes.Buffer)
+err := printer.Fprint(buf, res.Fset, ats)
+```
+
+ですので、変換前の`ast.Node`を`dst`で書き換え、さらに`printer.Fprint`したい場合は以下のようなシーケンスになります。
+
+```go
+var originalNode ast.Node
+var dec *decorator.Decorator
+var res *decorator.Restorer
+
+modifiedNode := dec.Dst.Nodes[originalNode]
+modifiedAstNode := res.Ast.Nodes[modifiedNode]
+
+var w io.Writer
+err := printer.Fprint(w, res.Fset, modifiedAstNode)
+if err != nil {
+    // ...
+}
+```
 
 ## und struct tagを持つund typeのフィールドの検知
 
@@ -741,6 +955,7 @@ for i := range st.NumFields() {
 		if !isUndType(f.Type()) {
 			return fmt.Errorf("tagged but not an und type is an error")
 		}
+        // found
 	}
 }
 ```
@@ -794,16 +1009,135 @@ func isUndType(ty types.Type) bool {
 
 ## 型依存関係のグラフの作成
 
-### 検知方法の検討
+`matched type`(フィールドに`und:""` struct tagがついたund typeを含む型)を探し出し、さらにそれらの型に依存する型を依存グラフを上に向けてたどることですべて発見するために、型情報をグラフとします。
 
-型の依存性をグラフ化して依存関係を探索、条件を満たす型から上に向けてトラバースすることで生成対象の型を列挙する。
+やることは以下です
 
-- `pkgs []*packages.Package`を引数にとる
-- `pkgs`を全部探索して型を列挙する
-- `matcher`を引数に取り、これにマッチする型をリストしておく
-- 型同士の依存関係をエッジとして型依存グラフを形成する
-- 依存関係探索時、`pkgs`外の`*types.Named`についても関してもmatcherを実行する。マッチする場合、externalとしてリストしておく
-- マッチした型からupward traverseすることで、芋づる式の検知を可能にする
+- `*types.Named`(名前付き型)の列挙
+  - `type Foo ...`として定義した型の中で`type A = B`というaliasを除いたものです。
+- 型をnodeとし`*types.Named`から`*types.Named`への依存をedgeとして記録。
+- `matcher`を受けとり、`*types.Named`が`matched`であるかを判別
+  - `matcher`はund typeや`UndValidate`、`UndRaw`/`UndPlain`のような特別な関数を満たす外部の型にもマッチするようにします。
+- `matched`から上へedgeをたどって`transitive` typeをとれるようにします。
+  - transitの際、edgeを上にたどるかどうかを決める`edgeFilter`を受けとり、例えば`chan A`のような依存ではたどらないものとします。
+
+例えば、下記のようなコードがあるとき、
+
+```go
+type A struct {
+    Foo und.Und[int] `und:"required"`
+}
+
+type B struct {
+    A A
+}
+
+type C struct {
+    A map[string]A
+}
+
+type D struct {
+    A []A
+}
+
+// or even
+type E struct {
+    A map[string]*[3][]chan A
+}
+```
+
+各依存関係は以下のようになります。
+
+- `B` -`{struct}`-> `A`
+- `C` -`{struct, map}` -> `A`
+- `D` -`{struct, slice}` -> `A`
+- `E` -`{struct, map, pointer, array, slice}` -> `A`
+
+`*types.Named`から`*types.Named`へのエッジをとるとき、`array`, `chan`, `map`, `pointer`, `slice`, `struct`のような無名の型を経由することができるため、これらの関係性をコード生成にかかわるレベルで記録するものとします。
+
+今回生成したいコードは`JSON`など外部とのデータのやり取りに用いる型を対象とするため、`chan`はedgeとして有効ではないとしたくなります。
+また、`und.Und[T]`の`T`が`UndValidate`や`UndRaw` -> `UndPlain`のような特定のinterfaceを満たす時、特別なハンドリングを行いたいので、`matcher`にマッチする型はtype argも記録するものとします。
+
+そこで、Node, Edgeは以下の通りに定義します。
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/typegraph/type_graph.go#L54-L66
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/typegraph/type_graph.go#L88-L97
+
+[Go1.18]からgenericsが導入されたため、親から子への依存はtype argによりばらばらにinstantiateされる可能性がありますが、nodeそのものはinstantiateされてない型の定義そのものです。そのため、child側だけはNodeとTypeをそれぞれ記録する必要があります。
+
+グラフを図にすると以下のようになります。
+
+![](/images/go-code-generation-from-ast-and-type-info-type-graph-concept.drawio.png)
+
+`chan`は変換の対象にならないため、edgeのフィルタリングにより連続的に`D`も対象外になります。
+
+![](/images/go-code-generation-from-ast-and-type-info-type-graph-concept-edge-filtering.drawio.png)
+
+edgeの形成はNode間(`*types.Name`から`*types.Named`)のみの評価であるため評価は必ず終わりますが、edgeをたどる際には無限ループが生じうるため、注意が必要です。
+
+Treeを形成するとほぼ必ず型的な再帰が起きます。
+
+```go
+type Tree struct {
+	l, r   *Tree
+	value  any
+}
+```
+
+そこで、お決まりですが`visited map[*node]bool`なマップを用意し、1度visitしたnodeに再度visitすることがないようにします。
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/typegraph/type_graph.go#L514-L544
+
+## `UndRaw`/`UndPlain`を実装する型の検知
+
+前述のとおり、code generatorが生成することになる`UndRaw`/`UndPlain`は`T` -> `T'` -> `T`の循環的な変換メソッドです。
+これらを実装する型を検知し、`implementor`として取り扱うこととします。`implementor`に依存している型も同様に`transitive`として扱うことで、`go module`間での円滑な連携を可能とします。
+
+`Go`のinterfaceには`Self type`を表す方法がないため、`UndRaw`/`UndPlain`はinterfaceで表現することはできず、型情報を解析して実装をチェックするよりほかありません。
+
+ある型のmethod setを`types`を通じて得るには[types.NewMethodSet](https://pkg.go.dev/go/types@go1.23.3#NewMethodSet)を用います。
+
+```go
+type Foo struct {
+}
+
+func (f Foo) MethodOnNonPointer() {
+	//
+}
+
+func (f *Foo) MethodOnPointer() {
+	//
+}
+
+---
+var fooObj types.Object
+
+mset := types.NewMethodSet(fooObj.Type())
+for i, sel := range hiter.AtterAll(mset) {
+    t.Logf("%d: %s", i, sel.Obj().Name())
+    // 0: MethodOnNonPointer
+}
+
+mset = types.NewMethodSet(types.NewPointer(fooObj.Type()))
+for i, sel := range hiter.AtterAll(mset) {
+    t.Logf("%d: %s", i, sel.Obj().Name())
+    // 0: MethodOnNonPointer
+    // 1: MethodOnPointer
+}
+```
+
+通常の`Go`のルールのとおり、pointer typeでなければpointer typeがreceiverのmethodは見えません。
+
+method setの`At`メソッドでn番目のメソッドを取得できます。ここから得られる[\*types.Selection](https://pkg.go.dev/go/types@go1.23.3#Selection)の`Type`はおそらく`[\*types.Signature](https://pkg.go.dev/go/types@go1.23.3#Signature)のみです。
+
+上記より、`UndRaw`/`UndPlain`を実装しているかは以下のようにチェックできます。
+
+https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/undgen/method_checker.go#L34-L102
+
+やってることは簡単で、与えられた`*types.Named`が特定の名前(=`UndPlain`)のメソッドを持ち、それが返す型が特定の名前(=`UndRaw`)のメソッドをもち、呼び出し結果が元の型と一致するかを判定します。
+少しだけややこしいのが、関数に与えられた`*types.Named`がinstantiateされていない場合、メソッドの返り値(`toType`)がtype param(例えば`T`)でinstantiateされて、type argをもってしまうため`types.Identical`がtrueを返さないということです。
+その時は`*types.Signature`経由で返されたinstantiateされた型でもう一度関数を実行することで判定を行います。
 
 [Go]: https://go.dev/
 [Go1.18]: https://tip.golang.org/doc/go1.18
@@ -819,7 +1153,7 @@ func isUndType(ty types.Type) bool {
 [*types.Map]: https://pkg.go.dev/go/types@go1.23.3#Map
 [*types.Chan]: https://pkg.go.dev/go/types@go1.23.3#Chan
 [*types.Struct]: https://pkg.go.dev/go/types@go1.23.3#Struct
-[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.24.0/go/packages
+[golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.26.0/go/packages
 [github.com/dave/dst]: https://github.com/dave/dst
 [github.com/oapi-codegen/oapi-codegen]: https://github.com/oapi-codegen/oapi-codegen
 [github.com/ngicks/und]: https://github.com/ngicks/und
