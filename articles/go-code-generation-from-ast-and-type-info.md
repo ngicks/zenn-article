@@ -494,7 +494,7 @@ func (v ExamplePlain) UndRaw() Example {
 }
 ```
 
-さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドをを実装する際にはそれを呼び出せるようにします。
+さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドをを実装する(これを`implementor`呼ぶ)際にはそれを呼び出せるようにします。
 ObjectにObjectやArrayがネストしているJSONは普通に存在していますから、これができないと実用に耐えないですね。
 
 つまり以下のような、`IncludesImplementor`が存在すると
@@ -594,7 +594,9 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
 
 `3.`は型情報を解析して判定することとします。`types`には[types.AssignableTo](https://pkg.go.dev/go/types@go1.23.3#AssignableTo)、[types.Implements](https://pkg.go.dev/go/types@go1.23.3#Implements)、[types.Satisfies](https://pkg.go.dev/go/types@go1.23.3#Satisfies)などがありますが、そもそもこういった循環的な関係性をinterfaceで表現する方法がわかりません。`Go`のinterfaceにはSelf type的なものがないためおそらく表現できないんじゃないかと思います。そのため、もっと手続き的な方法で直接型情報をたどって検査します。
 
-## astおよび型情報の収集: packages.Loadによるast/型情報の取得
+## 実装方法の検討
+
+### astおよび型情報の収集: packages.Loadによるast/型情報の取得
 
 astと型情報の解析は[golang.org/x/tools/go/packages]を用います。
 
@@ -604,16 +606,16 @@ astの素朴な解析は`go/token`, `go/ast`, `go/parser`を用いることで�
 package main
 
 import (
-	"go/parser"
-	"go/token"
+    "go/parser"
+    "go/token"
 )
 
 func main() {
-	fset := token.NewFileSet()
-	/* *ast.File */file, err := parser.ParseFile(fset, "path/to/source/file", nil, parser.ParseComments|parser.AllErrors)
-	if err != nil {
-		// handle error
-	}
+    fset := token.NewFileSet()
+    /* *ast.File */file, err := parser.ParseFile(fset, "path/to/source/file", nil, parser.ParseComments|parser.AllErrors)
+    if err != nil {
+        // handle error
+    }
 }
 ```
 
@@ -623,37 +625,37 @@ func main() {
 package main
 
 import (
-+	"go/importer"
-	"go/parser"
-	"go/token"
-+	"go/types"
++    "go/importer"
+    "go/parser"
+    "go/token"
++    "go/types"
 )
 
 func main() {
-	fset := token.NewFileSet()
-	/* *ast.File */file, err := parser.ParseFile(fset, "path/to/source/file", nil, parser.ParseComments|parser.AllErrors)
-	if err != nil {
-		// handle error
-	}
-+	conf := &types.Config{
-+		Importer: importer.Default(),
-+		Sizes:    types.SizesFor("gc", "amd64"),
-+	}
-+	pkg := types.NewPackage(pkgPath, files[0].Name.Name)
-+	typeInfo := &types.Info{
-+		Types:      make(map[ast.Expr]types.TypeAndValue),
-+		Defs:       make(map[*ast.Ident]types.Object),
-+		Uses:       make(map[*ast.Ident]types.Object),
-+		Implicits:  make(map[ast.Node]types.Object),
-+		Instances:  make(map[*ast.Ident]types.Instance),
-+		Scopes:     make(map[ast.Node]*types.Scope),
-+		Selections: make(map[*ast.SelectorExpr]*types.Selection),
-+	}
-+	chk := types.NewChecker(conf, fset, pkg, typeInfo)
-+	err := chk.Files(file)
-+	if err != nil {
-+		// handle error
-+	}
+    fset := token.NewFileSet()
+    /* *ast.File */file, err := parser.ParseFile(fset, "path/to/source/file", nil, parser.ParseComments|parser.AllErrors)
+    if err != nil {
+        // handle error
+    }
++    conf := &types.Config{
++        Importer: importer.Default(),
++        Sizes:    types.SizesFor("gc", "amd64"),
++    }
++    pkg := types.NewPackage(pkgPath, files[0].Name.Name)
++    typeInfo := &types.Info{
++        Types:      make(map[ast.Expr]types.TypeAndValue),
++        Defs:       make(map[*ast.Ident]types.Object),
++        Uses:       make(map[*ast.Ident]types.Object),
++        Implicits:  make(map[ast.Node]types.Object),
++        Instances:  make(map[*ast.Ident]types.Instance),
++        Scopes:     make(map[ast.Node]*types.Scope),
++        Selections: make(map[*ast.SelectorExpr]*types.Selection),
++    }
++    chk := types.NewChecker(conf, fset, pkg, typeInfo)
++    err := chk.Files(file)
++    if err != nil {
++        // handle error
++    }
 }
 ```
 
@@ -672,19 +674,19 @@ func main() {
 import "golang.org/x/tools/go/packages"
 
 func main() {
-	cfg := &packages.Config{
-		Mode: packages.NeedName |
-			packages.NeedTypes |
-			packages.NeedSyntax |
-			packages.NeedTypesInfo |
-			packages.NeedTypesSizes,
-		Context: ctx,
-		Dir:     dir,
-	}
-	pkgs, err := packages.Load(cfg, "variadic", "package/match", "patterns")
-	if err != nil {
-		// handle error
-	}
+    cfg := &packages.Config{
+        Mode: packages.NeedName |
+            packages.NeedTypes |
+            packages.NeedSyntax |
+            packages.NeedTypesInfo |
+            packages.NeedTypesSizes,
+        Context: ctx,
+        Dir:     dir,
+    }
+    pkgs, err := packages.Load(cfg, "variadic", "package/match", "patterns")
+    if err != nil {
+        // handle error
+    }
 }
 ```
 
@@ -693,7 +695,7 @@ func main() {
 PkgPath, Syntax(`[]*ast.File`), TypeInfo(`*types.Info`)を使いたい場合、以上のようにModeビットフラグを設定します。
 理由はわかりませんが、`NeedTypesSizes`フラグもないと`*types.Info`の各フィールドがpopulateされません。
 
-## struct tagの編集
+### struct tagの編集
 
 struct tagの編集機能は以下で実装します。
 
@@ -704,7 +706,7 @@ https://github.com/ngicks/go-codegen/tree/abc928f3177ebdb817474777b6563d1596875b
 `Go`のstdの[reflect.StructTag.Lookup](https://pkg.go.dev/reflect@go1.23.3#StructTag.Lookup)を改変してkey-valueのペアに解析できるように変更し、
 [encoding/json/v2 discussion](https://github.com/golang/go/discussions/63397)の[experimental実装のタグ解析部分](https://github.com/go-json-experiment/json/blob/ebd3a8989ca1eadb7a68e02a93448ecbbab5900c/fields.go#L350)を参考に、仕様をまねて`json:"name"`のname部分はsingle quotation(`'`)でescapeしてもよい、`option:value`という形式のオプションをとっても良いという形式にしてあります。
 
-## import情報の連携
+### import情報の連携
 
 コードはast rewriteによって生成される部分と単なるテキストの書き出しで生成される部分があり、この時、既存のimport declをそのまま使いまわすため、importされたpackage pathに対してどのようなidentでアクセスできるかを把握し、生成されるコードはそのidentを使わなければなりません。
 
@@ -744,31 +746,31 @@ https://github.com/ngicks/go-codegen/blob/abc928f3177ebdb817474777b6563d1596875b
 
 `*types.Package`の`Scope()`で最上位スコープをとり、`Names()`ですべての名前を列挙します。`*types.Named`か`*types.Alias`がtype specで定義できる型なので、それだけが検出されるようにフィルターをかけます。これは最近出たiterator仕様をふんだんに使っています。割と読みやすい気がする。
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L52-L73
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/imports/parser.go#L52-L73
 
 `xiter`パッケージは以前の記事で作った[モジュール](https://github.com/ngicks/go-iterator-helper)下でベンダーされたものなので、`golang.org/x/exp`に存在しているわけではないことを述べておきます。
 
 `[]*package.Package`から解析された型情報を`dependencies`, code generatorが追加したいimportを`extra`、`*ast.File`から解析された`ident` - `package path`の関係を`ident`として保存しておきます。`extra`およびランタイムで問い合わせられたpackage pathのなかで`ident`に存在しないものは`missing`に記録します。
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L109-L117
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/imports/parser.go#L109-L117
 
 下記のような関数で`ident`から`package path`に対応するidentを取り出そうとし、ない場合`dependencies`から取り出して`missing`に記録します。
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L280
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/imports/parser.go#L280
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L296
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/imports/parser.go#L296
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L311
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/imports/parser.go#L311
 
 identが被った場合に備えて`_%d`でsuffixしながらマップに追加できるようにします。
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L210-L227
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/imports/parser.go#L210-L227
 
 最後に、`*dst.File`に`missing`の内容を追加することで、のちのnode単位のast printingで出力できるようにします。
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/imports/parser.go#L337-L394
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/imports/parser.go#L337-L394
 
-## dstによるastのrewrite、node単位のプリント
+### dstによるastのrewrite、node単位のプリント
 
 `Go`のastは[astutil.Apply](https://pkg.go.dev/golang.org/x/tools/go/ast/astutil#Apply)があってastの書き換えがしやすいですが、実はast上コメントはバイトオフセットで表現されており、astノードの書き換えを行った時にこのオフセットが更新されないことで出力結果が狂ってしまうという問題があります。
 
@@ -803,7 +805,7 @@ var ts *ast.TypeSpec
 dts := dec.Dst.Nodes[ts].(*dst.TypeSpec)
 ```
 
-`dst`のrewriteは`astutil.Apply`と対応づく`dstutil.Apply`があるため、ほぼ同じように行えます。
+`astutil.Apply`の代替となる`dstutil.Apply`があるため、rewriteはastと同じように行えます。
 
 書き換え自体はGo source codeと紐づくast表現の規則を覚えて気合と根性で何とかします。
 
@@ -831,7 +833,7 @@ dstutil.Apply(
                             Name: "Und",
                         },
                     },
-                    Index: field.Type,
+                    Index: field.Type,// *unmodified field type*
                 },
                 Tag:  field.Tag,
                 Decs: field.Decs,
@@ -868,14 +870,26 @@ buf := new(bytes.Buffer)
 err := printer.Fprint(buf, res.Fset, ats)
 ```
 
-ですので、変換前の`ast.Node`を`dst`で書き換え、さらに`printer.Fprint`したい場合は以下のようなシーケンスになります。
+ですので、変換前の`ast.Node`で参照できる`dst.Node`をrewriteし、さらに`printer.Fprint`したい場合は以下のようなシーケンスになります。
 
 ```go
 var originalNode ast.Node
-var dec *decorator.Decorator
-var res *decorator.Restorer
 
-modifiedNode := dec.Dst.Nodes[originalNode]
+dec := decorator.NewDecorator(fset)
+/* *dst.File */ df, err := dec.DecorateFile(afile)
+if err != nil {
+    // ...
+}
+
+dNode := dec.Dst.Nodes[originalNode]
+// modify dNode
+modifiedNode := dNode
+
+res := decorator.NewRestorer()
+/* *ast.File */ _, err := res.RestoreFile(df)
+if err != nil {
+    // ...
+}
 modifiedAstNode := res.Ast.Nodes[modifiedNode]
 
 var w io.Writer
@@ -885,7 +899,7 @@ if err != nil {
 }
 ```
 
-## und struct tagを持つund typeのフィールドの検知
+### und struct tagを持つund typeのフィールドの検知
 
 [go/types]で定義される型情報を用いて、type specを走査して`und:""` struct tagのついたund typeのフィールドを持つ型(=`matched` types)を見つけます。
 
@@ -895,7 +909,7 @@ https://github.com/golang/example/tree/master/gotypes
 
 何気に(予定上)`Go1.24`から導入される`generic type aliases`に合わせた更新も入ってます。
 
-### type specに対応するtype infoを探す
+#### type specに対応するtype infoを探す
 
 [go/types]で型を探索するには、
 
@@ -912,51 +926,51 @@ https://github.com/golang/example/tree/master/gotypes
 ```go
 var info *types.Info
 for _, f := range []*ast.File{...} {
-	for _, decl := range f.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok {
-			// func or bad decl
-			continue
-		}
-		if genDecl.Tok != token.TYPE {
-			// import, constant or variable spec
-			continue
-		}
-		for _, spec := range genDecl.Specs {
-			ts := spec.(*ast.TypeSpec)
-			typeInfo := info.Defs[ts.Name] // types.Object
-			switch typeInfo.Type().(type) {
-				case *types.Alias:
-					// alias...
-				case *types.Named:
-					// named...
-			}
-		}
-	}
+    for _, decl := range f.Decls {
+        genDecl, ok := decl.(*ast.GenDecl)
+        if !ok {
+            // func or bad decl
+            continue
+        }
+        if genDecl.Tok != token.TYPE {
+            // import, constant or variable spec
+            continue
+        }
+        for _, spec := range genDecl.Specs {
+            ts := spec.(*ast.TypeSpec)
+            typeInfo := info.Defs[ts.Name] // types.Object
+            switch typeInfo.Type().(type) {
+                case *types.Alias:
+                    // alias...
+                case *types.Named:
+                    // named...
+            }
+        }
+    }
 }
 ```
 
 type specのidentで`Defs`を照会した場合、得られるのは名前付き型(`*types.Named`)もしくはalias(`*types.Alias`, `type A = B`)のみのようです。
 
-### und struct tagを持つund typeのフィールドを見つける
+#### und struct tagを持つund typeのフィールドを見つける
 
 こうして見つけた型がund typeかつ`und:""` struct tagがついているかは以下のように探索します。
 
 ```go
 var st *types.Struct = typeInfo.Type().Underlying().(*types.Struct)
 for i := range st.NumFields() {
-	f := st.Field(i)
-	undTagValue, ok := reflect.StructTag(st.Tag(i)).Lookup("und")
-	if ok {
-		undOpt, err := undtag.ParseOption(undTagValue)
-		if err != nil {
-			return err
-		}
-		if !isUndType(f.Type()) {
-			return fmt.Errorf("tagged but not an und type is an error")
-		}
+    f := st.Field(i)
+    undTagValue, ok := reflect.StructTag(st.Tag(i)).Lookup("und")
+    if ok {
+        undOpt, err := undtag.ParseOption(undTagValue)
+        if err != nil {
+            return err
+        }
+        if !isUndType(f.Type()) {
+            return fmt.Errorf("tagged but not an und type is an error")
+        }
         // found
-	}
+    }
 }
 ```
 
@@ -978,36 +992,36 @@ type Foo struct {Foo string; Bar int}
 
 ```go
 func isUndType(ty types.Type) bool {
-	named, ok := ty.(*types.Named)
-	if !ok {
-		return false
-	}
-	obj := named.Obj()
-	pkg := obj.Pkg()
-	if pkg == nil {
-		// 組み込み型などの場合、Pkgからnilが帰ります。
-		// named typeではerror型がnilを返します。
-		// types.Objectを受けとるところではPkgのnil checkはしておくほうが無難ですね。
-		return false
-	}
-	name := obj.Name()
-	pkgPath := pkg.Path()
-	switch [2]string{pkgPath, name} {
-	case [2]string{"github.com/ngicks/und/option", "Option"},
-		[2]string{"github.com/ngicks/und", "Und"},
-		[2]string{"github.com/ngicks/und/elastic", "Elastic"},
-		[2]string{"github.com/ngicks/und/sliceund", "Und"},
-		[2]string{"github.com/ngicks/und/sliceund/elastic", "Elastic"}:
-		return true
-	default:
-		return false
-	}
+    named, ok := ty.(*types.Named)
+    if !ok {
+        return false
+    }
+    obj := named.Obj()
+    pkg := obj.Pkg()
+    if pkg == nil {
+        // 組み込み型などの場合、Pkgからnilが帰ります。
+        // named typeではerror型がnilを返します。
+        // types.Objectを受けとるところではPkgのnil checkはしておくほうが無難ですね。
+        return false
+    }
+    name := obj.Name()
+    pkgPath := pkg.Path()
+    switch [2]string{pkgPath, name} {
+    case [2]string{"github.com/ngicks/und/option", "Option"},
+        [2]string{"github.com/ngicks/und", "Und"},
+        [2]string{"github.com/ngicks/und/elastic", "Elastic"},
+        [2]string{"github.com/ngicks/und/sliceund", "Und"},
+        [2]string{"github.com/ngicks/und/sliceund/elastic", "Elastic"}:
+        return true
+    default:
+        return false
+    }
 }
 ```
 
 `types.Object`の`Name`でunqualified nameが得られ、`Pkg().Path()`でパッケージのパスが得られるため、これを比較すればよいです。
 
-## 型依存関係のグラフの作成
+### 型依存関係のグラフの作成
 
 `matched type`(フィールドに`und:""` struct tagがついたund typeを含む型)を探し出し、さらにそれらの型に依存する型を依存グラフを上に向けてたどることですべて発見するために、型情報をグラフとします。
 
@@ -1060,36 +1074,40 @@ type E struct {
 
 そこで、Node, Edgeは以下の通りに定義します。
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/typegraph/type_graph.go#L54-L66
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/typegraph/type_graph.go#L54-L66
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/typegraph/type_graph.go#L88-L97
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/typegraph/type_graph.go#L88-L97
 
 [Go1.18]からgenericsが導入されたため、親から子への依存はtype argによりばらばらにinstantiateされる可能性がありますが、nodeそのものはinstantiateされてない型の定義そのものです。そのため、child側だけはNodeとTypeをそれぞれ記録する必要があります。
+
+![](/images/go-code-generation-from-ast-and-type-info-type-graph-node-can-be-accessed-differently.drawio.png)
+
+`Foo` nodeには複数のtype argをもってedgeが書かれることになります。
 
 グラフを図にすると以下のようになります。
 
 ![](/images/go-code-generation-from-ast-and-type-info-type-graph-concept.drawio.png)
 
-`chan`は変換の対象にならないため、edgeのフィルタリングにより連続的に`D`も対象外になります。
+`chan`は変換の対象にならないため、edgeのフィルタリングにより連鎖的に`D`も対象外になります。
 
 ![](/images/go-code-generation-from-ast-and-type-info-type-graph-concept-edge-filtering.drawio.png)
 
 edgeの形成はNode間(`*types.Name`から`*types.Named`)のみの評価であるため評価は必ず終わりますが、edgeをたどる際には無限ループが生じうるため、注意が必要です。
 
-Treeを形成するとほぼ必ず型的な再帰が起きます。
+例えばTree型は型的に再帰することで木構造を形成することが多いため、この場合nodeが循環します。visit処理はこれらで無限ループに陥らないようなケアが必要です。
 
 ```go
 type Tree struct {
-	l, r   *Tree
-	value  any
+    l, r   *Tree
+    value  any
 }
 ```
 
 そこで、お決まりですが`visited map[*node]bool`なマップを用意し、1度visitしたnodeに再度visitすることがないようにします。
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/typegraph/type_graph.go#L514-L544
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/typegraph/type_graph.go#L514-L544
 
-## `UndRaw`/`UndPlain`を実装する型の検知
+### `UndRaw`/`UndPlain`を実装する型の検知
 
 前述のとおり、code generatorが生成することになる`UndRaw`/`UndPlain`は`T` -> `T'` -> `T`の循環的な変換メソッドです。
 これらを実装する型を検知し、`implementor`として取り扱うこととします。`implementor`に依存している型も同様に`transitive`として扱うことで、`go module`間での円滑な連携を可能とします。
@@ -1103,11 +1121,11 @@ type Foo struct {
 }
 
 func (f Foo) MethodOnNonPointer() {
-	//
+    //
 }
 
 func (f *Foo) MethodOnPointer() {
-	//
+    //
 }
 
 ---
@@ -1133,11 +1151,938 @@ method setの`At`メソッドでn番目のメソッドを取得できます。�
 
 上記より、`UndRaw`/`UndPlain`を実装しているかは以下のようにチェックできます。
 
-https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f6d/codegen/undgen/method_checker.go#L34-L102
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/method_checker.go#L34-L102
 
 やってることは簡単で、与えられた`*types.Named`が特定の名前(=`UndPlain`)のメソッドを持ち、それが返す型が特定の名前(=`UndRaw`)のメソッドをもち、呼び出し結果が元の型と一致するかを判定します。
-少しだけややこしいのが、関数に与えられた`*types.Named`がinstantiateされていない場合、メソッドの返り値(`toType`)がtype param(例えば`T`)でinstantiateされて、type argをもってしまうため`types.Identical`がtrueを返さないということです。
-その時は`*types.Signature`経由で返されたinstantiateされた型でもう一度関数を実行することで判定を行います。
+ただし、関数に与えられた`*types.Named`がinstantiateされていない場合はそれだけでは一致しているかどうかを確認しきれません。instantiateされていない型、つまり`type Foo[T any]`のような型から関数の返り値をとると、そのtype param `T`でinstantiateされた`FooPlain[T]`を返すことになります。そのため、`FooPlain[T]`の`UndRaw`から返ってくる型は`Foo[T]`であり、`type Foo[T any]`という具体的にinstantiateされていないtype paramだけを持つ状態と、そのtype paramをtype argとして持つinstantiateされている状態で食い違うため、同じ型ではないと判定されることになります。
+そこで`*types.Signature`経由で返されたinstantiateされた型でもう一度関数を実行することで判定を行います。メソッドから返ってきた方はinstantiateされているので、こちらを用いればお互い同じ型でinstantiateされていることになります。
+
+## code generatorの実装
+
+### 基本方針
+
+最初に基本的な実装のしかたの方針を説明します。
+
+やりたいことは大まかに二つで
+
+- 入力となる型を受けとって変更した型を出力
+- 入力をreceiverとしたメソッドの出力(Patcher)、生成した型をreceiverとしたメソッドの出力(Validator/Plain)
+
+これらに対して、
+
+- 型の書き出し => dstのreplaceして`printer.Fprint`
+  - package clause, import specも`printer.Fprint`でprintします。
+- メソッドの出力 => [*bufio.Writer] + [fmt.Fprintf]
+
+#### printer.Fprintによるプリント
+
+package clause, import specのprintは以下のようにします。
+
+```go
+var (
+    w io.Writer
+    af *ast.File
+)
+
+_, err := fmt.Fprintf("%s %s\n\n", token.PACKAGE.String(), af.Name.Name)
+if err != nil {
+    // error...
+}
+
+for i, dec := range af.Decls {
+    genDecl, ok := dec.(*ast.GenDecl)
+    if !ok {
+        continue
+    }
+    if genDecl.Tok != token.IMPORT {
+        // it's possible that the file has multiple import spec.
+        // but it always starts with import spec.
+        break
+    }
+    err := printer.Fprint(w, fset, genDecl)
+    if err != nil {
+        // error...
+    }
+    _, err = io.WriteString(w, "\n\n")
+    if err != nil {
+        // error...
+    }
+}
+
+// successful
+```
+
+正しく構成されたastならば必ずファイルはimport specから始まりますので、import spec以外の`*ast.GenDecl`が見つかるまで`Decls`をループで回せばよいです。
+import decl自体が複数あることは許されているのでそこには注意しましょう。
+
+```go
+package foo
+
+import "fmt"
+import "crypto/rand"
+import "net/http"
+// ...
+// こういうのもたまに見る
+```
+
+前述した通り型情報を事前にグラフ化してたどりながら生成していきますが、それぞれの`*TypeNode`は以下のように、`*ast.TypeSpec`も収集してあります。
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/typegraph/type_graph.go#L56-L68
+
+そのため、前述の「original ast.Node -> modified dst.Node -> modified ast.Node」を順繰りに参照し、`Fprint`することができます。
+ただし、`*ast.TypeSpec`は`type`キーワードがないので手動で出力する必要があります。`type`キーワードがくっついてるのは`*ast.GenDecl`のほうです。
+つまり、下記のような関係です。
+
+```go
+type Foo struct {}
+//^^^^^^^^^^^^^^^^ GenDecl
+//   ^^^^^^^^^^^^^ TypeSpec
+```
+
+これは`*ast.GenDecl`が複数の`*ast.TypeSpec`をもてることを考えると事情が理解しやすいかもしれません。
+
+```go
+type (
+    Foo struct{}
+    //^^^^^^^^^^ TypeSpec
+    Bar struct{}
+    //^^^^^^^^^^ TypeSpec
+    Baz struct{}
+    //^^^^^^^^^^ TypeSpec
+)
+//^^^^^^^^^^^^^^ GenDecl
+```
+
+ということで、`printer.Fprint`の前に`type`キーワード、`' '`(スペース)を出力しておきます。
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_plain.go#L114-L116
+
+#### \*bufio.Writer + fmt.Fprintf
+
+メソッドの書き出しには[*bufio.Writer]と[fmt.Fprintf]を用います。
+
+```go
+var w io.Writer
+bufw := bufio.NewWriter(w)
+defer bufw.Flush()
+printf := func(format string, args ...any) {
+    fmt.Fprintf(bufw, format, args...)
+}
+```
+
+理由は単純で、エラーの発生もバッファーしておけることです。
+
+https://github.com/golang/go/blob/go1.23.3/src/bufio/bufio.go#L673-L690
+
+https://github.com/golang/go/blob/go1.23.3/src/bufio/bufio.go#L632-L635
+
+このことで細かいエラーハンドリングを生成途中のコードに生成させる必要はなく、defer内でFlushを呼びそのエラーを返せばいい状態を作ることができます
+
+```go
+func generateFancyMethods(w io.Writer) (err error) {
+    bufw := bufio.NewWriter(w)
+    defer func() {
+        fErr := bufw.Flush()
+        if err == nil {
+            err = fErr
+        }
+    }()
+    printf := func(format string, args ...any) {
+        fmt.Fprintf(bufw, format, args...)
+    }
+
+    printf(
+        `func (fancy *Fancy) SuperGoodMethodName() string {
+            return %q + %q + %q
+        }
+`,
+        "foo", "bar", "baz",
+    )
+    // continue printing...
+}
+```
+
+上記の`bufio.Writer`でラップするのヘルパーを定義して、以後はこちらを使います。
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_common.go#L72-L79
+
+code generatorを作るとなると[text/template]か[github.com/dave/jennifer]が思いつくかと思いますが、下記がそれらを使わない理由です。
+
+- [text/template]は煩雑
+  - 条件分岐によって生成されるコードがかなり変わるため、`text/template`で書ききると煩雑です
+  - `Go`でif/elseをたくさん書いて生成する内容が変わるようなケースだと不向きと思います
+  - [dockerが--formatオプションでtext/templateを受け付けます](https://docs.docker.com/engine/cli/formatting/)が、こういったデータが先行しており、ユーザー入力によって出力を自由に変更できるようにするとき、より価値を発揮すると思います。
+- [github.com/dave/jennifer]はimportの連携ができない
+  - `jennifer`内部的にimportを管理してqualifierを自動的に調節してくれますが、今回のケースのようにimport周りを外部かコントロールしたい、というのは見たところできないようです
+  - 基本的に１ファイルまるごど`jennifer`で出力するのが想定なようですので、今回のように複数のやり口を組み合わせるときには不向き、というか想定していないのを感じます。
+
+[fmtのExplicit argument indexes](https://pkg.go.dev/fmt@go1.23.3#hdr-Explicit_argument_indexes)の項目でも述べられていますが、format stringの中で`%[d]verb`(dは任意の1-indexed integer)とすると`d`番目の引数をプリントできます。今回作りたいcode generatorはこれだけで事足りてしまいます。
+
+[playground](https://go.dev/play/p/iiUdIcaEHcJ)
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Printf(
+        "%[1]s, %[1]s, %[3]s, %[2]s, %[3]s\n",
+        "foo", "bar", "baz",
+    )
+    // foo, foo, baz, bar, baz
+}
+```
+
+### Patcher
+
+今回生成するものの中でもっとも簡単です。
+
+おさらいです。以下の入力`All`があるとき`---`以下のものを出力するcode generatorを作成します。
+
+```go
+type All struct {
+    Foo string
+    Bar *int      `json:",omitempty"`
+    Baz *struct{} `json:"baz,omitempty"`
+    Qux []string
+
+    Opt          option.Option[string] `json:"opt,omitzero"`
+    Und          und.Und[string]       `json:"und"`
+    Elastic      elastic.Elastic[string]
+    SliceUnd     sliceund.Und[string]
+    SliceElastic sliceelastic.Elastic[string]
+}
+
+---
+
+type AllPatch struct {
+    Foo sliceund.Und[string]    `json:",omitempty"`
+    Bar sliceund.Und[*int]      `json:",omitempty"`
+    Baz sliceund.Und[*struct{}] `json:"baz,omitempty"`
+    Qux sliceund.Und[[]string]  `json:",omitempty"`
+
+    Opt          sliceund.Und[string]         `json:"opt,omitempty"`
+    Und          und.Und[string]              `json:"und,omitzero"`
+    Elastic      elastic.Elastic[string]      `json:",omitzero"`
+    SliceUnd     sliceund.Und[string]         `json:",omitempty"`
+    SliceElastic sliceelastic.Elastic[string] `json:",omitempty"`
+}
+
+func (p *AllPatch) FromValue(v All) {
+    *p = AllPatch{
+        Foo:          sliceund.Defined(v.Foo),
+        Bar:          sliceund.Defined(v.Bar),
+        Baz:          sliceund.Defined(v.Baz),
+        Qux:          sliceund.Defined(v.Qux),
+        Opt:          option.MapOr(v.Opt, sliceund.Null[string](), sliceund.Defined[string]),
+        Und:          v.Und,
+        Elastic:      v.Elastic,
+        SliceUnd:     v.SliceUnd,
+        SliceElastic: v.SliceElastic,
+    }
+}
+
+func (p AllPatch) ToValue() All {
+    return All{
+        Foo:          p.Foo.Value(),
+        Bar:          p.Bar.Value(),
+        Baz:          p.Baz.Value(),
+        Qux:          p.Qux.Value(),
+        Opt:          option.Flatten(p.Opt.Unwrap()),
+        Und:          p.Und,
+        Elastic:      p.Elastic,
+        SliceUnd:     p.SliceUnd,
+        SliceElastic: p.SliceElastic,
+    }
+}
+
+func (p AllPatch) Merge(r AllPatch) AllPatch {
+    return AllPatch{
+        Foo:          sliceund.FromOption(r.Foo.Unwrap().Or(p.Foo.Unwrap())),
+        Bar:          sliceund.FromOption(r.Bar.Unwrap().Or(p.Bar.Unwrap())),
+        Baz:          sliceund.FromOption(r.Baz.Unwrap().Or(p.Baz.Unwrap())),
+        Qux:          sliceund.FromOption(r.Qux.Unwrap().Or(p.Qux.Unwrap())),
+        Opt:          sliceund.FromOption(r.Opt.Unwrap().Or(p.Opt.Unwrap())),
+        Und:          und.FromOption(r.Und.Unwrap().Or(p.Und.Unwrap())),
+        Elastic:      elastic.FromUnd(und.FromOption(r.Elastic.Unwrap().Unwrap().Or(p.Elastic.Unwrap().Unwrap()))),
+        SliceUnd:     sliceund.FromOption(r.SliceUnd.Unwrap().Or(p.SliceUnd.Unwrap())),
+        SliceElastic: sliceelastic.FromUnd(sliceund.FromOption(r.SliceElastic.Unwrap().Unwrap().Or(p.SliceElastic.Unwrap().Unwrap()))),
+    }
+}
+
+func (p AllPatch) ApplyPatch(v All) All {
+    var orgP AllPatch
+    orgP.FromValue(v)
+    merged := orgP.Merge(p)
+    return merged.ToValue()
+}
+```
+
+Patch typeは元の型のフィールドの型が`T`であるとき、`sliceund.Und[T]`で置き換え、`json:",omitempty"`をstruct tagに追加します。
+フィールドの型がund typeであるときは、意図的なので何の変換もしないものとします。ただし、`option.Option`であるときは特別に`sliceund.Und[T]`に変換します。
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_patcher.go#L180-L267
+
+`sliceund`, `sliceund/elastic`には`json:",omitempty"`を追加することで`undefined`の時`json.Marshal`でフィールドがスキップされるようにします。`und`および`elastic`は`encoding/json/v2`もとい[github.com/go-json-experiment/json]でMarshal時にスキップできるように`json:",omitzero"`を追加します。
+
+残りのメソッド群も実装していきます。
+
+[Go1.18]以降追加されたgenericsによりtype paramが存在する型の場合receiverの型表記にもtype paramを表記する必要があります。
+
+```go
+type Foo[T any] struct {
+    // ...
+}
+
+func (f Foo[T]) Foo() {}
+// [T]がないとコンパイルしない
+```
+
+そのためtype paramは事前に出力しておきます。型情報からやってもastからやってもいいですがここではastから出力します。
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_patcher.go#L302-L316
+
+実装自体は気合と根性ですね。ここに関しては先に実装イメージを書いてそれを出力できるコードを書いただけ、という感じです。
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_patcher.go#L332-L426
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_patcher.go#L428-L517
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_patcher.go#L519-L602
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_patcher.go#L604-L639
+
+### Validator
+
+Validatorは、`und:""` struct tagのついたund type fieldに対してstruct tagに応じたvalidationを行うか、フィールドが`und:""` struct tagのつかない`implementor`である場合、実装を呼び出すことで異なる`go module`間に分散したund typeをフィールドに持つ型間での連携を容易にします。
+
+おさらいをすると以下のようなものを実装します。
+
+```go
+type All struct {
+    Qux  und.Und[string]  `und:"def,und"`
+}
+
+---
+
+package validatortarget
+
+import (
+    "fmt"
+
+    "github.com/ngicks/und/undtag"
+    "github.com/ngicks/und/validate"
+)
+
+func (v All) UndValidate() error {
+    {
+        validator := undtag.UndOptExport{
+            States: &undtag.StateValidator{
+                Def: true,
+                Und: true,
+            },
+        }.Into()
+
+        if !validator.ValidUnd(v.Qux) {
+            return validate.AppendValidationErrorDot(
+                fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Qux)),
+                "Qux",
+            )
+        }
+    }
+    return nil
+}
+```
+
+追加の要件として、
+
+- `implementor`はpointer typeでもよいこととします。
+  - 大きなstructはpointerにしたいことは結構あるかと思います。
+- フィールドが`map[string][][5]map[int]sliceund.Und[string]`のように深くネストすることを許します。
+  - つまり、edgeがmap, array, sliceを持つことを許します。
+  - JSONなどでObjectやArrayがネストしていることは普通であるため、これを許さないと不便です。
+
+```diff go
+type Dependant struct {
+    // ...
++    FooP *All
+    // ...
+}
+
+func (v Dependent) UndValidate() (err error) {
+    // ...
++    {
++        if v.FooP != nil {
++            err = v.FooP.UndValidate()
++        }
++        if err != nil {
++            return validate.AppendValidationErrorDot(
++                err,
++                "FooP",
++            )
++        }
++    }
+    // ...
+}
+```
+
+フィールドのネストした場合は以下のようなコードを生成します。ここまで極端なことはあまりされないと思いますが、理屈上できるようにしておきます。
+`Go`にはスコープごとに変数を再定義できる仕様があるため`for-range`がネストするたび同名の変数を再使用できています。この仕様がなければもう少しcode generatorの実装難易度が上がっていました。
+
+```go
+type Implementor struct {
+    Opt option.Option[string] `und:"required"`
+}
+
+type DeeplyNested struct {
+    A []map[string][5]und.Und[Implementor] `und:"required"`
+    B [][][]map[int]Implementor
+    C []map[string][5]und.Und[*Implementor] `und:"required"`
+    D [][][]map[int]*Implementor
+}
+
+//undgen:generated
+func (v DeeplyNested) UndValidate() (err error) {
+    {
+        validator := undtag.UndOptExport{
+            States: &undtag.StateValidator{
+                Def: true,
+            },
+        }.Into()
+
+        v := v.A
+
+        for k, v := range v {
+            for k, v := range v {
+                for k, v := range v {
+                    if !validator.ValidUnd(v) {
+                        err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v))
+                    }
+                    if err == nil {
+                        err = und.UndValidate(v)
+                    }
+
+                    if err != nil {
+                        err = validate.AppendValidationErrorIndex(
+                            err,
+                            fmt.Sprintf("%v", k),
+                        )
+                        break
+                    }
+                }
+
+                if err != nil {
+                    err = validate.AppendValidationErrorIndex(
+                        err,
+                        fmt.Sprintf("%v", k),
+                    )
+                    break
+                }
+            }
+
+            if err != nil {
+                err = validate.AppendValidationErrorIndex(
+                    err,
+                    fmt.Sprintf("%v", k),
+                )
+                break
+            }
+        }
+
+        if err != nil {
+            return validate.AppendValidationErrorDot(
+                err,
+                "A",
+            )
+        }
+    }
+    {
+        v := v.B
+
+        for k, v := range v {
+            for k, v := range v {
+                for k, v := range v {
+                    for k, v := range v {
+                        err = v.UndValidate()
+                        if err != nil {
+                            err = validate.AppendValidationErrorIndex(
+                                err,
+                                fmt.Sprintf("%v", k),
+                            )
+                            break
+                        }
+                    }
+
+                    if err != nil {
+                        err = validate.AppendValidationErrorIndex(
+                            err,
+                            fmt.Sprintf("%v", k),
+                        )
+                        break
+                    }
+                }
+
+                if err != nil {
+                    err = validate.AppendValidationErrorIndex(
+                        err,
+                        fmt.Sprintf("%v", k),
+                    )
+                    break
+                }
+            }
+
+            if err != nil {
+                err = validate.AppendValidationErrorIndex(
+                    err,
+                    fmt.Sprintf("%v", k),
+                )
+                break
+            }
+        }
+
+        if err != nil {
+            return validate.AppendValidationErrorDot(
+                err,
+                "B",
+            )
+        }
+    }
+    {
+        validator := undtag.UndOptExport{
+            States: &undtag.StateValidator{
+                Def: true,
+            },
+        }.Into()
+
+        v := v.C
+
+        for k, v := range v {
+            for k, v := range v {
+                for k, v := range v {
+                    if !validator.ValidUnd(v) {
+                        err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v))
+                    }
+                    if err == nil && v.Value() != nil {
+                        err = und.UndValidate(v)
+                    }
+
+                    if err != nil {
+                        err = validate.AppendValidationErrorIndex(
+                            err,
+                            fmt.Sprintf("%v", k),
+                        )
+                        break
+                    }
+                }
+
+                if err != nil {
+                    err = validate.AppendValidationErrorIndex(
+                        err,
+                        fmt.Sprintf("%v", k),
+                    )
+                    break
+                }
+            }
+
+            if err != nil {
+                err = validate.AppendValidationErrorIndex(
+                    err,
+                    fmt.Sprintf("%v", k),
+                )
+                break
+            }
+        }
+
+        if err != nil {
+            return validate.AppendValidationErrorDot(
+                err,
+                "C",
+            )
+        }
+    }
+    {
+        v := v.D
+
+        for k, v := range v {
+            for k, v := range v {
+                for k, v := range v {
+                    for k, v := range v {
+                        if v != nil {
+                            err = v.UndValidate()
+                        }
+                        if err != nil {
+                            err = validate.AppendValidationErrorIndex(
+                                err,
+                                fmt.Sprintf("%v", k),
+                            )
+                            break
+                        }
+                    }
+
+                    if err != nil {
+                        err = validate.AppendValidationErrorIndex(
+                            err,
+                            fmt.Sprintf("%v", k),
+                        )
+                        break
+                    }
+                }
+
+                if err != nil {
+                    err = validate.AppendValidationErrorIndex(
+                        err,
+                        fmt.Sprintf("%v", k),
+                    )
+                    break
+                }
+            }
+
+            if err != nil {
+                err = validate.AppendValidationErrorIndex(
+                    err,
+                    fmt.Sprintf("%v", k),
+                )
+                break
+            }
+        }
+
+        if err != nil {
+            return validate.AppendValidationErrorDot(
+                err,
+                "D",
+            )
+        }
+    }
+    return
+}
+```
+
+`validate.AppendValidationErrorIndex`でフィールドのセレクタをエラー情報にappendします。こうすることで`validation failed at .A[1][foo][3].Opt: must be defined: value is none`のようなエラーメッセージを表示できるようにして、どのフィールドがvalidation errorになったのかわかるようにします。
+
+前述のとおり、型情報からstruct tagを取得できます
+
+https://github.com/ngicks/go-codegen/blob/0410ffba5d2af7af3f426ce7fb89cf3de56d2518/codegen/undgen/gen_validator.go#L228
+
+`undtag.ParseOption`として解析機能がexportしてあるのでこのstruct tagの解析自体はこれを呼び出すだけです。
+
+https://github.com/ngicks/go-codegen/blob/0410ffba5d2af7af3f426ce7fb89cf3de56d2518/codegen/undgen/gen_validator.go#L237-L243
+
+前述のとおりですが、`undtag.ParseOption`の解析結果である`undtag.UndOpt`はinternal packageとしてvendorされた`option`を利用するため、これ自体を外部パッケージが初期化できません。
+そのため`undtag.UndOptExport`を出力して`Into`メソッドを呼び出すことで`undtag.UndOpt`を得ます。
+
+https://github.com/ngicks/go-codegen/blob/0410ffba5d2af7af3f426ce7fb89cf3de56d2518/codegen/undgen/gen_validator.go#L347-L396
+
+`map[string][][]A`のように深くネストした型のAを取り出すためのunwrapperを出力します
+
+https://github.com/ngicks/go-codegen/blob/0410ffba5d2af7af3f426ce7fb89cf3de56d2518/codegen/undgen/gen_validator.go#L153-L178
+
+少しわかりにくいですかね？
+今回許す`A`のような型への経路は`map`, `slice`, `array`のみですが、これらすべては`for k, v := range value {}`で処理可能です。
+そのため、ネストしたのと同数回`for-range loop`を行えば`A`を取り出せます。
+
+そのため、
+
+```go
+func unwrapOne(innerExpr string) string {
+    return fmt.Sprintf(
+        `for k, v := range {
+            %s
+        }
+`,
+        innerExpr,
+    )
+}
+```
+
+という風にします。
+`%s`に渡されるのはさらに内側の`expr`(expression)であり、別の`func(expr string) string`の実行結果を引数にこの関数を動作させると、`for-range loop`で`expr`をラップすることができます。
+この`expr`に渡されるのは`A`のValidator呼び出し、もしくはさらに深い`for-range loop`のいずれでもよく、この関数自体が処理の深さを意識しなくて済むようにしています。
+このようにすることで、mapやsliceがどれだけ深くネスト仕様が、同じ処理を任意回数繰り返すことで処理可能とします。
+
+さらに、
+
+```diff go
+func unwrapOne(innerExpr string) string {
+    return fmt.Sprintf(
+        `for k, v := range {
+            %s
++           if err != nil {
++               err = validate.AppendValidationErrorIndex(
++                   err,
++                   fmt.Sprintf("%%v", k),
++               )
++               break
++           }
+        }
+`,
+        innerExpr,
+    )
+}
+```
+
+とエラー時にbreakさせることでエラー発生時に順次innermostのループだけを抜けさせることで、すべてのループでそれぞれ`validate.AppendValidationErrorIndex`を呼び出せるようにします。
+
+unwrapperをappendしていく順序と実際に呼び出すべき順序は逆であるので`slices.Backward`で逆順に適用していきます
+\
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_validator.go#L321-L325
+
+あとは`implementor`なら呼び出すとか、`implementor`がpointer typeならnilチェックをするとかそういった細かい気遣いを加えて完成です
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_validator.go#L106-L343
+
+てかこの関数長いですね。200行以上ある。
+
+### Plain
+
+Plain変換はこの3つのテーマの中でもっとも複雑です。
+
+おさらいです。入力と出力の関係を以下に示します。
+
+```go
+type Example struct {
+    Foo   string                    `json:"foo"`
+    Bar   option.Option[string]     `json:"bar" und:"required"`
+    Baz   und.Und[string]           `json:"baz" und:"def"`
+    Qux   und.Und[string]           `json:"qux" und:"def,null"`
+    Quux  sliceelastic.Elastic[int] `json:"quux" und:"len==3"`
+    Corge sliceelastic.Elastic[int] `json:"corge" und:"len>2,values:nonnull"`
+}
+
+---
+
+type ExamplePlain struct {
+    Foo   string                `json:"foo"`
+    Bar   string                `json:"bar" und:"required"`
+    Baz   string                `json:"baz" und:"def"`
+    Qux   option.Option[string] `json:"qux" und:"def,null"`
+    Quux  [3]option.Option[int] `json:"quux" und:"len==3"`
+    Corge []int                 `json:"corge" und:"len>2,values:nonnull"`
+}
+
+func (v Example) UndPlain() ExamplePlain {
+    return ExamplePlain{
+        Foo: v.Foo,
+        Bar: v.Bar.Value(),
+        Baz: v.Baz.Value(),
+        Qux: v.Qux.Unwrap().Value(),
+        Quux: sliceund.Map(
+            conversion.UnwrapElasticSlice(v.Quux),
+            func(o []option.Option[int]) (out [3]option.Option[int]) {
+                copy(out[:], o)
+                return out
+            },
+        ).Value(),
+        Corge: conversion.NonNullSlice(conversion.LenNAtLeastSlice(3, conversion.UnwrapElasticSlice(v.Corge))).Value(),
+    }
+}
+
+func (v ExamplePlain) UndRaw() Example {
+    return Example{
+        Foo: v.Foo,
+        Bar: option.Some(v.Bar),
+        Baz: und.Defined(v.Baz),
+        Qux: conversion.OptionUnd(true, v.Qux),
+        Quux: sliceelastic.FromUnd(sliceund.Map(
+            sliceund.Defined(v.Quux),
+            func(s [3]option.Option[int]) []option.Option[int] {
+                return s[:]
+            },
+        )),
+        Corge: sliceelastic.FromUnd(conversion.NullifySlice(sliceund.Defined(v.Corge))),
+    }
+}
+```
+
+さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドをを実装する(これを`implementor`と呼ぶ)際にはそれを呼び出せるようにします。
+ObjectにObjectやArrayがネストしているJSONは普通に存在していますから、これができないと実用に耐えないですね。
+
+つまり以下のような、`IncludesImplementor`が存在すると
+
+```go
+package sub
+
+type IncludesImplementor struct {
+    Foo sub2.Foo[int]
+}
+
+---
+
+package sub2
+
+type Foo[T any] struct {
+    T   T
+    Yay string
+}
+
+func (f Foo[T]) UndPlain() FooPlain[T] {
+    return FooPlain[T]{
+        Nay: f.Yay,
+    }
+}
+
+
+type FooPlain[T any] struct {
+    T   T
+    Nay string
+}
+
+func (f FooPlain[T]) UndRaw() Foo[T] {
+    return Foo[T]{
+        Yay: f.Nay,
+    }
+}
+```
+
+以下のように生成されます。
+
+```go
+type IncludesImplementorPlain struct {
+    Foo sub2.FooPlain[int]
+}
+
+func (v IncludesImplementor) UndPlain() IncludesImplementorPlain {
+    return IncludesImplementorPlain{
+        Foo: v.Foo.UndPlain(),
+    }
+}
+
+func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
+    return IncludesImplementor{
+        Foo: v.Foo.UndRaw(),
+    }
+}
+```
+
+さらにValidator同様追加の要件として、
+
+- `implementor`はpointer typeでもよいこととします。
+  - 大きなstructはpointerにしたいことは結構あるかと思います。
+- フィールドが`map[string][][5]map[int]sliceund.Und[string]`のように深くネストすることを許します。
+  - JSONなどでObjectやArrayがネストしていることは普通であるため、これを許さないと不便です。
+
+#### Plain typeへのast rewrite
+
+##### field unwrapper
+
+```go
+type DeeplyNested struct {
+    A []map[string][5]und.Und[Implementor] `und:"required"`
+}
+```
+
+上記ではund typeである`und.Und`はslice, map, arrayにラップされています。ast rewriteは上記の`und.Und[Implementor]`を(`und:""`タグの内容に合わせて)`ImplementorPlain`に変更したいわけですから、mapやsliceの部分は一切触れる必要がありません。
+そのため、mapやarrayをたどって目的の型のexpressionを取り出します。
+
+前述通り、どのように目的の型がラップされるかは`*TypeDependencyEdge`に記録済みですのでこれを利用します。
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_plain_type.go#L35-L48
+
+一応、`dst.Expr`取り出した`dst.Expr`そのものに別のexprを代入したくなるケースを考慮して`*dst.Expr`を返すようにします。
+
+##### rewrite
+
+上記のfield unwrapperによって取り出された`dst.Expr`を書き換えます。
+und typeは現状、必ずtype paramを1つ外部のタイプであるため、必ず`*dst.IndexExpr`となります。
+
+https://github.com/ngicks/go-codegen/blob/71da844599252546d772fa1662b0bdf83177a858/codegen/undgen/gen_plain_type.go#L159-L299
+
+ここから先は面倒で複雑な変換を行います。
+
+例えば、`option.Option[T]`, `und.Und[T]`のフィールドに`und:"required"` struct tagがついている場合、_Plain_ typeのフィールドの型は`T`となります。
+
+この操作はast(dst)のrewriteで行います。
+
+前述の例、`und.Und[T]`をstringでinstantiateした`und.Und[string]`でastの構造をしめします。
+
+![](/images/go-code-generation-from-ast-and-type-info-ast-node-structure.drawio.png)
+
+`und:"required"`がついている場合、`string`で置き換えるので、`expr = expr.(*ast.IndexExpr).Index`という代入操作をします。
+
+![](/images/go-code-generation-from-ast-and-type-info-ast-node-structure-swap.drawio.png)
+
+結果として`string`のみが残ります。
+
+![](/images/go-code-generation-from-ast-and-type-info-ast-node-structure-swap-result.drawio.png)
+
+例えばほかにも`und.Und`部分を`option.Option`に書き換えるのならば、図の`SelectorExpr`部分を任意に置き換えればできますし、`und.Und[T]`を`und.Und[[]T]`に置換するのも`Index`部分を`*ast.ArrayType`に置き換え、置き換え前の`Index`のexprを`*ast.ArrayType`の`Elt`フィールドに代入すればできます。
+
+こういう感じでパターンを網羅していきます。
+
+- `option.Option[T]`は
+  - `defined && (null || undefined)`なら変更なし
+  - `defined`: `option.Option[T]` -> `T`
+  - `null||undefined` -> `Empty`
+- `und.Und[T]`は
+  - `defined && null && undefined` -> 変更なし
+  - `defined && (null || undefined)`: `und.Und[T]` -> `option.Option[T]`
+  - `null && undefined` -> `option.Option[Empty]`
+  - `defined`: `und.Und[T]` -> `T`
+  - `null || undefined` -> `Empty`
+
+という風に変換していきます。[Empty](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/conversion#Empty)は`json.Marshal`時に`MarshalJSON`実装でnullを返す`[]struct{}`ベースの型です。
+
+`elastic.Elastic[T]`の変換はもっとパターンが多くなってややこしいです。
+
+`defined&&null&&undefined`かつ`len`オプションがない、もしくは`==`以外の指定で、さらに`values:nonnull`が指定されていないとき型の変換は必要ないのでreturnします。
+
+そうでない場合、`elastic.Elastic[T]` -> `und.Und[[]option.Option[T]]`という変換をかけます。ここから先のパターンは少なくとも必ずこの型には変換されます。
+
+- `len==1`の場合、`[]option.Option[T]`部分はsliceである必要はないので`und.Und[[]T]` -> `und.Und[T]`と変換します。
+- `len==n`の場合、`und.Und[[]T]` -> `und.Und[[n]T]`に変換します。
+
+さらに、`values:nonnull`が指定されている場合、`und.Und[[]option.Option[T]]` -> `und.Und[[]T]`に変換します。
+`len==1`だった場合はこの時点で`und.Und[option.Option[T]]`であるので、`und.Und[T]`に変換します。
+
+最後に`def,null,und`の状態に応じた変換をかけます。
+
+- `defined && null && undefined`: 変更なし
+- `defined && (null || undefined)`: `und.Und[T]` -> `option.Option[T]`
+- `null && undefined`: -> `option.Option[Empty]`
+- `defined`: `und.Und[T]` -> `T`
+- `null || undefined`: -> `Empty`
+
+#### UndPlain/UndRaw method
+
+#### field unwrapper
+
+```go
+type DeeplyNested struct {
+    A []map[string][5]und.Und[Implementor] `und:"required"`
+}
+
+func(v DeeplyNested) UndRaw() DeeplyNestedPlain {
+    return DeeplyNestedPlain{
+        A: func(v []map[string][5]und.Und[Implementor]) []map[string][5]ImplementorPlain {
+            // ...
+        }(v.A)
+    }
+}
+```
+
+```go
+func(v []map[string][5]und.Und[Implementor]) []map[string][5]ImplementorPlain {
+        out := make([]map[string][5]Implementor, len(v))
+
+        inner := out
+        for k, v := range v {
+            outer := &inner
+            inner := &outer
+            for k, v := range v {
+                outer := inner
+                mid := [5]Implementor{}
+                inner := &mid
+                for k, v := range v {
+                    (*inner)[k] = v.Value()
+                }
+                (*outer)[k] = *inner
+            }
+            (*outer)[k] = *inner
+        }
+
+        return out
+}
+```
 
 [Go]: https://go.dev/
 [Go1.18]: https://tip.golang.org/doc/go1.18
@@ -1160,3 +2105,8 @@ https://github.com/ngicks/go-codegen/blob/3a61e3289667278c98bf85b55f8dfb37a2866f
 [sliceund.Und]: https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/sliceund#Und
 [sliceelastic.Elastic]: https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/sliceund/elastic#Elastic
 [Elasticsearch]: https://www.elastic.co/guide/en/elasticsearch/reference/current/elasticsearch-intro.html
+[github.com/go-json-experiment/json]: https://github.com/go-json-experiment/json
+[*bufio.Writer]: https://pkg.go.dev/bufio@go1.23.3#Writer
+[fmt.Fprintf]: https://pkg.go.dev/fmt@go1.23.3#Fprintf
+[text/template]: https://pkg.go.dev/text/template@go1.23.3
+[github.com/dave/jennifer]: https://github.com/dave/jennifer
