@@ -16,7 +16,7 @@ published: false
 ## Overview
 
 プログラムを書いていると時たま、コードジェネレーターの吐いたコードの結果を受けてさらにコードを編集したいときがあります。例としては[github.com/oapi-codegen/oapi-codegen]が生成したコードの特定パス以下(e.g. `/config`)のrequest bodyをパスごとに保存できる簡単なconfig storeを作ったりなどですね。
-`Go`のを引数にコードジェネレーターを作成する際、単にテキストファイルとしてソースコードを解析してもよいのですが、astや型情報をそのまま用いることができたほうが改行やコメントその他で意味論的に違いのないソースコードをうまく処理できるため、その観点からはできるならそうしたほうがいいと言えます。
+`Go`のソースコードをを引数にコードジェネレーターを作成する際、単にテキストファイルとしてソースコードを解析してもよいのですが、astや型情報をそのまま用いることができたほうが改行やコメントその他で意味論的に違いのないソースコードをうまく処理できるため、その観点からはできるならそうしたほうがいいと言えます。
 
 そこで本記事では以下のようなことをします。
 
@@ -67,11 +67,12 @@ C系の文法の言語で、特徴は大雑把に
 - 言語機能が絞られていていろいろできません。
 - operatorのオーバーロードは存在しません。
 - `array`(固定長シーケンスデータ: `[n]T`), `slice`(可変長アレイ: `[]T`), `map`(hash-map: `map[K]V`), `channel`(FIFOチャネル: `chan T`)などの組み込み型が特別扱いされており、これらを組み合わせてプログラムを構築します
+- 上記の型に加えて`struct`, `string`, `int`などをベースとする(`underlying`)型を定義することができ、それらにメソッドを定義することができます。
 
 シンプルであるがゆえにコードジェネレーターの実装が容易です。
 マクロ機能は現状ありません。
 
-[Go1.18]までgenericsが存在していなかったこともあり、上記の組み込み型のみがジェネリックに中身の型を取り換えられる型でした。
+[Go1.18]までgenericsが存在しておらず、それまでは上記の組み込み型のみがジェネリックに中身の型を取り換えられる型でした。
 
 - `array`, `slice`, `map`はコンパイラが具体的な別の型に書き換えます。
 - appending, insert, channel-send/receiveはコンパイラが具体的な関数に書き換えます。
@@ -104,21 +105,24 @@ https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
 - [sliceund.Und]: JSONの`undefined | null | T`
 - [sliceelastic.Elastic]: JSONの`undefined | null | (T | null)[]`
 
-を`Go`のstruct fieldで表現することができます。
+を`Go`のstruct fieldで表現することができます。(ただし`json:",omitempty"`を必要とする)
 
 本記事ではこれらを用いて以下を実現するコードを生成するコードジェネレーターを実装します。
 
 - Patcher
-  - 対象となるstruct typeの、あらゆるフィールドを[sliceund.Und]でラップし、`json:",omitempty"`を付け足した別の型を定義し、それを元となった方にApplyできるメソッドを実装することでpartial jsonによるpatchを実現する
-- Valdator
-  - `und:""` struct tagの内容でsomeじゃないいけないとか、Elasticの場合は`[]T`がn要素以上ないといけないとかを決められるようにしてあるため、この情報を用いてvalidateを行う
+  - Partial JSONを受けとってデータの部分的更新(Patch)を行うことができる型を生成する。
+- Validator
+  - `und:""` struct tagで指定された内容に従い、フィールドのタグが`und:"required"`なら`defined`でなければならない、という風にルールを設定してvalidateを行う
+  - 前述の記事で課題感は説明しましましたが、`Go`で普通にやると`T | null | undefined`をstruct fieldで表現しきるのは難しく、`null`であったか`undefined`であったかを区別できません。
+  - その差が重要なときに`sliceund.Und`を利用しますが、その際に`undefined`であったならvalidではないと判定するためにこのvalidatorを使います。
 - Plain
-  - `und:""` struct tagの内容からsomeでないといけないなら`option.Option[T]`を`T`にアンラップしたような*Plain*な型を作成し、元となった型との相互変換を実現する。
+  - `und:""` struct tagで指定された内容に従い、例えばのフィールドの型が`und.Und[T]`でstruct tagが`und:"required"`なら型を`T`に*unwrap*した*Plain*な型を作成する。
+  - 元となった型(_Raw_)との相互変換を実現する。
   - こうすることで、Marshal/Unmarshalの界面ではlosslessで`undefined | null | T`をデータ構造に当てはめることができるため、`map[string]any`などを介さずにフィールドの有り無しをvalidateし、その後扱いやすい型に変換してから内部処理を行うことができます。
 
 ## 生成されるコードのイメージ
 
-まずどういったコードを生成したら目標が実現できるかを思い描き、そこから何を実装すべきかについて考えます。
+まずどういったコードを生成したら目標が実現できるかを思い描き、そこから具体的に何を実装すべきかについて考えます。
 
 ### Patcher
 
@@ -222,7 +226,7 @@ func (p AllPatch) ApplyPatch(v All) All {
 ```
 
 - [sliceund.Und]でラップしたフィールドには`json:",omitempty"`を付け足すことで、partial jsonのmarshal/unmarshalをできるようにします。
-  - 付け足す、というのがキモです。元からあった`json` structタグはなるだけそのままにする必要があります・・・。
+  - 付け足す、というのがキモです。元からあった`json` structタグはなるだけそのままにする必要があります。
 - `FromValue`で元となった型からpatchへ変換、入力patchと`Merge`でマージ、`ToValue`で元となった型に逆変換することでパッチの挙動を実現します。
 - `Merge`は[github.com/ngicks/und]の機能をふんだんに使って`Or`をとることで実現します。
 - 元の型->パッチ型な変換は元の型にメソッドとして実現するか、New*FooBar*Patchという関数で実現するかしたほうがよかったかもしれませんが、下記理由でしませんでした
@@ -235,7 +239,7 @@ func (p AllPatch) ApplyPatch(v All) All {
 
 Validatorが実現したいのは、und type([github.com/ngicks/und]で定義される諸般の型)をfieldにもつstruct typeがあるとき、struct tagで`und:""`を指定すると、その内容に基づいてundefined / null / definedの状態などのvalidationを行うことです。
 
-und typeのvalidationを行うためのvalidatorは[untag.UndOpt](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/undtag#UndOpt)としてexportしてあるため、`und:""`の内容を解析して`UndOpt`を定義し、各フィールドをvalidateすることになります。`undtag`パッケージは循環依存を避けながら`undtag`パッケージ内でoption typeを用いるために、internal packageとしてコピーしたinternaloptionを使用しています。この微妙な理由から`UndOpt`自体を外部のパッケージ/モジュールが初期化することができません。そのため[undtag.UndOptExport](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/undtag#UndOptExport)をexportしておき、これを通じて`UndOpt`を初期化するようにします。
+und typeのvalidationを行うためのvalidatorは[untag.UndOpt](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/undtag#UndOpt)としてexportしてあるため、`und:""`の内容を解析して`UndOpt`を定義し、各フィールドをvalidateすることになります。`undtag`パッケージは循環依存を避けながら`undtag`パッケージ内でoption typeを用いるために、internal packageとしてコピーした`option`パッケージを使用しています。この実装上の都合から`UndOpt`自体を外部のパッケージ/モジュールが初期化することができません。そのため[undtag.UndOptExport](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/undtag#UndOptExport)をexportしておき、これを通じて`UndOpt`を初期化するようにします。
 
 入力が以下であるとき
 
@@ -399,7 +403,7 @@ func (v Dependent) UndValidate() (err error) {
 
 こうすればund typeを含むstructが複数ネストした場合でもフィールドをすべてvalidateして回れるようになります。
 
-[validate.AppendValidationErrorDot](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorDot)と[validate.AppendValidationErrorIndex](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorIndex)は深くネストしたフィールドのどこがvalidationエラーだったのか表示するためにフィールド名をアペンドしていけるようになっているヘルパーで、[ValidationError.Pointer](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#ValidationError.Pointer)メソッドでJSON pointerを取得できるようにしてあります。
+[validate.AppendValidationErrorDot](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorDot)と[validate.AppendValidationErrorIndex](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorIndex)は深くネストしたフィールドのどこがvalidationエラーだったのか表示するためにフィールド名をアペンドしていけるようになっているヘルパーで、内部的には[ValidationError](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#ValidationError)にエラーをラップします。[ValidationError.Pointer](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#ValidationError.Pointer)メソッドでJSON pointerを取得できるようにしてあります。
 
 ### Plain
 
@@ -432,8 +436,7 @@ Plainが実現したいのは、struct fieldがund typeであり`und:""`タグ�
 - `Elastic`+`und:"def,len==n"` -> `[n]option.Option[T]`
 - `Elastic`+`und:"len>2,values:nonnull"` -> `und.Und[[]T]`
 
-みたいな感じでフィールドが変換された型を生成し、これと相互変換を行うことで*Plain*に感じられる型で内部処理を行えるようにします。
-`len==n`の時、要素数`n`のarrayに変換されるのがやばいです。これによってgenericsによる処理ができなくなり、要素数ごとのアドホックな即時間数を生成する必要ができました。誰ですかこんな仕様を考えたやつは・・・。
+みたいな感じでフィールドが変換された型を生成し、これと相互変換を行うことで*Plain*に感じられる型でMarshal/Unmarshal以外の処理を行えるようにします。
 
 つまり以下のような型が入力であるとき
 
@@ -494,8 +497,8 @@ func (v ExamplePlain) UndRaw() Example {
 }
 ```
 
-さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドをを実装する(これを`implementor`呼ぶ)際にはそれを呼び出せるようにします。
-ObjectにObjectやArrayがネストしているJSONは普通に存在していますから、これができないと実用に耐えないですね。
+さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドをを実装する(これを`implementor`と呼ぶ)際にはそれを呼び出せるようにします。
+ObjectにObjectやArrayがネストしているJSONは普通に存在していますし、それを表現する`Go`の型は各部を別々のnamed typeとして定義するのが筆者の知る限り普通なことなので、これができないと実用に耐えないですね。
 
 つまり以下のような、`IncludesImplementor`が存在すると
 
@@ -586,13 +589,16 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
   - そうしないと、何度もコード生成を行わないと連鎖的にすべての型に対してメソッドが生成できませんので非常に不便です。
 - 3. コード生成対象外の場合でも、`UndValidate`や`UndRaw` -> `UndPlain` -> `UndRaw`の循環的な変換をサポートする型の検知
   - これらを検知して、これらを含む型を連作的に検知します。そうしないと、分割されたモジュール間での連携ができなくなって非常に不便です。
+- 4. 連鎖的に検知された型はパーズされたコード上では*Plain*な型が定義されていないため、それを`implementor`と同等に扱う。
 
 `1.`に関してはastか型情報を用いればよいでしょう。テキストとしてソースコードを読み込んでもよいと思いますが、コメントなどでパーザーが混乱させられることもあるのでロバストとはいいがたいです(`/* comment */`構文だとあらゆる箇所にコメントを入れられます。)また、`struct {}`リテラルなどで改行を含んだフィールドや、`struct {Foo, Bar string}`のように複数のフィールドを1行で書いたりできるため、テキストとして解析は案外大変だったりします。
 
-`2.`は型情報の依存性をグラフとして解析し、フィールドにund typeを含む型・・・以後`matched type`と呼ぶ・・・をまず見つけ、その型に依存している方に向けてtraverseすることで、そういった型をフィールドに含む型・・・以後`transitive`と呼ぶ・・・を見つけるという方式をとります。
-当初は`map[ident]type`なマップに`matched`を記録しておき、これらをフィールドに含む型を`transitive`としてさらにマップに記録していく方式をとっていました。この方法には明確な欠点があって、ソースコード上の出現順序と依存関係が逆だと、型の数と同じだけ解析処理を走らせないと網羅的にすべての`transitive`を発見できず、非常に非効率だし思いのほか処理の使いまわしがききませんでした。
+`2.`は型情報の依存性をグラフとして解析し、フィールドにund typeを含む型・・・以後`matched type`と呼ぶ・・・をまず見つけ、その型に依存している方に向けてtraverseすることで、そういった型をフィールドに含む型・・・以後`dependant`と呼ぶ・・・を見つけるという方式をとります。
+当初は`map[ident]type`なマップに`matched`を記録しておき、これらをフィールドに含む型を`dependant`としてさらにマップに記録していく方式をとっていました。この方法には明確な欠点があって、ソースコード上の出現順序と依存関係が逆だと、型の数と同じだけ解析処理を走らせないと網羅的にすべての`dependant`を発見できず、非常に非効率だし思いのほか処理の使いまわしがききませんでした。
 
 `3.`は型情報を解析して判定することとします。`types`には[types.AssignableTo](https://pkg.go.dev/go/types@go1.23.3#AssignableTo)、[types.Implements](https://pkg.go.dev/go/types@go1.23.3#Implements)、[types.Satisfies](https://pkg.go.dev/go/types@go1.23.3#Satisfies)などがありますが、そもそもこういった循環的な関係性をinterfaceで表現する方法がわかりません。`Go`のinterfaceにはSelf type的なものがないためおそらく表現できないんじゃないかと思います。そのため、もっと手続き的な方法で直接型情報をたどって検査します。
+
+`4.`は、型情報を用いて元となった方(_Raw_)から`*types.Named`を作成します。
 
 ## 実装方法の検討
 
@@ -1141,7 +1147,7 @@ func isUndType(ty types.Type) bool {
 - 型をnodeとし`*types.Named`から`*types.Named`への依存をedgeとして記録。
 - `matcher`を受けとり、`*types.Named`が`matched`であるかを判別
   - `matcher`はund typeや`UndValidate`、`UndRaw`/`UndPlain`のような特別な関数を満たす外部の型にもマッチするようにします。
-- `matched`から上へedgeをたどって`transitive` typeをとれるようにします。
+- `matched`から上へedgeをたどって`dependant` typeをとれるようにします。
   - transitの際、edgeを上にたどるかどうかを決める`edgeFilter`を受けとり、例えば`chan A`のような依存ではたどらないものとします。
 
 例えば、下記のようなコードがあるとき、
@@ -1219,7 +1225,7 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 ### `UndRaw`/`UndPlain`を実装する型の検知
 
 前述のとおり、code generatorが生成することになる`UndRaw`/`UndPlain`は`T` -> `T'` -> `T`の循環的な変換メソッドです。
-これらを実装する型を検知し、`implementor`として取り扱うこととします。`implementor`に依存している型も同様に`transitive`として扱うことで、`go module`間での円滑な連携を可能とします。
+これらを実装する型を検知し、`implementor`として取り扱うこととします。`implementor`に依存している型も同様に`dependant`として扱うことで、`go module`間での円滑な連携を可能とします。
 
 `Go`のinterfaceには`Self type`を表す方法がないため、`UndRaw`/`UndPlain`はinterfaceで表現することはできず、型情報を解析して実装をチェックするよりほかありません。
 
