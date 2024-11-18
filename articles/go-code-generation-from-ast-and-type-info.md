@@ -1086,7 +1086,7 @@ res := decorator.NewRestorer()
 if err != nil {
     // ...
 }
-modifiedAstNode := res.Ast.Nodes[modifiedNode]
+modifiedAstNode := res.Ast.Nodes[dNode]
 
 var w io.Writer
 err := printer.Fprint(w, res.Fset, modifiedAstNode)
@@ -1271,9 +1271,9 @@ type E struct {
 
 そこで、Node, Edgeは以下の通りに定義します。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L54-L66
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L57-L69
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L88-L97
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L91-L100
 
 [Go1.18]からgenericsが導入されたため、親から子への依存はtype argによりばらばらにinstantiateされる可能性がありますが、nodeそのものはinstantiateされてない型の定義そのものです。そのため、child側だけはNodeとTypeをそれぞれ記録する必要があります。
 
@@ -1443,7 +1443,7 @@ import "net/http"
 
 前述した通り型情報を事前にグラフ化してたどりながら生成していきますが、それぞれの`*TypeNode`は以下のように、`*ast.TypeSpec`も収集してあります。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L56-L68
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L57-L69
 
 そのため、前述の「original ast.Node -> modified dst.Node -> modified ast.Node」を順繰りに参照し、`Fprint`することができます。
 ただし、`*ast.TypeSpec`は`type`キーワードがないので手動で出力する必要があります。`type`キーワードがくっついてるのは`*ast.GenDecl`のほうです。
@@ -1471,7 +1471,7 @@ type (
 
 ということで、`printer.Fprint`の前に`type`キーワード、`' '`(スペース)を出力しておきます。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain.go#L114-L116
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain.go#L110-L112
 
 #### \*bufio.Writer + fmt.Fprintf
 
@@ -1520,7 +1520,7 @@ func generateFancyMethods(w io.Writer) (err error) {
 
 上記の`bufio.Writer`でラップするのヘルパーを定義して、以後はこちらを使います。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_common.go#L72-L79
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_common.go#L73-L80
 
 code generatorを作るとなると[text/template]か[github.com/dave/jennifer]が思いつくかと思いますが、下記がそれらを使わない理由です。
 
@@ -1552,14 +1552,14 @@ func main() {
 
 ### Patcher
 
-[実現したいもの](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info#patcher)で述べたものを実装します。
+[実現したいもの#Patcher](#patcher)で述べたものを実装します。
 
 今回生成するものの中でもっとも簡単です。
 
 Patch typeは元の型のフィールドの型が`T`であるとき、`sliceund.Und[T]`で置き換え、`json:",omitempty"`をstruct tagに追加します。
 フィールドの型がund typeであるときは、意図的なので何の変換もしないものとします。ただし、`option.Option`であるときは特別に`sliceund.Und[T]`に変換します。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L180-L267
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L182-L266
 
 `sliceund`, `sliceund/elastic`には`json:",omitempty"`を追加することで`undefined`の時`json.Marshal`でフィールドがスキップされるようにします。`und`および`elastic`は`encoding/json/v2`もとい[github.com/go-json-experiment/json]でMarshal時にスキップできるように`json:",omitzero"`を追加します。
 
@@ -1578,23 +1578,23 @@ func (f Foo[T]) Foo() {}
 
 そのためtype paramは事前に出力しておきます。型情報からやってもastからやってもいいですがここではastから出力します。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L302-L316
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L307-L321
 
 実装自体は気合と根性ですね。ここに関しては先に実装イメージを書いてそれを出力できるコードを書いただけ、という感じです。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L332-L426
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L337-L431
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L428-L517
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L433-L522
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L519-L602
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L524-L607
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L604-L639
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_patcher.go#L609-L644
 
 ### Validator
 
 Validatorは、`und:""` struct tagのついたund type fieldに対してstruct tagに応じたvalidationを行うか、フィールドが`und:""` struct tagのつかない`implementor`である場合、実装を呼び出すことで異なる`go module`間に分散したund typeをフィールドに持つ型間での連携を容易にします。
 
-生成したいコードのイメージは[実現したいもの](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info#validator)を再び参照してください。
+生成したいコードのイメージは[実現したいもの#Validator](#validator)を再び参照してください。
 
 ただし追加の要件として、
 
@@ -1638,9 +1638,6 @@ type Implementor struct {
 
 type DeeplyNested struct {
     A []map[string][5]und.Und[Implementor] `und:"required"`
-    B [][][]map[int]Implementor
-    C []map[string][5]und.Und[*Implementor] `und:"required"`
-    D [][][]map[int]*Implementor
 }
 
 //undgen:generated
@@ -1698,163 +1695,6 @@ func (v DeeplyNested) UndValidate() (err error) {
             )
         }
     }
-    {
-        v := v.B
-
-        for k, v := range v {
-            for k, v := range v {
-                for k, v := range v {
-                    for k, v := range v {
-                        err = v.UndValidate()
-                        if err != nil {
-                            err = validate.AppendValidationErrorIndex(
-                                err,
-                                fmt.Sprintf("%v", k),
-                            )
-                            break
-                        }
-                    }
-
-                    if err != nil {
-                        err = validate.AppendValidationErrorIndex(
-                            err,
-                            fmt.Sprintf("%v", k),
-                        )
-                        break
-                    }
-                }
-
-                if err != nil {
-                    err = validate.AppendValidationErrorIndex(
-                        err,
-                        fmt.Sprintf("%v", k),
-                    )
-                    break
-                }
-            }
-
-            if err != nil {
-                err = validate.AppendValidationErrorIndex(
-                    err,
-                    fmt.Sprintf("%v", k),
-                )
-                break
-            }
-        }
-
-        if err != nil {
-            return validate.AppendValidationErrorDot(
-                err,
-                "B",
-            )
-        }
-    }
-    {
-        validator := undtag.UndOptExport{
-            States: &undtag.StateValidator{
-                Def: true,
-            },
-        }.Into()
-
-        v := v.C
-
-        for k, v := range v {
-            for k, v := range v {
-                for k, v := range v {
-                    if !validator.ValidUnd(v) {
-                        err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v))
-                    }
-                    if err == nil && v.Value() != nil {
-                        err = und.UndValidate(v)
-                    }
-
-                    if err != nil {
-                        err = validate.AppendValidationErrorIndex(
-                            err,
-                            fmt.Sprintf("%v", k),
-                        )
-                        break
-                    }
-                }
-
-                if err != nil {
-                    err = validate.AppendValidationErrorIndex(
-                        err,
-                        fmt.Sprintf("%v", k),
-                    )
-                    break
-                }
-            }
-
-            if err != nil {
-                err = validate.AppendValidationErrorIndex(
-                    err,
-                    fmt.Sprintf("%v", k),
-                )
-                break
-            }
-        }
-
-        if err != nil {
-            return validate.AppendValidationErrorDot(
-                err,
-                "C",
-            )
-        }
-    }
-    {
-        v := v.D
-
-        for k, v := range v {
-            for k, v := range v {
-                for k, v := range v {
-                    for k, v := range v {
-                        if v != nil {
-                            err = v.UndValidate()
-                        }
-                        if err != nil {
-                            err = validate.AppendValidationErrorIndex(
-                                err,
-                                fmt.Sprintf("%v", k),
-                            )
-                            break
-                        }
-                    }
-
-                    if err != nil {
-                        err = validate.AppendValidationErrorIndex(
-                            err,
-                            fmt.Sprintf("%v", k),
-                        )
-                        break
-                    }
-                }
-
-                if err != nil {
-                    err = validate.AppendValidationErrorIndex(
-                        err,
-                        fmt.Sprintf("%v", k),
-                    )
-                    break
-                }
-            }
-
-            if err != nil {
-                err = validate.AppendValidationErrorIndex(
-                    err,
-                    fmt.Sprintf("%v", k),
-                )
-                break
-            }
-        }
-
-        if err != nil {
-            return validate.AppendValidationErrorDot(
-                err,
-                "D",
-            )
-        }
-    }
     return
 }
 ```
@@ -1863,20 +1703,20 @@ func (v DeeplyNested) UndValidate() (err error) {
 
 前述のとおり、型情報からstruct tagを取得できます
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L228
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L223
 
 `undtag.ParseOption`として解析機能がexportしてあるのでこのstruct tagの解析自体はこれを呼び出すだけです。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L237-L243
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L232-L238
 
 前述のとおりですが、`undtag.ParseOption`の解析結果である`undtag.UndOpt`はinternal packageとしてvendorされた`option`を利用するため、これ自体を外部パッケージが初期化できません。
 そのため`undtag.UndOptExport`を出力して`Into`メソッドを呼び出すことで`undtag.UndOpt`を得ます。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L347-L396
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L343-L392
 
 `map[string][][]A`のように深くネストした型のAを取り出すためのunwrapperを出力します
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L153-L178
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L148-L173
 
 少しわかりにくいですかね？
 今回許す`A`のような型への経路は`map`, `slice`, `array`のみですが、これらすべては`for k, v := range value {}`で処理可能です。
@@ -1926,11 +1766,11 @@ func unwrapOne(innerExpr string) string {
 
 unwrapperをappendしていく順序と実際に呼び出すべき順序は逆であるので`slices.Backward`で逆順に適用していきます
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L321-L325
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L319-L323
 
 あとは`implementor`なら呼び出すとか、`implementor`がpointer typeならnilチェックをするとかそういった細かい気遣いを加えて完成です
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L106-L343
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L103-L341
 
 てかこの関数長いですね。200行以上ある。
 
@@ -1938,7 +1778,7 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 
 Plain変換はこの3つのテーマの中でもっとも複雑です。
 
-生成したいコードのイメージは[実現したいもの](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info#plain)を再び参照してください。
+生成したいコードのイメージは[実現したいもの#Plain](#plain)を再び参照してください。
 
 ただし、Validator同様追加の要件として、
 
