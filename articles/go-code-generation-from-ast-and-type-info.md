@@ -63,6 +63,21 @@ published: false
 go version go1.23.2 linux/amd64
 ```
 
+各種ライブラリは以下のバージョンを用います。特に[golang.org/x/tools]は作成途中に`v0.27.0`がリリースされていますがこのバージョンで本記事に書いたいくつかの挙動が改善されているかもしれないので注意してください。
+
+```
+require (
+	github.com/dave/dst v0.27.3
+	github.com/google/go-cmp v0.6.0
+	github.com/ngicks/go-iterator-helper v0.0.16-0.20241102133946-d622279c83c3
+	github.com/ngicks/und v1.0.0-alpha5.0.20241108225608-67d88238795b
+	github.com/spf13/cobra v1.8.1
+	github.com/spf13/pflag v1.0.5
+	golang.org/x/tools v0.26.0
+	gotest.tools/v3 v3.5.1
+)
+```
+
 ## Goとastと型情報とコードジェネレーター
 
 一応[Go]とは何ぞやというところから触れていきます。
@@ -388,6 +403,8 @@ func (v All) UndValidate() error {
 }
 ```
 
+und typeのValidationをかけたいのでvalidation methodは`UndValidate`という名前で定義します。
+
 さらに、フィールドがvalidatorを実装する際にはそれを呼び出せるようにします。
 
 ```go
@@ -524,6 +541,8 @@ func (v ExamplePlain) UndRaw() Example {
 }
 ```
 
+und typesの変換なので変換メソッドを`UndRaw`/`UndPlain`という名前で定義します。`Und`というprefixを加えることで、ユーザーがすでに実装しているメソッドと被りにくくする意図があります。
+
 さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドをを実装する(これを`implementor`と呼ぶ。生成対象になった型をフィールドに含む型も同様に`implementor`のように取り扱われるが、こちらは`dependant`と呼ばれる)際にはそれを呼び出せるようにします。
 ObjectにObjectやArrayがネストしているJSONは普通に存在していますし、それを表現する`Go`の型は各部を別々のnamed typeとして定義するのが筆者の知る限り普通なことなので、これができないと実用に耐えないですね。
 
@@ -584,7 +603,9 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
 }
 ```
 
-## 基本的方針
+## 基本方針
+
+設計にかかる基本的な方針を述べます。
 
 - astのrewriteで実現する
   - 今回生成するものは`Go`のソースコードを受けとり、定義された型のフィールドを置き換えるなどするため、astをそのまま用いることができれば独自に実装しなければならないものが減ります。
@@ -620,7 +641,7 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
 `2.`はPatch作成のためにast rewrite時に`json:",omitempty"`を各フィールドに追加するために必要です。
 struct tagの解析器と編集機能を実装します。[encoding/json v2(候補)について紹介してundefined | null | Tを表現する](https://zenn.dev/ngicks/articles/go-json-undefined-or-null-v2)で解析器までは実装していたのでこれを改造します。
 
-`3.`はimport情報を保存し、ある`package path`に対して、ファイル内でどういった`ident`でアクセスできるかを引き出したり、元のファイルには存在していなかったimport declを[PackageName](https://go.dev/ref/spec#PackageName)が被らないように追加したりするために必要です。
+`3.`はimport情報を保存し、ある`package path`に対して、ファイル内でどういった`ident`でアクセスできるかを引き出したり、元のファイルには存在していなかったimport specを[PackageName](https://go.dev/ref/spec#PackageName)が被らないように追加したりするために必要です。
 
 これは、astのrewriteによって生成されるコードは生成元のファイルのimport declのpackage pathを使ってしまうので必要となります。つまり
 
@@ -661,24 +682,24 @@ type FooPlain struct {
 - 2. さらに、上記の型を含む型をの検知と、さらにその型を含む型・・・という感じで連鎖的な型(`dependant`)の検知
   - 連鎖的に検知し、それぞれコード生成の対象となった場合には`UndValidate`/`UndRaw`などのメソッドを実装しているという「てい」にして取り扱います。
   - そうしないと、何度もコード生成を行わないと連鎖的にすべての型に対してメソッドが生成できませんので非常に不便です。
-- 3. コード生成対象外の場合でも、`UndValidate`や`UndRaw` -> `UndPlain` -> `UndRaw`の循環的な変換をサポートする型(`implementor`)の検知
+- 3. コード生成対象外の場合でも、`UndValidate`や`UndRaw` -> `UndPlain` -> `UndRaw`の循環的な変換を実装する型(`implementor`)の検知
   - これらを検知して、これらを含む型を連作的に検知します。そうしないと、分割されたモジュール間での連携ができなくなって非常に不便です。
 - 4. 連鎖的に検知された型(`dependant`)から、生成されることになるはずの型を`*types.Named`として生成する
   - `implementor`の`UndPlain`/`UndRaw`による変換先の型は、型情報から取得可能ですが、`dependant`はまだ型を書き出していないので、`implementor`同様の方法では変換先を得られません
   - ただしcode generatorはどのような型を書き出すことになるのかを知っています。
   - `implementor`と`dependant`をほぼ同じように取り扱いたいならば、`dependant`の変換先も同じフォーマットで得られたほうが良いです。
 
-`1.`に関してはastか型情報を用いればよいでしょう。テキストとしてソースコードを読み込んでもよいと思いますが、コメントなどでパーザーが混乱させられることもあるのでロバストとはいいがたいです(`/* comment */`構文だとあらゆる箇所にコメントを入れられます。)また、`struct {}`リテラルなどで改行を含んだフィールドや、`struct {Foo, Bar string}`のように複数のフィールドを1行で書いたりできるため、テキストとして解析は案外大変だったりします。
+`1.`には型情報を用います。
 
 `2.`は型情報の依存性をグラフとして解析し、フィールドにund typeを含む型・・・以後`matched type`と呼ぶ・・・をまず見つけ、その型に依存している方に向けてtraverseすることで、そういった型をフィールドに含む型・・・以後`dependant`と呼ぶ・・・を見つけるという方式をとります。
-当初は`map[ident]type`なマップに`matched`を記録しておき、これらをフィールドに含む型を`dependant`としてさらにマップに記録していく方式をとっていました。この方法には明確な欠点があって、ソースコード上の出現順序と依存関係が逆だと、型の数と同じだけ解析処理を走らせないと網羅的にすべての`dependant`を発見できず、非常に非効率だし思いのほか処理の使いまわしがききませんでした。
+当初は`map[ident]type`なマップに`matched`を記録しておき、これらをフィールドに含む型を`dependant`として同じマップに記録していく方式をとっていました。この方法には明確な欠点があって、ソースコード上の出現順序と依存関係が逆だと、型の数と同じだけ解析処理を走らせないと網羅的にすべての`dependant`を発見できず、非常に非効率だし思いのほか処理の使いまわしがききませんでした。
 
-`3.`は型情報を解析して判定することとします。`types`には[types.AssignableTo](https://pkg.go.dev/go/types@go1.23.3#AssignableTo)、[types.Implements](https://pkg.go.dev/go/types@go1.23.3#Implements)、[types.Satisfies](https://pkg.go.dev/go/types@go1.23.3#Satisfies)などがありますが、これらを用いて検知を実現することはおそらくできません。
+`3.`は型情報を解析して判定することとします。`types`には[types.AssignableTo](https://pkg.go.dev/go/types@go1.23.3#AssignableTo)、[types.Implements](https://pkg.go.dev/go/types@go1.23.3#Implements)、[types.Satisfies](https://pkg.go.dev/go/types@go1.23.3#Satisfies)などがありますが、これらを用いて`UndPlain`/`UndRaw`の検知を実現することはおそらくできません。
 これらの方法は、型や値が`interface`を満たすかどうかのチェックを`types`の機能として提供しますが、そもそも`UndRaw`/`UndPlain`による`T` -> `T'` -> `T`の変換はinterfaceとして表現する方法がわかりません。`Go`のinterfaceにはSelf type的なものがないためおそらく表現できないんじゃないかと思います。そのため、もっと手続き的な方法で型情報をたどって検査します。
 
-`4.`は、型情報を用いて元となった方(_Raw_)から`*types.Named`を作成します。後述です。
+`4.`は、型情報を用いて元となった型(_Raw_)から`*types.Named`を作成します。後述です。
 
-## 実装
+## 機能の実装
 
 ### astおよび型情報の収集: packages.Loadによるast/型情報の取得
 
@@ -696,7 +717,12 @@ import (
 
 func main() {
     fset := token.NewFileSet()
-    /* *ast.File */file, err := parser.ParseFile(fset, "path/to/source/file", nil, parser.ParseComments|parser.AllErrors)
+    /* *ast.File */file, err := parser.ParseFile(
+        fset,
+        "path/to/source/file",
+        nil,
+        parser.ParseComments|parser.AllErrors,
+    )
     if err != nil {
         // handle error
     }
@@ -709,10 +735,10 @@ func main() {
 package main
 
 import (
-+    "go/importer"
++   "go/importer"
     "go/parser"
     "go/token"
-+    "go/types"
++   "go/types"
 )
 
 func main() {
@@ -721,25 +747,25 @@ func main() {
     if err != nil {
         // handle error
     }
-+    conf := &types.Config{
-+        Importer: importer.Default(),
-+        Sizes:    types.SizesFor("gc", "amd64"),
-+    }
-+    pkg := types.NewPackage(pkgPath, files[0].Name.Name)
-+    typeInfo := &types.Info{
-+        Types:      make(map[ast.Expr]types.TypeAndValue),
-+        Defs:       make(map[*ast.Ident]types.Object),
-+        Uses:       make(map[*ast.Ident]types.Object),
-+        Implicits:  make(map[ast.Node]types.Object),
-+        Instances:  make(map[*ast.Ident]types.Instance),
-+        Scopes:     make(map[ast.Node]*types.Scope),
-+        Selections: make(map[*ast.SelectorExpr]*types.Selection),
-+    }
-+    chk := types.NewChecker(conf, fset, pkg, typeInfo)
-+    err := chk.Files(file)
-+    if err != nil {
-+        // handle error
-+    }
++   conf := &types.Config{
++       Importer: importer.Default(),
++       Sizes:    types.SizesFor("gc", "amd64"),
++   }
++   pkg := types.NewPackage(pkgPath, files[0].Name.Name)
++   typeInfo := &types.Info{
++       Types:      make(map[ast.Expr]types.TypeAndValue),
++       Defs:       make(map[*ast.Ident]types.Object),
++       Uses:       make(map[*ast.Ident]types.Object),
++       Implicits:  make(map[ast.Node]types.Object),
++       Instances:  make(map[*ast.Ident]types.Instance),
++       Scopes:     make(map[ast.Node]*types.Scope),
++       Selections: make(map[*ast.SelectorExpr]*types.Selection),
++   }
++   chk := types.NewChecker(conf, fset, pkg, typeInfo)
++   err := chk.Files(file)
++   if err != nil {
++       // handle error
++   }
 }
 ```
 
@@ -750,7 +776,7 @@ func main() {
 
 というそれらをやってくれるのが[golang.org/x/tools/go/packages]です。
 
-中身をパパッと読む限り、[golang.org/x/tools/go/packages]は`go list -json ...`によって依存モジュールを列挙、依存関係をDAG化、グラフをdepth-firstの順番でロード、タイプチェックと一通りやってくれます。
+中身を読む限り、[golang.org/x/tools/go/packages]は`go list -json ...`によって依存モジュールを列挙、依存関係をDAG化、グラフをdepth-firstの順番でロード、タイプチェックと上記のことを一通りやってくれます。
 
 [golang.org/x/tools/go/packages]でtype checkまで行うコードは以下のようになります
 
@@ -776,8 +802,9 @@ func main() {
 
 ずいぶん簡単になりましたね。
 
-PkgPath, Syntax(`[]*ast.File`), TypeInfo(`*types.Info`)を使いたい場合、以上のようにModeビットフラグを設定します。
-ソースを追っていないので詳細はわかりませんが、`NeedTypesSizes`フラグもないと`*types.Info`の各フィールドがpopulateされませんでした。
+`packages.Load`で[[]\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.26.0/go/packages#Package)が返され、これの各種フィールドがastや型情報となります。
+`Package`のPkgPath, Syntax(`[]*ast.File`), TypeInfo(`*types.Info`)を使いたい場合、上記のようにModeビットフラグを設定します。
+ソースを追いきってないので詳細はわかりませんが、`NeedTypesSizes`フラグもないと`*types.Info`の各フィールドがpopulateされませんでした。
 
 ### 特定のast.Nodeの無視
 
@@ -798,9 +825,9 @@ PkgPath, Syntax(`[]*ast.File`), TypeInfo(`*types.Info`)を使いたい場合、�
 - デバッグ目的では無視したい
   - 今回動作させたいcode generatorは対象のディレクトリにコードを書き込みます。
   - 型情報用いるため、ソースコードはパッケージ単位で処理されますが、２度目以降の生成では生成したコードも型チェックの対象に入ってしまい、結果が変わりえてしまいます。
-  - これによってgeneratorの実装不備がわかりにくくなります。実際できてると思ったらできてなかったというのが何度か置きました。
+  - これによってgeneratorの実装不備がわかりにくくなります。実際できてると思ったらできてなかったというのが何度かおきました。
 - 本番では無視したくない
-  - 生成対象のパッケージで生成済みのコードに依存するコードがパッケージ内で定義されると、code generatorがそれらのnodeを無視してしまうことでtype check時にエラーが起きえます。
+  - ユーザーがパッケージ内に生成された型/メソッドに依存するコードを追加したとき、code generatorがそれらのnodeを無視してしまうとでtype check時にエラーが起きます。
 
 無視できるようにするために、生成されるコードの各Declには`//undgen:generated`というコメントを必ず付与することとします。
 
@@ -853,7 +880,8 @@ func ParseFile(fset *token.FileSet, filename string, src []byte) (*ast.File, err
                                 }
                                 return !direction.generated
                             },
-                            slices.Values(x.Specs)),
+                            slices.Values(x.Specs),
+                        ),
                     )
                 }
                 if !ok || err != nil {
@@ -899,6 +927,8 @@ struct tagの編集機能は以下で実装します。
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/structtag/tag.go
 
+単なるテキスト処理であり、特筆すべきことはないため詳細な説明は省きます。
+
 `Go`のstdの[reflect.StructTag.Lookup](https://pkg.go.dev/reflect@go1.23.3#StructTag.Lookup)を改変してkey-valueのペアに解析できるように変更し、
 [encoding/json/v2 discussion](https://github.com/golang/go/discussions/63397)の[experimental実装のタグ解析部分](https://github.com/go-json-experiment/json/blob/ebd3a8989ca1eadb7a68e02a93448ecbbab5900c/fields.go#L350)を参考に、仕様をまねて`json:"name"`のname部分はsingle quotation(`'`)でescapeしてもよい、`option:value`という形式のオプションをとっても良いという形式にしてあります。
 
@@ -924,8 +954,8 @@ https://github.com/charmbracelet/bubbletea/blob/1feb60b44b74d9a3a7dc54b90ffbecc8
 
 この挙動はspec上実装依存であると述べられており、別のコンパイラが提供された違った挙動をすることもあり得ますが、まあ基本的にこの挙動は保たれるでしょう。
 
-package pathとpackage名が違う場合、linterが警告を出す場合がありますが、上記のようなpackage pathのbaseのサブストリングである場合は出ないようですね。
-`gopls`の設定で`"ui.semanticTokens": true`でsemantic tokensを有効にしてあると、`tea`の部分が緑色(色はカラースキームによって異なる)で表示されてidentであることがわかります。
+package pathのbase nameとpackage nameが違う場合、linterがpackage nameでimportすべきだと警告を出す場合がありますが、上記のようなpackage pathのbaseのサブストリングである場合は出ないようですね。
+`gopls`の設定で`"ui.semanticTokens": true`でsemantic tokensを有効にしてあると、`tea`の部分が緑色(色はカラースキームによって異なる)で表示されて`tea`でこのpackageにアクセスできることがわかります。
 
 ということで以下を行うものとします
 
@@ -938,15 +968,12 @@ package pathとpackage名が違う場合、linterが警告を出す場合があ�
 
 上記より[\*packages.PackageのImportsフィールド](https://pkg.go.dev/golang.org/x/tools@v0.27.0/go/packages#Package.Imports)も`packages.Load`によってpopulateされほしいので`*packages.Config`の`Mode`ビットに[packages.NeedImports](https://pkg.go.dev/golang.org/x/tools@v0.27.0/go/packages#NeedImports)|[packages.NeedDeps](https://pkg.go.dev/golang.org/x/tools@v0.27.0/go/packages#NeedDeps)も加えます。
 
-`packages.Visit`を使うとdependency orderでのvisitが可能です。適当にラップすれば[iterator](https://pkg.go.dev/iter)に変換できます。
+`[]*package.Package`を列挙するには`packages.Visit`を呼び出します。`Visit`は`[]*package.Packages`をdependency orderかつ重複を排除しながらtraverseする機能を呈要します。
+適当にラップすれば[iterator](https://pkg.go.dev/iter)に変換できます。
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/imports/parser.go#L90-L100
 
-`*types.Package`の`Scope()`で最上位スコープをとり、`Names()`ですべての名前を列挙します。`*types.Named`か`*types.Alias`がtype specで定義できる型なので、それだけが検出されるようにフィルターをかけます。
-
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/imports/parser.go#L52-L73
-
-`[]*package.Package`から解析された型情報を`dependencies`, code generatorが追加したいimportを`extra`、`*ast.File`から解析された`ident` - `package path`の関係を`ident`として保存しておきます。`extra`およびランタイムで問い合わせられたpackage pathのなかで`ident`に存在しないものは`missing`に記録します。
+`[]*package.Package`から解析された型情報を`dependencies`, code generatorが追加したいimportを`extra`、`*ast.File`から解析された`ident` - `package path`の関係を`ident`として保存しておきます。`extra`およびcode generator動作中に問い合わせられたpackage pathのなかで`ident`に存在しないものは`missing`に記録します。
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/imports/parser.go#L109-L117
 
@@ -962,7 +989,7 @@ identが被った場合に備えて`_%d`でsuffixしながらマップに追加�
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/imports/parser.go#L210-L227
 
-最後に、`*dst.File`に`missing`の内容を追加することで、のちのnode単位のast printingで出力できるようにします。
+最後に、`*dst.File`に`missing`の内容を追加することで、のちのnode単位のast printingで追加されたimportも出力できるようにします。
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/imports/parser.go#L337-L394
 
@@ -1004,6 +1031,7 @@ dts := dec.Dst.Nodes[ts].(*dst.TypeSpec)
 `astutil.Apply`の代替となる`dstutil.Apply`があるため、rewriteはastと同じように行えます。
 
 書き換え自体はGo source codeと紐づくast表現の規則を覚えて気合と根性で何とかします。
+[ast.Fprint](https://pkg.go.dev/go/ast@go1.23.3#Fprint)でastの構造をprintできるのでソースを解析してprintしてを繰り返して構造を覚えます。
 
 ```go
 dstutil.Apply(
@@ -1066,7 +1094,7 @@ buf := new(bytes.Buffer)
 err := printer.Fprint(buf, res.Fset, ats)
 ```
 
-ですので、変換前の`ast.Node`で参照できる`dst.Node`をrewriteし、さらに`printer.Fprint`したい場合は以下のようなシーケンスになります。
+ですので、変換前の`ast.Node`から、modifyしてrestoreした後の`ast.Node`をたどってprintするには以下のようにします。
 
 ```go
 var originalNode ast.Node
@@ -1079,7 +1107,7 @@ if err != nil {
 
 dNode := dec.Dst.Nodes[originalNode]
 
-modifiedNode := modify(dNode)
+modify(dNode)
 
 res := decorator.NewRestorer()
 /* *ast.File */ _, err := res.RestoreFile(df)
@@ -1146,7 +1174,7 @@ for _, f := range []*ast.File{...} {
 }
 ```
 
-type specのidentで`Defs`を照会した場合、得られるのは名前付き型(`*types.Named`)もしくはalias(`*types.Alias`, `type A = B`)のみのようです。
+type specのidentで`Defs`を走査した場合、得られるのは名前付き型(`*types.Named`)もしくはalias(`*types.Alias`, `type A = B`)のみのようです。
 
 #### und struct tagを持つund typeのフィールドを見つける
 
@@ -1170,7 +1198,7 @@ for i := range st.NumFields() {
 }
 ```
 
-`Defs`から得られた`types.Object`は`Type`メソッドで`types.Type`が得られます。前述どおりこれはnamedかaliasのみです。
+`Defs`から得られた[types.Object]の`Type`メソッドで[types.Type] interfaceが得られます。前述どおり実際型はnamedかaliasのみです。
 aliasは無視するものとしてnamedの場合、ここで得られているのは名前だけですので、具体的なstruct fieldを探索するためにはそれの`underlying type`を`Underlying`メソッドで取り出します。
 
 `Underlying`の用語は[Go specのそれ](https://go.dev/ref/spec#Underlying_types)と一致しており、つまるところ以下のような感じです。
@@ -1216,7 +1244,8 @@ func isUndType(ty types.Type) bool {
 }
 ```
 
-`types.Object`の`Name`でunqualified nameが得られ、`Pkg().Path()`でパッケージのパスが得られるため、これを比較すればよいです。
+[types.Object]の`Name`でunqualified nameが得られ、`Pkg().Path()`でパッケージのパスが得られるため、これを比較すればよいです。
+コメントにある通り、`error`組み込み型はnamed typeなので`Pkg()`がnilを返します。nilチェックは必須です。
 
 ### 型依存関係のグラフの作成
 
@@ -1224,13 +1253,53 @@ func isUndType(ty types.Type) bool {
 
 やることは以下です
 
-- `*types.Named`(名前付き型)の列挙
+- [*types.Named]\(名前付き型\)の列挙
   - `type Foo ...`として定義した型の中で`type A = B`というaliasを除いたものです。
-- 型をnodeとし`*types.Named`から`*types.Named`への依存をedgeとして記録。
+- 型をnodeとし[*types.Named]から[*types.Named]への依存をedgeとして記録。
 - `matcher`を受けとり、`*types.Named`が`matched`であるかを判別
   - `matcher`はund typeや`UndValidate`、`UndRaw`/`UndPlain`のような特別な関数を満たす外部の型にもマッチするようにします。
 - `matched`から上へedgeをたどって`dependant` typeをとれるようにします。
   - transitの際、edgeを上にたどるかどうかを決める`edgeFilter`を受けとり、例えば`chan A`のような依存ではたどらないものとします。
+
+#### \*types.Namedの列挙/nodeの記録
+
+[*types.Named]の列挙は[astおよび型情報の収集: packages.Loadによるast/型情報の取得](#astおよび型情報の収集%3A-packages.loadによるast%2F型情報の取得)で説明した通り、`[]*packages.Package`の`Syntax`(\[\][*ast.File])をiterateして見つかった各[*ast.TypeSpec]のNameで`TypesInfo`([*types.Info])の`Defs`を引きます。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L239-L298
+
+型情報にはどのtype specがグルーピングされていたとか、コメントがどうなっていたとかは直接現れないため`*ast.GenDecl`, `*ast.TypeSpec`でもフィルタリングをかけられるようにします。
+`matcher`にマッチしたとき、nodeのMatchedビットを立てます。
+
+`Node`は以下のように定義されます
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L57-L69
+
+#### edgeの記録
+
+Edgeは以下の通りに定義します。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L91-L100
+
+[*types.Named]から[*types.Named]への経路をたどり、`map`,`slice`,`array`,`pointer`,`channel`のような無名の型の情報を`Stack`として記録します。
+以下のように順繰りに型を*unwrap*死ながら経路情報を記録します。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L419-L462
+
+各`node`は[*types.Named]であるため、`Underlying`でtraverseをかけます。
+たどり着いたnamed typeが`matcher`にマッチしたとき、`node`としてすでに格納されていないならば外部タイプであるので、`external`ビットを立てます。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L324-L375
+
+`external`としてマッチした時のみ、type argも記録します。type argの記録時にはnamed type出ないことも許容します。
+`und.Und[T]`の`T`が`UndValidate`や`UndRaw` -> `UndPlain`のような特定のinterfaceを満たす時、特別なハンドリングを行いたのでtype argの記録が必要でした。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L377-L417
+
+`edge`は親子に双方に描きます。グラフをtraverseするときは`edge`を子から親に向けてたどりますが、code generatorは子の情報を使うからです。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L464-L490
+
+#### graphの例とedge filteringについて
 
 例えば、下記のようなコードがあるとき、
 
@@ -1264,16 +1333,7 @@ type E struct {
 - `D` -`{struct, slice}` -> `A`
 - `E` -`{struct, map, pointer, array, slice}` -> `A`
 
-`*types.Named`から`*types.Named`へのエッジをとるとき、`array`, `chan`, `map`, `pointer`, `slice`, `struct`のような無名の型を経由することができるため、これらの関係性をコード生成にかかわるレベルで記録するものとします。
-
-今回生成したいコードは`JSON`など外部とのデータのやり取りに用いる型を対象とするため、`chan`はedgeとして有効ではないとしたくなります。
-また、`und.Und[T]`の`T`が`UndValidate`や`UndRaw` -> `UndPlain`のような特定のinterfaceを満たす時、特別なハンドリングを行いたいので、`matcher`にマッチする型はtype argも記録するものとします。
-
-そこで、Node, Edgeは以下の通りに定義します。
-
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L57-L69
-
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L91-L100
+`{struct, map}`のような形で、`array`, `chan`, `map`, `pointer`, `slice`, `struct`のような無名の型をたどった経路を記録します。これが前述の`Stack`です。
 
 [Go1.18]からgenericsが導入されたため、親から子への依存はtype argによりばらばらにinstantiateされる可能性がありますが、nodeそのものはinstantiateされてない型の定義そのものです。そのため、child側だけはNodeとTypeをそれぞれ記録する必要があります。
 
@@ -1285,12 +1345,21 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 
 ![](/images/go-code-generation-from-ast-and-type-info-type-graph-concept.drawio.png)
 
-`chan`は変換の対象にならないため、edgeのフィルタリングにより連鎖的に`D`も対象外になります。
+今回生成したいコードは`JSON`など外部とのデータのやり取りに用いる型を対象とするため、`chan`を`Stack`に含む`edge`は対象にしません。
+そこで`edge`のtraverse時に`edge`をフィルターする機能を加えるものとします。
+
+上記の図では`Und`から`C`の`edge`は`chan`を含むものしかないため、それ以上辿らないものとします。
+連鎖的に`D`も`dependant`ではないという風に取り扱います。
 
 ![](/images/go-code-generation-from-ast-and-type-info-type-graph-concept-edge-filtering.drawio.png)
 
-edgeの形成はNode間(`*types.Name`から`*types.Named`)のみの評価であるため評価は必ず終わりますが、edgeをたどる際には無限ループが生じうるため、注意が必要です。
+#### graphのtraverse
 
+graphのtraversalは`matched`、`external`を起点に`edge`を親に向けてたどります。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L504-L534
+
+`edgeの`形成は`Node`間(`*types.Name`から`*types.Named`)のみの評価であるため評価は必ず終わりますが、edgeをたどる際には無限ループが生じうるため、注意が必要です。
 例えばTree型は型的に再帰することで木構造を形成することが多いため、この場合nodeが循環します。visit処理はこれらで無限ループに陥らないようなケアが必要です。
 
 ```go
@@ -1302,7 +1371,7 @@ type Tree struct {
 
 そこで、お決まりですが`visited map[*node]bool`なマップを用意し、1度visitしたnodeに再度visitすることがないようにします。
 
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L514-L544
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L536-L566
 
 ### `UndRaw`/`UndPlain`を実装する型の検知
 
@@ -1312,6 +1381,7 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 `Go`のinterfaceには`Self type`を表す方法がないため、`UndRaw`/`UndPlain`はinterfaceで表現することはできず、型情報を解析して実装をチェックするよりほかありません。
 
 ある型のmethod setを`types`を通じて得るには[types.NewMethodSet](https://pkg.go.dev/go/types@go1.23.3#NewMethodSet)を用います。
+例を下に示します。
 
 ```go
 type Foo struct {
@@ -1343,28 +1413,34 @@ for i, sel := range hiter.AtterAll(mset) {
 ```
 
 通常の`Go`のルールのとおり、pointer typeでなければpointer typeがreceiverのmethodは見えません。
+基本的に[*types.Named]を受けとって`types.NewPointer`でポインターに包んでからmethod setをとることになります。
 
-method setの`At`メソッドでn番目のメソッドを取得できます。ここから得られる[\*types.Selection](https://pkg.go.dev/go/types@go1.23.3#Selection)の`Type`はおそらく`[\*types.Signature](https://pkg.go.dev/go/types@go1.23.3#Signature)のみです。
+method setの`At`メソッドでn番目のメソッドを[\*types.Selection](https://pkg.go.dev/go/types@go1.23.3#Selection)として得られます。
+これは[\*types.Signature](https://pkg.go.dev/go/types@go1.23.3#Signature)なのでtype assertionしてから利用します。
 
-上記より、`UndRaw`/`UndPlain`を実装しているかは以下のようにチェックできます。
+以上より`UndRaw`/`UndPlain`を実装しているかは以下のようにチェックできます。
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/method_checker.go#L34-L102
 
-やってることは簡単で、与えられた`*types.Named`が特定の名前(=`UndPlain`)のメソッドを持ち、それが返す型が特定の名前(=`UndRaw`)のメソッドをもち、呼び出し結果が元の型と一致するかを判定します。
-ただし、関数に与えられた`*types.Named`がinstantiateされていない場合はそれだけでは一致しているかどうかを確認しきれません。instantiateされていない型、つまり`type Foo[T any]`のような型から関数の返り値をとると、そのtype param `T`でinstantiateされた`FooPlain[T]`を返すことになります。そのため、`FooPlain[T]`の`UndRaw`から返ってくる型は`Foo[T]`であり、`type Foo[T any]`という具体的にinstantiateされていないtype paramだけを持つ状態と、そのtype paramをtype argとして持つinstantiateされている状態で食い違うため、同じ型ではないと判定されることになります。
-そこで`*types.Signature`経由で返されたinstantiateされた型でもう一度関数を実行することで判定を行います。メソッドから返ってきた方はinstantiateされているので、こちらを用いればお互い同じ型でinstantiateされていることになります。
+[*types.Named]を受けとって`types.NewPointer`で包んでからmethod setを取得し、所望の名前のメソッドを探します。
+返り値の型も`types.NewPointer`で包んでからmethod setを取得し、所望の名前のメソッドを探して、それが最初に入力された型かをチェックします。
+
+ここで考慮しなければならないのが、入力されたnamed type `ty`がinstantiateされていない場合です。instantiateされていない型、つまり`type Foo[T any]`のような型からメソッドの返り値をとると、そのtype param `T`でinstantiateされた`FooPlain[T]`が返ります。`FooPlain[T]`の`UndRaw`から返ってくる型は`Foo[T]`であり、`type Foo[T any]`という具体的にinstantiateされていないtype paramだけを持つ状態で食い違うため同じ型ではないと判定されます。
+そのため元の型`ty`が`TypeParam`を持つが`TypeArg`を持たない(=instantiateされていない)ときはメソッドが返した型でもう1度`isConversionMethodImplementor`を実行します。
 
 ### \*types.Namedの生成
 
 `UndRaw`/`UndPlain`を実装する型の、`UndPlain`で返される型は上記`*types.Named`の探索によって行われます。
 
-`dependant`は`UndPlain`を実装するものとして取り扱われますが、こちらの場合はコードが生成されていないため上記と同じ`*types.Named`を探索しただけでは変換先の型を取り出すことができませんが、`implementor`と同じように`*types.Named`で変換先を渡せると扱いを統一できてよいことになります。
+`dependant`は`UndPlain`を実装するものとして取り扱われますが、こちらの場合はコードが生成されていないため上記と同じ`*types.Named`を探索しただけでは変換先の型を取り出すことができませんが、`implementor`と同じように`*types.Named`で変換先を渡せると扱いを統一できてよいのでそうします。
 
 そこで、変換前の`*types.Named`をベースに変換後の型を生成します。
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_common.go#L111-L131
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain.go#L155-L187
+
+`types`のdoc commentを読むだけでは少々分かりにくいですが、`types`の内部コードで当然named typeを作ってinstantiateするところまでtype checkの過程でやっていますからその辺を参考にしました。
 
 ```go
     aa := types.TypeString(instantiated, (*types.Package).Name)
@@ -1375,14 +1451,12 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 
 ## code generatorの実装
 
-### 基本方針
-
-最初に基本的な実装のしかたの方針を説明します。
+最後に具体的な今回実装したかったcode generatorの実装方法に入っていきます。
 
 やりたいことは大まかに二つで
 
-- 入力となる型を受けとって変更した型を出力
-- 入力をreceiverとしたメソッドの出力(Patcher)、生成した型をreceiverとしたメソッドの出力(Validator/Plain)
+- 入力となる型を受けとって変更し、テキストとして出力
+- 入力をreceiverとしたメソッド(Patcher)、生成した型をreceiverとしたメソッド(Validator/Plain)をテキストとして出力
 
 これらに対して、
 
@@ -1390,7 +1464,13 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
   - package clause, import specも`printer.Fprint`でprintします。
 - メソッドの出力 => [*bufio.Writer] + [fmt.Fprintf]
 
-#### printer.Fprintによるプリント
+を行います。
+
+まず`printer.Fprint`によるprintの方法と`bufio.Writer`+`fmt.Fprint`による書き出しの方針と利点などの説明をし、`Patch`,`Validator`,`Plain`の具体的な変換や生成方法について述べてます。
+
+### printer.Fprintによるprint
+
+#### package, importのprint
 
 package clause, import specのprintは以下のようにします。
 
@@ -1441,11 +1521,14 @@ import "net/http"
 // こういうのもたまに見る
 ```
 
+#### typeのprint
+
 前述した通り型情報を事前にグラフ化してたどりながら生成していきますが、それぞれの`*TypeNode`は以下のように、`*ast.TypeSpec`も収集してあります。
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/typegraph/type_graph.go#L57-L69
 
 そのため、前述の「original ast.Node -> modified dst.Node -> modified ast.Node」を順繰りに参照し、`Fprint`することができます。
+
 ただし、`*ast.TypeSpec`は`type`キーワードがないので手動で出力する必要があります。`type`キーワードがくっついてるのは`*ast.GenDecl`のほうです。
 つまり、下記のような関係です。
 
@@ -1473,7 +1556,7 @@ type (
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain.go#L110-L112
 
-#### \*bufio.Writer + fmt.Fprintf
+### \*bufio.Writer + fmt.Fprintfによるメソッドの書き出し
 
 メソッドの書き出しには[*bufio.Writer]と[fmt.Fprintf]を用います。
 
@@ -1492,7 +1575,8 @@ https://github.com/golang/go/blob/go1.23.3/src/bufio/bufio.go#L673-L690
 
 https://github.com/golang/go/blob/go1.23.3/src/bufio/bufio.go#L632-L635
 
-このことで細かいエラーハンドリングを生成途中のコードに生成させる必要はなく、defer内でFlushを呼びそのエラーを返せばいい状態を作ることができます
+このことで細かいエラーハンドリングを生成途中のコードから隠すことができます。
+defer内で`Flush`を呼ぶことで実際の書き出しを行いながらバッファーしたエラーを回収することができます。
 
 ```go
 func generateFancyMethods(w io.Writer) (err error) {
@@ -1522,17 +1606,8 @@ func generateFancyMethods(w io.Writer) (err error) {
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_common.go#L73-L80
 
-code generatorを作るとなると[text/template]か[github.com/dave/jennifer]が思いつくかと思いますが、下記がそれらを使わない理由です。
-
-- [text/template]は煩雑
-  - 条件分岐によって生成されるコードがかなり変わるため、`text/template`で書ききると煩雑です
-  - `Go`でif/elseをたくさん書いて生成する内容が変わるようなケースだと不向きと思います
-  - [dockerが--formatオプションでtext/templateを受け付けます](https://docs.docker.com/engine/cli/formatting/)が、こういったデータが先行しており、ユーザー入力によって出力を自由に変更できるようにするとき、より価値を発揮すると思います。
-- [github.com/dave/jennifer]はimportの連携ができない
-  - `jennifer`内部的にimportを管理してqualifierを自動的に調節してくれますが、今回のケースのようにimport周りを外部かコントロールしたい、というのは見たところできないようです
-  - 基本的に１ファイルまるごど`jennifer`で出力するのが想定なようですので、今回のように複数のやり口を組み合わせるときには不向き、というか想定していないのを感じます。
-
-[fmtのExplicit argument indexes](https://pkg.go.dev/fmt@go1.23.3#hdr-Explicit_argument_indexes)の項目でも述べられていますが、format stringの中で`%[d]verb`(dは任意の1-indexed integer)とすると`d`番目の引数をプリントできます。今回作りたいcode generatorはこれだけで事足りてしまいます。
+printする際には[fmtのExplicit argument indexes](https://pkg.go.dev/fmt@go1.23.3#hdr-Explicit_argument_indexes)を用いると便利です。
+リンク先でも述べられていますが、format stringの中で`%[d]verb`(dは任意の1-indexed integer)とすると`d`番目の引数をprintできます。今回作りたいcode generatorはこれだけで事足りてしまいます。
 
 [playground](https://go.dev/play/p/iiUdIcaEHcJ)
 
@@ -1549,6 +1624,16 @@ func main() {
     // foo, foo, baz, bar, baz
 }
 ```
+
+code generatorを作るとなると[text/template]か[github.com/dave/jennifer]が思いつくかと思いますが、下記がそれらを使わない理由です。
+
+- [text/template]は煩雑
+  - 条件分岐によって生成されるコードがかなり変わるため、`text/template`で書ききると煩雑です
+  - `Go`でif/elseをたくさん書いて生成する内容が変わるようなケースだと不向きと思います
+  - [dockerが--formatオプションでtext/templateを受け付けます](https://docs.docker.com/engine/cli/formatting/)が、こういったデータが先行しており、ユーザー入力によって出力を自由に変更できるようにするとき、より価値を発揮すると思います。
+- [github.com/dave/jennifer]はimportの連携ができない
+  - `jennifer`内部的にimportを管理してqualifierを自動的に調節してくれますが、今回のケースのようにimport周りを外部かコントロールしたい、というのは見たところできないようです
+  - 基本的に１ファイルまるごど`jennifer`で出力するのが想定なようですので、今回のように複数のやり口を組み合わせるときには不向き、というか想定していないのを感じます。
 
 ### Patcher
 
@@ -1592,17 +1677,22 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 
 ### Validator
 
-Validatorは、`und:""` struct tagのついたund type fieldに対してstruct tagに応じたvalidationを行うか、フィールドが`und:""` struct tagのつかない`implementor`である場合、実装を呼び出すことで異なる`go module`間に分散したund typeをフィールドに持つ型間での連携を容易にします。
+Validatorは、`und:""` struct tagのついたund type fieldに対してstruct tagに応じたvalidationを行うか、フィールドが`implementor`もしくは`dependant`である場合、実装を呼び出します。
 
 生成したいコードのイメージは[実現したいもの#Validator](#validator)を再び参照してください。
 
+#### 追加要件
+
 ただし追加の要件として、
 
-- `implementor`はpointer typeでもよいこととします。
+- `implementor`|`dependant`はpointer typeでもよいこととします。
   - 大きなstructはpointerにしたいことは結構あるかと思います。
-- フィールドが`map[string][][5]map[int]sliceund.Und[string]`のように深くネストすることを許します。
+- フィールドが`map[string][][5]map[int]sliceund.Und[string]`のように無名の型で深くネストすることを許します。
   - つまり、edgeがmap, array, sliceを持つことを許します。
-  - JSONなどでObjectやArrayがネストしていることは普通であるため、これを許さないと不便です。
+  - ここまで極端なことをすることは少ないかと思いますが`[][]T`や`map[string]map[string]T`をフィールドに指定すること自体はそう珍しくないと思います。
+- und typeにラップされた`implementor`|`dependant`(`sliceund.Und[Implementor]`)の`UndValidate`も呼び出すようにします
+
+つまり下記のようにpointer typeの場合、nilチェックを挟むことになります。
 
 ```diff go
 type Dependant struct {
@@ -1628,7 +1718,13 @@ func (v Dependent) UndValidate() (err error) {
 }
 ```
 
-フィールドのネストした場合は以下のようなコードを生成します。ここまで極端なことはあまりされないと思いますが、理屈上できるようにしておきます。
+以下のコードでフィールドが
+
+- 無名の型で深くネストした場合
+- und typeにラップされた`implementor`|`dependant`の場合に`UndValidate`も呼び出す
+
+例を示します。
+
 `Go`にはスコープごとに変数を再定義できる仕様があるため`for-range`がネストするたび同名の変数を再使用できています。この仕様がなければもう少しcode generatorの実装難易度が上がっていました。
 
 ```go
@@ -1701,6 +1797,8 @@ func (v DeeplyNested) UndValidate() (err error) {
 
 `validate.AppendValidationErrorIndex`でフィールドのセレクタをエラー情報にappendします。こうすることで`validation failed at .A[1][foo][3].Opt: must be defined: value is none`のようなエラーメッセージを表示できるようにして、どのフィールドがvalidation errorになったのかわかるようにします。
 
+#### 実装
+
 前述のとおり、型情報からstruct tagを取得できます
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L223
@@ -1719,8 +1817,8 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L148-L173
 
 少しわかりにくいですかね？
-今回許す`A`のような型への経路は`map`, `slice`, `array`のみですが、これらすべては`for k, v := range value {}`で処理可能です。
-そのため、ネストしたのと同数回`for-range loop`を行えば`A`を取り出せます。
+今回許すnamed typeへの経路は`map`, `slice`, `array`のみですが、これらすべては`for k, v := range value {}`で処理可能です。
+そのため、ネストしたのと同数回`for-range loop`を行えば深くネストしたnamed typeを取り出せます。
 
 そのため、
 
@@ -1737,9 +1835,7 @@ func unwrapOne(innerExpr string) string {
 ```
 
 という風にします。
-`%s`に渡されるのはさらに内側の`expr`(expression)であり、別の`func(expr string) string`の実行結果を引数にこの関数を動作させると、`for-range loop`で`expr`をラップすることができます。
-この`expr`に渡されるのは`A`のValidator呼び出し、もしくはさらに深い`for-range loop`のいずれでもよく、この関数自体が処理の深さを意識しなくて済むようにしています。
-このようにすることで、mapやsliceがどれだけ深くネスト仕様が、同じ処理を任意回数繰り返すことで処理可能とします。
+`%s`に内側の`expr`(expression)を渡します。渡されるのは`for-loop` expressionか`validator`の呼び出しです。こうすればいくらでも入れ子状に`for-loop`を書き出すことができます。
 
 さらに、
 
@@ -1768,11 +1864,11 @@ unwrapperをappendしていく順序と実際に呼び出すべき順序は逆�
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L319-L323
 
-あとは`implementor`なら呼び出すとか、`implementor`がpointer typeならnilチェックをするとかそういった細かい気遣いを加えて完成です
+あとは`implementor`|`dependant`なら呼び出すとか、`implementor`|`dependant`がpointer typeならnilチェックをするとかそういった細かい気遣いを加えて完成です。
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_validator.go#L103-L341
 
-てかこの関数長いですね。200行以上ある。
+書いてたときはなかなかしんどかったですがその甲斐あってそこそこきれいにまとまりました。
 
 ### Plain
 
@@ -1780,13 +1876,15 @@ Plain変換はこの3つのテーマの中でもっとも複雑です。
 
 生成したいコードのイメージは[実現したいもの#Plain](#plain)を再び参照してください。
 
+#### 追加要件
+
 ただし、Validator同様追加の要件として、
 
 - `implementor`はpointer typeでもよいこととします。
-  - 大きなstructはpointerにしたいことは結構あるかと思います。
 - フィールドが`map[string][][5]map[int]sliceund.Und[string]`のように深くネストすることを許します。
-  - JSONなどでObjectやArrayがネストしていることは普通であるため、これを許さないと不便です。
-  - ここまで極端なことはそうそうされないと思いますが、`[][]T`とか`map[string]map[string]T`ぐらいなら普通にあり得ますよね。
+- und typeにラップされた`implementor`|`dependant`(`sliceund.Und[Implementor]`)も変換されるようにします。
+  - 型の変換(e.g. `sliceund.Und[Implementor]` -> `sliceund.Und[ImplementorPlain]`)
+  - `UndPlain`/`UndRaw`の呼び出し
 
 #### Plain typeへのast rewrite
 
@@ -1805,14 +1903,31 @@ type DeeplyNested struct {
 
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain_type.go#L35-L50
 
-一応、`dst.Expr`取り出した`dst.Expr`そのものに別のexprを代入したくなるケースを考慮して`*dst.Expr`を返すようにします。
+取り出した`dst.Expr`そのものに別のexprを代入したくなるケースを考慮して`*dst.Expr`を返すようにします。
 
-##### rewrite
+後続の変換メソッド生成処理で*unwrap*したdst nodeと*wrap*されたままのdst nodeが必要なのでここでそれらを記録しておきます。
+
+##### implementor|dependantのrewrite
+
+`und:""` struct tagの付けられていない`implementor`|`dependant`、もしくはund typeにラップされた`implementor`|`dependant`は`UndPlain`の変換先の型名に取り換えます。
+
+変換された[*types.Named]を`*dst.SelectorExpr`に変換して前節で*unwrap*された`dst.Node`に代入します。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain_type.go#L130-L175
+
+`plainConverter`は、`implementor`と`dependant`を一緒くたにしてnamed typeからnamed typeへの変換をするための関数で実装は以下のようになります
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain.go#L148-L189
+
+ややすっきりしない作りですが
+
+- `implementor`は型情報をたどって変換先の`*types.Named`を取り出し
+- `dependant`は前述の`makeRenamedType`で`UndRaw`だけを実装する`*types.Named`を作成して返します。
+
+##### und typeのrewrite
 
 上記のfield unwrapperによって取り出された`dst.Expr`を書き換えます。
 und typeは現状、必ずtype paramを1つ持つので、必ず`*dst.IndexExpr`となります。
-
-https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain_type.go#L159-L299
 
 ここから先は面倒で複雑な変換を行います。
 
@@ -1836,6 +1951,8 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 
 こういう感じでパターンを網羅していきます。
 
+まず最初に`und.Und[T]`の`T`が`implementor`|`dependant`である場合、`UndPlain`で変換された先に取り換えます。
+
 - `option.Option[T]`は
   - `defined && (null || undefined)`なら変更なし
   - `defined`: `option.Option[T]` -> `T`
@@ -1847,7 +1964,8 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
   - `defined`: `und.Und[T]` -> `T`
   - `null || undefined` -> `Empty`
 
-という風に変換していきます。[Empty](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/conversion#Empty)は`json.Marshal`時に`MarshalJSON`実装でnullを返す`[]struct{}`ベースの型です。
+という風に変換していきます。
+`null || undefined`のような特殊なケースのために[Empty](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/conversion#Empty)という`json.Marshal`時に`MarshalJSON`実装でnullを返す`[]struct{}`ベースの型を定義し、そちらを使うようにします。
 
 `elastic.Elastic[T]`の変換はもっとパターンが多くなってややこしいです。
 
@@ -1868,6 +1986,10 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 - `null && undefined`: -> `option.Option[Empty]`
 - `defined`: `und.Und[T]` -> `T`
 - `null || undefined`: -> `Empty`
+
+上記すべてを盛り込むと下記のように実装されます
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain_type.go#L185-L325
 
 #### UndPlain/UndRaw method
 
@@ -2061,6 +2183,30 @@ https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df7
 _Plain_ -> _Raw_
 https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain_to_raw.go
 
+Raw ↔ Plain変換部の呼び出し。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/undgen/gen_plain_method.go#L112-L481
+
+`UndRaw`と`UndPlain`の生成は意外にも互いにほとんど同じ処理で上記の*Raw* -> *Plain*と*Plain* -> *Raw*の各部を取り換える以外はほとんど共通です。
+
+## github.com/spf13/cobraを利用した実行ファイル化
+
+[github.com/spf13/cobra](https://github.com/spf13/cobra)を利用して実装した機能をサブコマンドで呼び出せる実行ファイルにまとめます。
+
+```
+go run github.com/ngicks/go-codegen/codegen@latest undgen plain -v --ignore-generated --dir ./path/to/target --pkg ./...
+```
+
+という感じで呼び出せます(と書いといてなんですがこのモジュール外から呼び出したことないです！)
+
+以下の4つのファイルでまとめます。`undgen`というサブコマンドの更にサブコマンドで`patch`/`validator`/`plain`を呼び出せます。
+`cobra`を使うと複数のコマンドを簡単にまとめられて助かります。
+
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/cmd/undgen.go
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/cmd/undgen_patch.go
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/cmd/undgen_plain.go
+https://github.com/ngicks/go-codegen/blob/7dbb755aecf626c70586719602b078f2ca3df708/codegen/cmd/undgen_validator.go
+
 ## 生成結果
 
 生成サンプル用の型と結果は以下に格納されます。
@@ -2075,23 +2221,30 @@ https://github.com/ngicks/go-codegen/tree/2a35a98a9c52910efb646ac714b307bd9a4371
 
 さて今後についてですが
 
-undgenについては、今回生成したものはここから大きく変わることはないと思いますが、いくつかの変更を予測しています。
+`undgen`については、今回生成したものはここから大きく変わることはないと思いますが、いくつかの変更を予測しています。
 
 - リファクタ: もう少しまとめられそうなコードが重複しているので整理しなおします。
 - `und:"und"`がついたときのplain typeの対応するフィールドを`*T`にする
-  - `T | null`は`option.Option[T]`で表現できますが、`T | undefined`はomitmeptyのついた`*T`である必要があるためです。そうしなければ、`json.Marshal`などで出力する際には`Raw`に一度変換しなおさなければならないため、少し不便ですね。`Plain`だけを使っても運用が通用したほうが便利ではあると思うためそうなるように検証を重ねていこうかなと思っています。
+  - `T | null`は`option.Option[T]`で表現できますが、`T | undefined`は`json:",omitmepty"`のついた`*T`である必要があるためです。
+  - そうしなければ、`json.Marshal`などで出力する際には`Raw`に一度変換しなおさなければフィールドが`null`で出力されてしますため、少し不便ですね。
+  - `Plain`だけを使っても運用が通用したほうが便利ではあると思うためそうなるように検証を重ねていこうかなと思っています。
 - もう一つは、さらなるオプションの追加です。
   - type-suffixオプション: 現状、生成される型は元の型名+`Patch`|`Plain`の名前がつきます。これが固定だと少し具合が悪いかなと思います。
   - denylistオプション: また、今は`validator`,`plain`は`//undgen:ignore`というコメントがついていない型はすべて生成対象となってしまいます。これはこのcode genreatorが複数のパッケージを同時に処理することを前提とするため、cli引数からallowlist/denylistを受けとるのが煩雑であるためこういった決断を下していました。ここをもう少し見直してdenylistを受けとれるようにしたほうが良いかなあと思っています。
 
-さらに、今回作ったものを通じてもっと違い物を作れるようになったため、今後はそちらを作っていくことになると思います。
+さらに、今回作ったものを通じて型情報の操作に習熟したのでもっと違うものも作れるようになりました。今後はそちらも作って行くことになるかと思います。
 
-- interface-wrapper: 特定のinterfaceを満たす型をフィールドに含む型が、そのinterfaceを満たすように、メソッドを実装します。実挙動はそのフィールドの対応するメソッドを呼び出します。
-  - 実挙動は別の実装を受けとるんだけど入出力を加工したいとか、単純に記録したいとか、そういうことをしたいことがたびたびあるのですが、これをミスなく実装するのが煩雑なのでcode genratorとして実装したいなということです。
-  - 実例だと`afero.Fs`で、テスト向けにどのメソッドがどの引数で呼び出されるかを記録するだけのラッパーを定義したことがあります。今後そういった加工するだけ系のinterfaceはたくさん定義することになるでしょうからgeneratorを整備しておくと楽ということです。
+- interface-wrapper: struct fieldにinterfaceを含む型に対して、そのinterfaceを実装するようにメソッドを生成します。
+  - すべての挙動はそのフィールドのinterface実装に移譲するが、引数やinterfaceかからの返り値を加工したいときに使うcode generatorです。
+  - 例1: [afero.Fs](https://pkg.go.dev/github.com/spf13/afero#Fs)をラップして、引数が[fs.ValidPath](https://pkg.go.dev/io/fs@go1.23.3#ValidPath)を満たすように変換する
+  - 例2: `afero.Fs`をラップして、引数と返り値をすべて記録し、テストに使う。
+  - メソッドが多いinterfaceのラッパーを定義するのがしんどかったので、カスタマイズ性を犠牲にせずに楽に生成できる仕組みを整えておきたいと筆者は常々思っています。
 - deep-cloner: 型に対して`Clone`メソッドを生成してdeep-cloneを可能とします
-  - いくつかのOSS実装を試したことがあるんですが、例えば`*map[K]V`みたいな珍しいフィールドを想定していなかったりして採用することができなかったことがあります。
+  - いくつかのOSS実装を試したことがあるんですが、例えば`*map[K]V`というフィールドを含むstructに対して生成するとpointerであることが想定されていなくて生成されたコードがコンパイルできなかったりします。
   - 今回実装したcode genreatorの処理のほとんどがdeep clonerの生成に用いることができるためじゃあ作ればよくないかと思っています。
+    - 型がcopy-by-assignなのか検知する機能以外もうほとんど実装終わってる気がするんですよ。
+      - [noCopy](https://github.com/golang/go/issues/8005#issuecomment-190753527)型の検知とかもですね
+    - field unwrapperのところはもうほとんどdeep cloneです。
 
 [Go]: https://go.dev/
 [Go1.18]: https://tip.golang.org/doc/go1.18
@@ -2107,6 +2260,12 @@ undgenについては、今回生成したものはここから大きく変わ�
 [*types.Map]: https://pkg.go.dev/go/types@go1.23.3#Map
 [*types.Chan]: https://pkg.go.dev/go/types@go1.23.3#Chan
 [*types.Struct]: https://pkg.go.dev/go/types@go1.23.3#Struct
+[*types.Named]: https://pkg.go.dev/go/types@go1.23.3#Named
+[types.Object]: https://pkg.go.dev/go/types@go1.23.3#Object
+[types.Type]: https://pkg.go.dev/go/types@go1.23.3#Type
+[*types.Info]: https://pkg.go.dev/go/types@go1.23.3#Info
+[*ast.File]: https://pkg.go.dev/go/ast@go1.23.3#File
+[*ast.TypeSpec]: https://pkg.go.dev/go/ast@go1.23.3#TypeSpec
 [golang.org/x/tools/go/packages]: https://pkg.go.dev/golang.org/x/tools@v0.26.0/go/packages
 [github.com/dave/dst]: https://github.com/dave/dst
 [github.com/oapi-codegen/oapi-codegen]: https://github.com/oapi-codegen/oapi-codegen
