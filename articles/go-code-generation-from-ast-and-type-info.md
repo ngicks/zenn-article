@@ -150,7 +150,7 @@ https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
 - Plain
   - `und:""` struct tagで指定された内容に従い、例えばのフィールドの型が`und.Und[T]`でstruct tagが`und:"required"`なら型を`T`に*unwrap*した*Plain*な型を作成する。
   - 元となった型(_Raw_)との相互変換を実現する。
-  - こうすることで、Marshal/Unmarshalの界面ではlosslessで`undefined | null | T`や`undefined | null | T | (T | null)[]`をデータ構造に当てはめ、validationなどを実施したうえで界面以外で処理するのに都合のいいデータ構造に変換してから後続の処理を行うことができます。。
+  - こうすることで、Marshal/Unmarshalの界面ではlosslessで`undefined | null | T`や`undefined | null | T | (T | null)[]`をデータ構造に当てはめ、validationなどを実施したうえで界面以外で処理するのに都合のいいデータ構造に変換してから後続の処理を行うことができます。
 
 ## 生成されるコードのイメージ
 
@@ -272,13 +272,13 @@ func (p AllPatch) ApplyPatch(v All) All {
 ### Validator
 
 Validatorが実現したいのは、und type([github.com/ngicks/und]で定義される諸般の型)をfieldにもつstruct typeがあるとき、struct tagで`und:""`を指定すると、その内容に基づいてundefined / null / definedの状態などのvalidationを行うことです。
-こうすることで、フィールドが`null`であってもいいけど`undefined`であることは許さない、というのを実現できます。これ自体は一旦`map[string]any`にUnmarshalすることで実現可能だったんですが、この方法に比べると若干効率的です：`map[string]any`へ変換すると想定しないフィールドを無視することができないためです。
+こうすることで、フィールドが`null`であってもいいけど`undefined`であることは許さない、というのを実現できます。これ自体は一旦`map[string]any`にUnmarshalすることで実現可能だったんですが、und typeを使う方法に比べると若干非効率的です：`map[string]any`へ変換すると想定しないフィールドを無視することができないためです。
 
 - validator自体は[github.com/ngicks/und]で実装済みです
   - [untag.UndOpt](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/undtag#UndOpt)としてexportしてあります
   - ただしこの型はinternal packageをフィールドに使っているため外部モジュールから初期化できません。
-    - そこで`github.com/ngicks/und/option`をinternalとしてvendorしておいたinternal版optionを使っているからです。
-    - `option.Option[T]`をそのまま使うとimport cycleが生じます。
+    - `github.com/ngicks/und/option`をinternalとしてvendorしておいたinternal版optionを使っているからです。
+      - 実装上の都合で`undtag`は`option`からも依存されています。
     - `undtag`自体が元はinternal packageだったのでこれでいいと思っていたんです。
   - 苦肉の策として[undtag.UndOptExport](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/undtag#UndOptExport)をexportしておき、これを通じて`UndOpt`を初期化するようにします。
     - こちらは`option.Option[T]`の代わりにポインターを使っています。
@@ -297,7 +297,7 @@ type All struct {
 }
 ```
 
-以下が出力される
+以下の`UndValidate`メソッドが出力される
 
 ```go
 package validatortarget
@@ -403,8 +403,6 @@ func (v All) UndValidate() error {
 }
 ```
 
-und typeのValidationをかけたいのでvalidation methodは`UndValidate`という名前で定義します。
-
 さらに、フィールドがvalidatorを実装する際にはそれを呼び出せるようにします。
 
 ```go
@@ -447,11 +445,11 @@ func (v Dependent) UndValidate() (err error) {
 
 こうすればund typeを含むstructが複数ネストした場合でもフィールドをすべてvalidateして回れるようになります。
 
-[validate.AppendValidationErrorDot](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorDot)と[validate.AppendValidationErrorIndex](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorIndex)は深くネストしたフィールドのどこがvalidationエラーだったのか表示するためにフィールド名をアペンドしていけるようになっているヘルパーで、内部的には[ValidationError](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#ValidationError)でエラーをラップします。
+[validate.AppendValidationErrorDot](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorDot)と[validate.AppendValidationErrorIndex](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorIndex)は深くネストしたフィールドのどこがvalidationエラーだったのか表示するためにフィールド名をエラーにappendできるヘルパーで、内部的には[ValidationError](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#ValidationError)でエラーをラップします。
 
 ### Plain
 
-Plainが実現したいのは、struct fieldがund typeであり`und:""`タグが指定されているとき、このタグの内容に応じてフィールドをアンラップした*Plain*な型を作り、これと元となった方の相互変換を行うことです。
+Plainが実現したいのは、struct fieldがund typeであり`und:""`タグが指定されているとき、このタグの内容に応じてフィールドをアンラップした*Plain*な型を作り、これと元となった型(_Raw_)との相互変換を行うことです。
 
 これを行うことのメリットは下記が実現できることです。
 
@@ -495,7 +493,7 @@ type Example struct {
 }
 ```
 
-以下が出力されるだろうということです
+以下の、*Plain*型,`UndPlain`/`UndRaw`メソッドが出力されます。
 
 ```go
 type ExamplePlain struct {
@@ -541,10 +539,8 @@ func (v ExamplePlain) UndRaw() Example {
 }
 ```
 
-und typesの変換なので変換メソッドを`UndRaw`/`UndPlain`という名前で定義します。`Und`というprefixを加えることで、ユーザーがすでに実装しているメソッドと被りにくくする意図があります。
-
 さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドをを実装する(これを`implementor`と呼ぶ。生成対象になった型をフィールドに含む型も同様に`implementor`のように取り扱われるが、こちらは`dependant`と呼ばれる)際にはそれを呼び出せるようにします。
-ObjectにObjectやArrayがネストしているJSONは普通に存在していますし、それを表現する`Go`の型は各部を別々のnamed typeとして定義するのが筆者の知る限り普通なことなので、これができないと実用に耐えないですね。
+ObjectにObjectやArrayがネストしているJSONは普通に存在していますし、それを表現する`Go`の型は各部を別々のnamed typeとして定義するのが筆者の知る限り普通なことなので、これができないと実用に耐えません。
 
 つまり以下のような、`IncludesImplementor`が存在すると
 
