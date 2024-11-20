@@ -63,7 +63,7 @@ published: false
 go version go1.23.2 linux/amd64
 ```
 
-各種ライブラリは以下のバージョンを用います。特に[golang.org/x/tools]は作成途中に`v0.27.0`がリリースされていますがこのバージョンで本記事に書いたいくつかの挙動が改善されているかもしれないので注意してください。
+各種ライブラリは以下のバージョンを用います。特に[golang.org/x/tools](https://pkg.go.dev/golang.org/x/tools)は作成途中に`v0.27.0`がリリースされていますがこのバージョンで本記事に書いたいくつかの挙動が改善されているかもしれないので注意してください。
 
 ```
 require (
@@ -2221,7 +2221,7 @@ https://github.com/ngicks/go-codegen/tree/2a35a98a9c52910efb646ac714b307bd9a4371
 
 さて今後についてですが
 
-`undgen`については、今回生成したものはここから大きく変わることはないと思いますが、いくつかの変更を予測しています。
+`undgen`については現状の実装から大きく変わることはないと思いますが、いくつかの変更を予測しています。
 
 - リファクタ: もう少しまとめられそうなコードが重複しているので整理しなおします。
 - `und:"und"`がついたときのplain typeの対応するフィールドを`*T`にする
@@ -2234,17 +2234,28 @@ https://github.com/ngicks/go-codegen/tree/2a35a98a9c52910efb646ac714b307bd9a4371
 
 さらに、今回作ったものを通じて型情報の操作に習熟したのでもっと違うものも作れるようになりました。今後はそちらも作って行くことになるかと思います。
 
-- interface-wrapper: struct fieldにinterfaceを含む型に対して、そのinterfaceを実装するようにメソッドを生成します。
+- wrapper: struct fieldにinterfaceを含む型に対して、そのinterfaceを実装するようにメソッドを生成します。
   - すべての挙動はそのフィールドのinterface実装に移譲するが、引数やinterfaceかからの返り値を加工したいときに使うcode generatorです。
   - 例1: [afero.Fs](https://pkg.go.dev/github.com/spf13/afero#Fs)をラップして、引数が[fs.ValidPath](https://pkg.go.dev/io/fs@go1.23.3#ValidPath)を満たすように変換する
   - 例2: `afero.Fs`をラップして、引数と返り値をすべて記録し、テストに使う。
   - メソッドが多いinterfaceのラッパーを定義するのがしんどかったので、カスタマイズ性を犠牲にせずに楽に生成できる仕組みを整えておきたいと筆者は常々思っています。
-- deep-cloner: 型に対して`Clone`メソッドを生成してdeep-cloneを可能とします
+- cloner: 型に対して`Clone`メソッドを生成してdeep-cloneを可能とします
   - いくつかのOSS実装を試したことがあるんですが、例えば`*map[K]V`というフィールドを含むstructに対して生成するとpointerであることが想定されていなくて生成されたコードがコンパイルできなかったりします。
   - 今回実装したcode genreatorの処理のほとんどがdeep clonerの生成に用いることができるためじゃあ作ればよくないかと思っています。
     - 型がcopy-by-assignなのか検知する機能以外もうほとんど実装終わってる気がするんですよ。
       - [noCopy](https://github.com/golang/go/issues/8005#issuecomment-190753527)型の検知とかもですね
     - field unwrapperのところはもうほとんどdeep cloneです。
+- option: よくあるfunctional optionパターンを実装するのですが、unexported fieldそれぞれがoption interfaceを満たす型として生成します。
+  - 例えば`type A struct{foo string}`があるとき、`type Option interface { apply(a *A) Option }`が定義され、
+  - `type fooOption string`, `func (o fooOption) apply(a *A) Option { prev := a.foo; a.foo = string(o); return fooOption(prev) }`という風に実装します
+  - よくある`type Option func(a *A)`と違って比較できます。
+    - 仕様上の制限で関数はnilとしか比較できない。
+    - 型として定義することで、fieldの型がcomparableならcomparableのままにできます。
+  - すべてのフィールドに対して個別に型を定義するのは手間すぎてやる気が起きなかったんですが、code generatorを整備しておけば現実的に可能ですね。
+- なんとかpostfix系: code generatorの結果を受けてさらにfixするとか置き換えるとかする
+  - oapi-codegen-postfix: [#970](https://github.com/oapi-codegen/oapi-codegen/issues/970)でも指摘されていますがoneOfを指定するとmarshalがおかしくなります。これをfixする。
+    - 理由は単純で`type B`に`MarshalJSON`実装をしているとき、`type A B`で定義した`A`を`json.Encoder`に渡しているから起きています。`type A B`はmethod setを継承していないため`B`の`MarshalJSON`が呼び出されないため必ず`{}`が出力されます。
+    - 今(`v2.4.1`)確認しても修正されていなかったのでまだやる価値はある。
 
 [Go]: https://go.dev/
 [Go1.18]: https://tip.golang.org/doc/go1.18
