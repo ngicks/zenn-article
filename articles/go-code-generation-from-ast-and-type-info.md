@@ -2282,6 +2282,10 @@ https://github.com/ngicks/go-codegen/tree/2a35a98a9c52910efb646ac714b307bd9a4371
   - oapi-codegen-postfix: [#970](https://github.com/oapi-codegen/oapi-codegen/issues/970)でも指摘されていますがoneOfを指定するとmarshalがおかしくなります。これをfixする。
     - 理由は単純で`type B`に`MarshalJSON`実装をしているとき、`type A B`で定義した`A`を`json.Encoder`に渡しているから起きています。`type A B`はmethod setを継承していないため`B`の`MarshalJSON`が呼び出されないため必ず`{}`が出力されます。
     - 今(`v2.4.1`)確認しても修正されていなかったのでまだやる価値はある。
+- ident-mover: ファイル単位、exportされたident単位でパッケージに入っていたものを別のパッケージに移動させる
+  - リファクタ(？)の中でも頻繁に困るのは元は同じパッケージで定義していたものを別のパッケージに切り出す時の書き換えです
+  - 現在進行形でリファクタで苦労しています。
+  - `GoLand`にはこういったものが最初から同梱されてるんですかね？
 
 型情報とdst-rewriteを活用すれば別ファイルに書き出さないタイプのcode generator、つまりリファクタツールでもなんでも作れちゃいますね
 
