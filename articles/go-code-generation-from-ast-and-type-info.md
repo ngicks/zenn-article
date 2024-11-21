@@ -2283,6 +2283,8 @@ https://github.com/ngicks/go-codegen/tree/2a35a98a9c52910efb646ac714b307bd9a4371
     - 理由は単純で`type B`に`MarshalJSON`実装をしているとき、`type A B`で定義した`A`を`json.Encoder`に渡しているから起きています。`type A B`はmethod setを継承していないため`B`の`MarshalJSON`が呼び出されないため必ず`{}`が出力されます。
     - 今(`v2.4.1`)確認しても修正されていなかったのでまだやる価値はある。
 
+型情報とdst-rewriteを活用すれば別ファイルに書き出さないタイプのcode generator、つまりリファクタツールでもなんでも作れちゃいますね
+
 [Go]: https://go.dev/
 [Go1.18]: https://tip.golang.org/doc/go1.18
 [Go1.23]: https://tip.golang.org/doc/go1.23
