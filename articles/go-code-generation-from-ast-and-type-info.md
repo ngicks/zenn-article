@@ -2271,6 +2271,7 @@ https://github.com/ngicks/go-codegen/tree/2a35a98a9c52910efb646ac714b307bd9a4371
     - 型がcopy-by-assignなのか検知する機能以外もうほとんど実装終わってる気がするんですよ。
       - [noCopy](https://github.com/golang/go/issues/8005#issuecomment-190753527)型の検知とかもですね
     - field unwrapperのところはもうほとんどdeep cloneです。
+  - `undgen`でさぼったtype paramの追跡が必須なのでそこが少々課題ですが
 - option: よくあるfunctional optionパターンを実装するのですが、unexported fieldそれぞれがoption interfaceを満たす型として生成します。
   - 例えば`type A struct{foo string}`があるとき、`type Option interface { apply(a *A) Option }`が定義され、
   - `type fooOption string`, `func (o fooOption) apply(a *A) Option { prev := a.foo; a.foo = string(o); return fooOption(prev) }`という風に実装します
