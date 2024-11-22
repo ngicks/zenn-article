@@ -1976,23 +1976,37 @@ und typeは現状、必ずtype paramを1つ持つので、必ず`*dst.IndexExpr`
 
 まず最初に`und.Und[T]`の`T`が`implementor`|`dependant`である場合、`UndPlain`で変換された先に取り換えます。
 
+- `und:""`で指定できるのは
+  - `def`(=defined)
+  - `null`
+  - `und`(=undefined)
+  - `required` = `def`のshorthand
+  - `nullish` = `null,und`のshorthand
+  - `len` = `Elastic`の長さを指定、
+    - `len>n`, `len>=n`, `len==n`, `len<n`, `len<=n`でそれぞれ要素数の制限を指定できます
+    - どうしてここまで柔軟な仕様に・・・？
+  - `values` = `Elastic`の各要素の状態を指定
+    - `values:nonnull`で各要素は`null`になってはならないことを表現できる。
+
+これに従い、
+
 - `option.Option[T]`は
-  - `defined && (null || undefined)`なら変更なし
-  - `defined`: `option.Option[T]` -> `T`
-  - `null||undefined` -> `Empty`
+  - `def && (null || und)`なら変更なし
+  - `def`: `option.Option[T]` -> `T`
+  - `null||und` -> `Empty`
 - `und.Und[T]`は
-  - `defined && null && undefined` -> 変更なし
-  - `defined && (null || undefined)`: `und.Und[T]` -> `option.Option[T]`
-  - `null && undefined` -> `option.Option[Empty]`
-  - `defined`: `und.Und[T]` -> `T`
-  - `null || undefined` -> `Empty`
+  - `def && null && und` -> 変更なし
+  - `def && (null || und)`: `und.Und[T]` -> `option.Option[T]`
+  - `null && und` -> `option.Option[Empty]`
+  - `def`: `und.Und[T]` -> `T`
+  - `null || und` -> `Empty`
 
 という風に変換していきます。
-`null || undefined`のような特殊なケースのために[Empty](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/conversion#Empty)という`json.Marshal`時に`MarshalJSON`実装でnullを返す`[]struct{}`ベースの型を定義し、そちらを使うようにします。
+`null || und`のような特殊なケースのために[Empty](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/conversion#Empty)という`json.Marshal`時に`MarshalJSON`実装でnullを返す`[]struct{}`ベースの型を定義し、そちらを使うようにします。
 
 `elastic.Elastic[T]`の変換はもっとパターンが多くなってややこしいです。
 
-`defined&&null&&undefined`かつ`len`オプションがない、もしくは`==`以外の指定で、さらに`values:nonnull`が指定されていないとき型の変換は必要ないのでreturnします。
+`def&&null&&und`かつ`len`オプションがない、もしくは`==`以外の指定で、さらに`values:nonnull`が指定されていないとき型の変換は必要ないのでreturnします。
 
 そうでない場合、`elastic.Elastic[T]` -> `und.Und[[]option.Option[T]]`という変換をかけます。ここから先のパターンは少なくとも必ずこの型には変換されます。
 
@@ -2004,11 +2018,11 @@ und typeは現状、必ずtype paramを1つ持つので、必ず`*dst.IndexExpr`
 
 最後に`def,null,und`の状態に応じた変換をかけます。
 
-- `defined && null && undefined`: 変更なし
-- `defined && (null || undefined)`: `und.Und[T]` -> `option.Option[T]`
-- `null && undefined`: -> `option.Option[Empty]`
-- `defined`: `und.Und[T]` -> `T`
-- `null || undefined`: -> `Empty`
+- `def && null && und`: 変更なし
+- `def && (null || und)`: `und.Und[T]` -> `option.Option[T]`
+- `null && und`: -> `option.Option[Empty]`
+- `de`: `und.Und[T]` -> `T`
+- `null || und`: -> `Empty`
 
 上記すべてを盛り込むと下記のように実装されます
 
