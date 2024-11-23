@@ -73,90 +73,43 @@ go version go1.23.2 linux/amd64
 
 ```
 require (
-	github.com/dave/dst v0.27.3
-	github.com/google/go-cmp v0.6.0
-	github.com/ngicks/go-iterator-helper v0.0.16-0.20241102133946-d622279c83c3
-	github.com/ngicks/und v1.0.0-alpha5.0.20241108225608-67d88238795b
-	github.com/spf13/cobra v1.8.1
-	github.com/spf13/pflag v1.0.5
-	golang.org/x/tools v0.26.0
-	gotest.tools/v3 v3.5.1
+    github.com/dave/dst v0.27.3
+    github.com/google/go-cmp v0.6.0
+    github.com/ngicks/go-iterator-helper v0.0.16-0.20241102133946-d622279c83c3
+    github.com/ngicks/und v1.0.0-alpha5.0.20241108225608-67d88238795b
+    github.com/spf13/cobra v1.8.1
+    github.com/spf13/pflag v1.0.5
+    golang.org/x/tools v0.26.0
+    gotest.tools/v3 v3.5.1
 )
 ```
-
-## Goとastと型情報とコードジェネレーター
-
-一応[Go]とは何ぞやというところから触れていきます。
-
-> https://go.dev/doc/
->
-> The Go programming language is an open source project to make programmers more productive.
->
-> Go is expressive, concise, clean, and efficient. Its concurrency mechanisms make it easy to write programs that get the most out of multicore and networked machines, while its novel type system enables flexible and modular program construction. Go compiles quickly to machine code yet has the convenience of garbage collection and the power of run-time reflection. It's a fast, statically typed, compiled language that feels like a dynamically typed, interpreted language.
-
-[Go]はGoogleが開発しているオープンソースのプログラミング言語です。
-
-C系の文法の言語で、特徴は大雑把に
-
-- concurrentな関数の実行が言語機能として組み込まれています。
-- `interface`によるdynamic dispatchがサポートされています。
-- tupleはありません。関数は多値返却を行えます。
-- エラーは`error` interfaceを実装する値であり、通例では多値返却の末尾の値として返します。
-- 言語機能が絞られていていろいろできません。
-- operatorのオーバーロードは存在しません。
-- `array`(固定長シーケンスデータ: `[n]T`), `slice`(可変長アレイ: `[]T`), `map`(hash-map: `map[K]V`), `channel`(FIFOチャネル: `chan T`)などの組み込み型が特別扱いされており、これらを組み合わせてプログラムを構築します
-- 上記の型に加えて`struct`, `string`, `int`などをベースとする(`underlying`)型を定義することができ、それらにメソッドを定義することができます。
-
-シンプルであるがゆえにコードジェネレーターの実装が容易です。
-マクロ機能は現状ありません。
-
-[Go1.18]までgenericsが存在しておらず、それまでは上記の組み込み型のみがジェネリックに中身の型を取り換えられる型でした。
-
-- `array`, `slice`, `map`はコンパイラが具体的な別の型に書き換えます。
-- appending, insert, channel-send/receiveはコンパイラが具体的な関数に書き換えます。
-
-これらの事情を反映して、ast上でも型情報上でも以下のように型として表現されます
-
-- ast:
-  - [*ast.ArrayType]
-  - [*ast.MapType]
-  - [*ast.ChanType]
-- types:
-  - [*types.Array]
-  - [*types.Slice]
-  - [*types.Map]
-  - [*types.Chan]
-
-ast上では`slice`も`array`も同じ`ArrayType`になります。`Len`がnilであれば`slice`です。
-
-型上これらが出現するため追跡が容易です。
-これが`Vec<T>`のような名前付き型であったり、カスタムデータコンテナだと特別扱いしたい型が増えて大変になっていたかもしれません。
 
 ## 実現したいもの
 
 具体的にどういったものを実装するかについて述べます
 
+下記は以前書いたものですが
+
 https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
 
-で作った、[github.com/ngicks/und]以下で定義される型を用いると、
+この記事の中で作成した[github.com/ngicks/und]で定義される型をstruct fieldに指定すると
 
 - [sliceund.Und]: JSONの`undefined | null | T`
-- [sliceelastic.Elastic]: JSONの`undefined | null | (T | null)[]`
+- [sliceelastic.Elastic]: JSONの`undefined | null | T | (T | null)[]`
 
-を`Go`のstruct fieldで表現することができます。(ただし`json:",omitempty"`を必要とする)
+をそれぞれ表現することができます。(ただし`json:",omitempty"`を必要とする)
+
+記事内で課題感を述べましたが、`Go`でstructを定義し、そのfieldで`T | null | undefined`を表現し分けることは普通にはできません。`null | undefined`を表現し分ける方法が普通にはないからです。[sliceelastic.Elastic]は[Elasticsearch]に格納することができるJSONのフィールドを(`(T|null)[][]`などのネストしたArray以外)表現しきるためにあります。
 
 本記事ではこれらを用いて以下を実現するコードを生成するコードジェネレーターを実装します。
 
 - Patcher
-  - Partial JSONを受けとってデータの部分的更新(Patch)を行うことができる型を生成する。
+  - Partial JSONを受けとってデータの部分的更新(Patch)を行うことができるようにする
 - Validator
-  - `und:""` struct tagで指定された内容に従い、フィールドのタグが`und:"required"`なら`defined`でなければならない、という風にルールを設定してvalidateを行う
-  - 前述の記事で課題感は説明しましましたが、`Go`で普通にやると`T | null | undefined`をstruct fieldで表現しきるのは難しく、`null`であったか`undefined`であったかを区別できません。
-  - その差が重要なときに`sliceund.Und`を利用しますが、その際に`undefined`であったならvalidではないと判定するためにこのvalidatorを使います。
+  - [sliceund.Und]`[T]`, [sliceelastic.Elastic]`[T]`などの値の状態をvalidateできるようにする
 - Plain
-  - `und:""` struct tagで指定された内容に従い、例えばのフィールドの型が`und.Und[T]`でstruct tagが`und:"required"`なら型を`T`に*unwrap*した*Plain*な型を作成する。
-  - 元となった型(_Raw_)との相互変換を実現する。
-  - こうすることで、Marshal/Unmarshalの界面ではlosslessで`undefined | null | T`や`undefined | null | T | (T | null)[]`をデータ構造に当てはめ、validationなどを実施したうえで界面以外で処理するのに都合のいいデータ構造に変換してから後続の処理を行うことができます。
+  - [sliceund.Und]`[T]`, [sliceelastic.Elastic]`[T]`など値を`T`や`[]T`のような*Plain*なものに置き換えた型を生成する
+  - 元の型(_Raw_)と相互に変換できるようにする。
 
 ## 生成されるコードのイメージ
 
@@ -167,111 +120,79 @@ https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
 
 ### Patcher
 
-Patcherが実現したいのはpartial jsonを受けとって元となるデータ構造にパッチを当てることです。
+Patcherが実現したいのはPartial JSONを受けとって元となるデータ構造にパッチを当てられるようにすることです。
 
-そのため、Patchのフィールドが
+Partial JSONとここで呼んでいるのは各fieldが`T | undefined`で表現できるJSON Objectやそれを含むJSON Valueのことです。
+Patchの対象が`fieldName *T`を持つとき、Patchの対応するfieldは`null`と`undefined`を表現し分ける必要があり、前述のとおりそのために`sliceund.Und[T]`を用います。
 
-- `undefined`である(入力jsonにフィールドが存在しない)とき更新しない
-- `null`であるとき、ゼロ値で上書きる
-- `T`であるときその値で上書きする
+そこで方式としては
 
-という挙動を実現します。
+- Patch専用の型を元となるstruct typeから生成し
+- fieldをすべて`sliceund.Und[T]`で*wrap*します。
+- Patch typeにメソッドを実装
+  - 元となった型からPatchへの変換
+  - Patch同士のMerge
+  - 元となった型を受けとってPatchを適用するApply
 
-- 元となる型からpatchへの変換
-- patch同士のmerge
-- merge結果を元の型に逆変換
-
-で、partial jsonによるpatchの挙動が実現できます。
+とします。
 
 つまり、以下が入力であるとき
 
 ```go
-type All struct {
+type PatchExample struct {
     Foo string
-    Bar *int      `json:",omitempty"`
-    Baz *struct{} `json:"baz,omitempty"`
-    Qux []string
-
-    Opt          option.Option[string] `json:"opt,omitzero"`
-    Und          und.Und[string]       `json:"und"`
-    Elastic      elastic.Elastic[string]
-    SliceUnd     sliceund.Und[string]
-    SliceElastic sliceelastic.Elastic[string]
+    Bar *int     `json:",omitempty"`
+    Baz []string `json:"baz,omitempty"`
 }
 ```
 
 以下が出力される
 
 ```go
-type AllPatch struct {
-    Foo sliceund.Und[string]    `json:",omitempty"`
-    Bar sliceund.Und[*int]      `json:",omitempty"`
-    Baz sliceund.Und[*struct{}] `json:"baz,omitempty"`
-    Qux sliceund.Und[[]string]  `json:",omitempty"`
-
-    Opt          sliceund.Und[string]         `json:"opt,omitempty"`
-    Und          und.Und[string]              `json:"und,omitzero"`
-    Elastic      elastic.Elastic[string]      `json:",omitzero"`
-    SliceUnd     sliceund.Und[string]         `json:",omitempty"`
-    SliceElastic sliceelastic.Elastic[string] `json:",omitempty"`
+type PatchExamplePatch struct {
+    Foo sliceund.Und[string]   `json:",omitempty"`
+    Bar sliceund.Und[*int]     `json:",omitempty"`
+    Baz sliceund.Und[[]string] `json:"baz,omitempty"`
 }
 
-func (p *AllPatch) FromValue(v All) {
-    *p = AllPatch{
-        Foo:          sliceund.Defined(v.Foo),
-        Bar:          sliceund.Defined(v.Bar),
-        Baz:          sliceund.Defined(v.Baz),
-        Qux:          sliceund.Defined(v.Qux),
-        Opt:          option.MapOr(v.Opt, sliceund.Null[string](), sliceund.Defined[string]),
-        Und:          v.Und,
-        Elastic:      v.Elastic,
-        SliceUnd:     v.SliceUnd,
-        SliceElastic: v.SliceElastic,
+func (p *PatchExamplePatch) FromValue(v PatchExample) {
+    *p = PatchExamplePatch{
+        Foo: sliceund.Defined(v.Foo),
+        Bar: sliceund.Defined(v.Bar),
+        Baz: sliceund.Defined(v.Baz),
     }
 }
 
-func (p AllPatch) ToValue() All {
-    return All{
-        Foo:          p.Foo.Value(),
-        Bar:          p.Bar.Value(),
-        Baz:          p.Baz.Value(),
-        Qux:          p.Qux.Value(),
-        Opt:          option.Flatten(p.Opt.Unwrap()),
-        Und:          p.Und,
-        Elastic:      p.Elastic,
-        SliceUnd:     p.SliceUnd,
-        SliceElastic: p.SliceElastic,
+func (p PatchExamplePatch) ToValue() PatchExample {
+    return PatchExample{
+        Foo: p.Foo.Value(),
+        Bar: p.Bar.Value(),
+        Baz: p.Baz.Value(),
     }
 }
 
-func (p AllPatch) Merge(r AllPatch) AllPatch {
-    return AllPatch{
-        Foo:          sliceund.FromOption(r.Foo.Unwrap().Or(p.Foo.Unwrap())),
-        Bar:          sliceund.FromOption(r.Bar.Unwrap().Or(p.Bar.Unwrap())),
-        Baz:          sliceund.FromOption(r.Baz.Unwrap().Or(p.Baz.Unwrap())),
-        Qux:          sliceund.FromOption(r.Qux.Unwrap().Or(p.Qux.Unwrap())),
-        Opt:          sliceund.FromOption(r.Opt.Unwrap().Or(p.Opt.Unwrap())),
-        Und:          und.FromOption(r.Und.Unwrap().Or(p.Und.Unwrap())),
-        Elastic:      elastic.FromUnd(und.FromOption(r.Elastic.Unwrap().Unwrap().Or(p.Elastic.Unwrap().Unwrap()))),
-        SliceUnd:     sliceund.FromOption(r.SliceUnd.Unwrap().Or(p.SliceUnd.Unwrap())),
-        SliceElastic: sliceelastic.FromUnd(sliceund.FromOption(r.SliceElastic.Unwrap().Unwrap().Or(p.SliceElastic.Unwrap().Unwrap()))),
+func (p PatchExamplePatch) Merge(r PatchExamplePatch) PatchExamplePatch {
+    return PatchExamplePatch{
+        Foo: sliceund.FromOption(r.Foo.Unwrap().Or(p.Foo.Unwrap())),
+        Bar: sliceund.FromOption(r.Bar.Unwrap().Or(p.Bar.Unwrap())),
+        Baz: sliceund.FromOption(r.Baz.Unwrap().Or(p.Baz.Unwrap())),
     }
 }
 
-func (p AllPatch) ApplyPatch(v All) All {
-    var orgP AllPatch
+func (p PatchExamplePatch) ApplyPatch(v PatchExample) PatchExample {
+    var orgP PatchExamplePatch
     orgP.FromValue(v)
     merged := orgP.Merge(p)
     return merged.ToValue()
 }
 ```
 
-- [sliceund.Und]でラップしたフィールドには`json:",omitempty"`を付け足すことで、partial jsonのmarshal/unmarshalをできるようにします。
+- 前述のとおり[sliceund.Und]でJSONの`T | null | undefined`をstruct fieldとして表現できますが、`json:",omitempty"`を必要とするのでない場合付け足します。
   - 付け足す、というのがキモです。元からあった`json` structタグはなるだけそのままにする必要があります。
 - `FromValue`で元となった型からpatchへ変換、入力patchと`Merge`でマージ、`ToValue`で元となった型に逆変換することでパッチの挙動を実現します。
 - `Merge`は[github.com/ngicks/und]の機能をふんだんに使って`Or`をとることで実現します。
 
-元の型->パッチ型な変換は元の型にメソッドとして実現するか、New*FooBar*Patchという関数で実現するかしたほうがよかったかもしれませんが、下記理由でしませんでした。
+元の型->パッチ型な変換は元の型にメソッドとして実現するか、New*FooBar*Patchという関数で実現するかしたほうがよかったかもしれませんが、下記理由でしないこととします。
 
 - なるだけ元の型には何も追加したくないので、メソッドの追加もしたくありません。
   - 追加すると名前被りのリスクがあります。
@@ -280,22 +201,27 @@ func (p AllPatch) ApplyPatch(v All) All {
 
 ### Validator
 
-Validatorが実現したいのは、und type([github.com/ngicks/und]で定義される諸般の型)をfieldにもつstruct typeがあるとき、struct tagで`und:""`を指定すると、その内容に基づいてundefined / null / definedの状態などのvalidationを行うことです。
-こうすることで、フィールドが`null`であってもいいけど`undefined`であることは許さない、というのを実現できます。これ自体は一旦`map[string]any`にUnmarshalすることで実現可能だったんですが、und typeを使う方法に比べると若干非効率的です：`map[string]any`へ変換すると想定しないフィールドを無視することができないためです。
+[sliceund.Und]は`T | null | undefined`を表現できるがゆえ、入力されるJSONなどの対応するfieldが存在しない(`undefined`である)ことを検知することができます。
+`T | null`であってもよいが、`undefined`ではいけないというケースにおいて`null | undefined`を分けて表現できることが強みとなります。
+(fieldに必ずnullを指定させることでtypoを検知するというプラクティスもあり得ます。)
+特に[sliceelastic.Elastic]はとれる状態が`T | null | undefined | (T | null)[]`ととにかく多いです。[Elasticsearch]からすると`[]`と`null`と`undefined`, １要素の`[]T`と`T`はそれぞれ意味が一緒ですが、JSONとしては別の値ですからvalidateはこちらのほうが重要です。
 
-- validator自体は[github.com/ngicks/und]で実装済みです
-  - [untag.UndOpt](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/undtag#UndOpt)としてexportしてあります
-  - ただしこの型はinternal packageをフィールドに使っているため外部モジュールから初期化できません。
-    - `github.com/ngicks/und/option`をinternalとしてvendorしておいたinternal版optionを使っているからです。
-      - 実装上の都合で`undtag`は`option`からも依存されています。
-    - `undtag`自体が元はinternal packageだったのでこれでいいと思っていたんです。
-  - 苦肉の策として[undtag.UndOptExport](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/undtag#UndOptExport)をexportしておき、これを通じて`UndOpt`を初期化するようにします。
-    - こちらは`option.Option[T]`の代わりにポインターを使っています。
+Validatorのメインの目的は`undefined`あることを禁じたいケースで手軽に違反がないかを検知する方法を提供することです。
 
-入力が以下であるとき
+Validator自体は[github.com/ngicks/und]で実装済みです。
+[github.com/ngicks/und]ではcode generator機能を有していないので(できる限り`go.mod`に書かれる内容を軽量化するためです)`reflect`を利用して上記機能を実現します。
+こちらでは`und:""` struct tagで`def`(`defined`=`T`), `null`, `undefined`などのとっても良い状態を指定させ、これを`reflect`経由で解析してfieldのvalidationに利用します。
+
+`und:""` struct tagの解析と、それ利用したfield-validatorの定義は[github.com/ngicks/und]ですでにされており、code generatorはこれを利用することができます。`reflect`版を実装しているときからこのcode generator版を作ることはある程度念頭に置いていたため、機能は外部から利用できるように分離する考慮をある程度していました。
+
+`und:""` struct tagが取れる値の一覧はよりそれが重要である[Plain](#plain)の項で行います。
+
+code generatorは型情報からstruct tagを取り出し、内容を解析、field-validatorを定義して各fieldをsource-code orderで順繰りにvalidateし、違反があったときにエラーを返素メソッドを定義します。メソッド名は上記の`reflect`版との連携を意識して`UndValidate`とします。
+
+つまり入力が以下であるとき
 
 ```go
-type All struct {
+type Example struct {
     Foo    string
     Bar    option.Option[string]        // no tag
     Baz    option.Option[string]        `und:"def"`
@@ -309,19 +235,7 @@ type All struct {
 以下の`UndValidate`メソッドが出力される
 
 ```go
-package validatortarget
-
-import (
-    "fmt"
-
-    "github.com/ngicks/und"
-    "github.com/ngicks/und/elastic"
-    "github.com/ngicks/und/option"
-    "github.com/ngicks/und/undtag"
-    "github.com/ngicks/und/validate"
-)
-
-func (v All) UndValidate() error {
+func (v Example) UndValidate() (err error) {
     {
         validator := undtag.UndOptExport{
             States: &undtag.StateValidator{
@@ -330,8 +244,11 @@ func (v All) UndValidate() error {
         }.Into()
 
         if !validator.ValidOpt(v.Baz) {
+            err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Baz))
+        }
+        if err != nil {
             return validate.AppendValidationErrorDot(
-                fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Baz)),
+                err,
                 "Baz",
             )
         }
@@ -345,8 +262,11 @@ func (v All) UndValidate() error {
         }.Into()
 
         if !validator.ValidUnd(v.Qux) {
+            err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Qux))
+        }
+        if err != nil {
             return validate.AppendValidationErrorDot(
-                fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Qux)),
+                err,
                 "Qux",
             )
         }
@@ -364,8 +284,11 @@ func (v All) UndValidate() error {
         }.Into()
 
         if !validator.ValidElastic(v.Quux) {
+            err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Quux))
+        }
+        if err != nil {
             return validate.AppendValidationErrorDot(
-                fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Quux)),
+                err,
                 "Quux",
             )
         }
@@ -379,8 +302,11 @@ func (v All) UndValidate() error {
         }.Into()
 
         if !validator.ValidUnd(v.Corge) {
+            err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Corge))
+        }
+        if err != nil {
             return validate.AppendValidationErrorDot(
-                fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Corge)),
+                err,
                 "Corge",
             )
         }
@@ -401,32 +327,43 @@ func (v All) UndValidate() error {
         }.Into()
 
         if !validator.ValidElastic(v.Grault) {
+            err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Grault))
+        }
+        if err != nil {
             return validate.AppendValidationErrorDot(
-                fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Grault)),
+                err,
                 "Grault",
             )
         }
     }
-
-    return nil
+    return
 }
 ```
 
+[validate.AppendValidationErrorDot](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorDot)と[validate.AppendValidationErrorIndex](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorIndex)はナイスなエラーメッセージを表示するためのヘルパーです。どのフィールドが違反したかを`.Foo.Bar.Baz`のようなチェーンの表現で表示できるようにします。それらは内部的にエラーを[ValidationError](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#ValidationError)でラップします。こちらは[Pointer](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#ValidationError.Pointer)メソッドを備えており、`RFC6901`のJSON Pointer形式で違反フィールドを表現できるため、機械的に処理することもできます。
+
 さらに、フィールドがvalidatorを実装する際にはそれを呼び出せるようにします。
+JSON valueにほかのJSON Objectが含まれることはごく自然なことに思いますし、その場合`Go`では普通各部をばらばらのnamed typeとして定義すると思います。
+JSON Objectにネスト複数のJSON Objectが含まれるがトップレベルのフィールドだけのvalidationを行いたいいうケースはなくはないでしょうがそんなに多くはないだろうと予測します。
+
+下記スニペットのように、`Example`をフィールドに含む`Dependant`のような型を定義することはよくあるだろうし、何なら`Bar`のように`Example | null | undefined`なフィールドを定義しすることはよくあるでしょう。JSONは通信に乗りますから、(`MessagePack`などより効率的なフォーマットを使わなくても)省略できるものを省略してI/Oの負担を減らしたいケースはよくあると思います。
 
 ```go
-// Allは上記スニペットのAllです
+// Exampleは上記スニペットのExampleです
 type Dependent struct {
-    Foo  All
-    Bar  option.Option[All] `und:"required"`
+    Foo Example
+    Bar sliceund.Und[Example] `und:"required"`
 }
 
 func (v Dependent) UndValidate() (err error) {
-    if err := v.Foo.UndValidate(); err != nil {
-        return validate.AppendValidationErrorDot(
-            err,
-            "Foo",
-        )
+    {
+        err = v.Foo.UndValidate()
+        if err != nil {
+            return validate.AppendValidationErrorDot(
+                err,
+                "Foo",
+            )
+        }
     }
     {
         validator := undtag.UndOptExport{
@@ -435,12 +372,13 @@ func (v Dependent) UndValidate() (err error) {
             },
         }.Into()
 
-        if !validator.ValidOpt(v.Bar) {
+        if !validator.ValidUnd(v.Bar) {
             err = fmt.Errorf("%s: value is %s", validator.Describe(), validate.ReportState(v.Bar))
         }
         if err == nil {
-            err = option.UndValidate(v.Bar)
+            err = sliceund.UndValidate(v.Bar)
         }
+
         if err != nil {
             return validate.AppendValidationErrorDot(
                 err,
@@ -448,72 +386,73 @@ func (v Dependent) UndValidate() (err error) {
             )
         }
     }
-    return nil
+    return
 }
 ```
 
 こうすればund typeを含むstructが複数ネストした場合でもフィールドをすべてvalidateして回れるようになります。
 
-[validate.AppendValidationErrorDot](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorDot)と[validate.AppendValidationErrorIndex](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#AppendValidationErrorIndex)は深くネストしたフィールドのどこがvalidationエラーだったのか表示するためにフィールド名をエラーにappendできるヘルパーで、内部的には[ValidationError](https://pkg.go.dev/github.com/ngicks/und@v1.0.0-alpha5/validate#ValidationError)でエラーをラップします。
-
 ### Plain
 
-Plainが実現したいのは、struct fieldがund typeであり`und:""`タグが指定されているとき、このタグの内容に応じてフィールドをアンラップした*Plain*な型を作り、これと元となった型(_Raw_)との相互変換を行うことです。
+[sliceund.Und]は`T | null | undefined`を表現できますが、これはI/Oなどを通じて得られた外部からのデータをうまく取り扱うことを目的としています。
+前述の[Validator](#validator)を実施したり、`undefined`時のフォールバック用のデフォルト値を[Patcher](#patcher)などで適用した後はもっと`Go`の「普通の」型のようなものに変換して処理できたほうが便利です。
 
-これを行うことのメリットは下記が実現できることです。
+そこで、`Plain`は`und:""` struct tagの内容に基づいてund typeで*wrap*された型(`sliceund.Und[T]`なら`T`のこと)を*unwrap*した*Plain*な型を作り、これと元となった型(_Raw_)との相互変換を行うことを実現します。
 
-- 外部データのUnmarshal時には[sliceund.Und]でデータを受けとり、上記Validateによって存在しなければならないフィールドの検査を行ってから*Plain*な型に変換してプログラム内ではこれを処理する
-- [Elasticsearch]に格納されたデータのUnmarshal時には[sliceelastic.Elastic]でデータを受けとり、例えば`string`でなければならない`keyword type`に事故的に`[]string`が格納されている際に、エラーでデータを受け付けないのではなく穏当にwarningのログを出して`[]string`の最初の値以外を無視する
-  - 仕様変更により`[]T`を格納していたフィールドを`T`にリミットしたいときなどにも起こるケースかと思います
+特に[sliceelastic.Elastic]はとれる状態が前述通り`T | null | undefined | (T | null)[]`ととにかく多いです。[sliceelastic.Elastic]は実装の都合上、`json.Marshal`時に値が１要素であっても`[T]`のようにJSON Arrayで出力してしまいますから、フィールドのlengthが1で固定であるときに、`T`に*unwrap*した型を生成し、そちらから`json.Marshal`を出力できるようにすることは柔軟な運用を簡単にできるようになるという意味で価値があると考えています。
 
-`Go`でJSONの`undefined | null | T`を表現しづらいという課題感は[GoのJSONのT | null | undefinedは\[\]Option\[T\]で表現できる]で説明しているのでそこを合わせて読んでいただければと思います。
+*unwrap*の仕方は`und:""` struct tagに従います。
+指定できる値は
 
-- `und:""`で指定できるのは
-  - `def`(=defined)
-  - `null`
-  - `und`(=undefined)
-  - `required` = `def`のshorthand
-  - `nullish` = `null,und`のshorthand
-  - `len` = `Elastic`の長さを指定、
-    - `len>n`, `len>=n`, `len==n`, `len<n`, `len<=n`でそれぞれ要素数の制限を指定できます
-    - どうしてここまで柔軟な仕様に・・・？
-  - `values` = `Elastic`の各要素の状態を指定
-    - `values:nonnull`で各要素は`null`になってはならないことを表現できる。
+- `def`(=defined)
+- `null`
+- `und`(=undefined)
+- `required` = `def`のshorthand
+- `nullish` = `null,und`のshorthand
+- `len` = `Elastic`の長さを指定、
+  - `len>n`, `len>=n`, `len==n`, `len<n`, `len<=n`でそれぞれ要素数の制限を指定できます
+  - どうしてここまで柔軟な仕様に・・・？
+- `values` = `Elastic`の各要素の状態を指定
+  - `values:nonnull`で各要素は`null`になってはならないことを表現できる。
 
-これに合わせ、
+となります。それに基づいて*unwrap*は以下のように行います。
 
 - `Und`+`und:"def"` -> `T`
 - `Und`+`und:"def,null"` -> `option.Option[T]`
 - `Elastic`+`und:"def,len==n"` -> `[n]option.Option[T]`
 - `Elastic`+`und:"len>2,values:nonnull"` -> `und.Und[[]T]`
 
-みたいな感じでフィールドが変換された型を生成し、これと相互変換を行うことで*Plain*に感じられる型でMarshal/Unmarshal以外の処理を行えるようにします。
-
 つまり以下のような型が入力であるとき
 
 ```go
 type Example struct {
-    Foo   string                    `json:"foo"`
-    Bar   option.Option[string]     `json:"bar" und:"required"`
-    Baz   und.Und[string]           `json:"baz" und:"def"`
-    Qux   und.Und[string]           `json:"qux" und:"def,null"`
-    Quux  sliceelastic.Elastic[int] `json:"quux" und:"len==3"`
-    Corge sliceelastic.Elastic[int] `json:"corge" und:"len>2,values:nonnull"`
+    Foo    string
+    Bar    option.Option[string]        // no tag
+    Baz    option.Option[string]        `und:"def"`
+    Qux    und.Und[string]              `und:"def,und"`
+    Quux   elastic.Elastic[string]      `und:"null,len==3"`
+    Corge  sliceund.Und[string]         `und:"nullish"`
+    Grault sliceelastic.Elastic[string] `und:"und,len>=2,values:nonnull"`
 }
 ```
 
-以下の、*Plain*型,`UndPlain`/`UndRaw`メソッドが出力されます。
+*unwrap*のルールにもどついて以下の`ExamplePlain`が書きだされます。
 
 ```go
 type ExamplePlain struct {
-    Foo   string                `json:"foo"`
-    Bar   string                `json:"bar" und:"required"`
-    Baz   string                `json:"baz" und:"def"`
-    Qux   option.Option[string] `json:"qux" und:"def,null"`
-    Quux  [3]option.Option[int] `json:"quux" und:"len==3"`
-    Corge []int                 `json:"corge" und:"len>2,values:nonnull"`
+    Foo    string
+    Bar    option.Option[string]                   // no tag
+    Baz    string                                  `und:"def"`
+    Qux    option.Option[string]                   `und:"def,und"`
+    Quux   option.Option[[3]option.Option[string]] `und:"null,len==3"`
+    Corge  option.Option[conversion.Empty]         `und:"nullish"`
+    Grault option.Option[[]string]                 `und:"und,len>=2,values:nonnull"`
 }
+```
 
+相互変換は以下の`UndPlain`/`UndRaw`で行われます。`Example` --(`UndPlain`)--> `ExamplePlain` --(`UndRaw`)--> `Example`と循環的に変換が行えるようになります。
+
+```go
 func (v Example) UndPlain() ExamplePlain {
     return ExamplePlain{
         Foo: v.Foo,
@@ -548,62 +487,46 @@ func (v ExamplePlain) UndRaw() Example {
 }
 ```
 
-さらに、フィールドがこの`UndRaw`/`UndPlain`という変換メソッドを実装する(これを`implementor`と呼ぶ。生成対象になった型をフィールドに含む型も同様に`implementor`のように取り扱われるが、こちらは`dependant`と呼ばれる)際にはそれを呼び出せるようにします。
-ObjectにObjectやArrayがネストしているJSONは普通に存在していますし、それを表現する`Go`の型は各部を別々のnamed typeとして定義するのが筆者の知る限り普通なことなので、これができないと実用に耐えません。
+さらに、フィールドが`UndRaw`/`UndPlain`の循環的変換を実装する際にはそれを呼び出せるようにします。
+[Validator](#validator)のところで説明したように、JSON valueが別のJSON Objectを持ち、それらを表現する`Go`の型は各部を別々のnamed typeとして定義することはよくあることだからです。
 
-つまり以下のような、`IncludesImplementor`が存在すると
+`Validator`の例でも使用した`Dependant`に対して、*Plain*は以下のようになります。
 
 ```go
-package sub
-
-type IncludesImplementor struct {
-    Foo sub2.Foo[int]
+type Dependent struct {
+    Foo Example
+    Bar sliceund.Und[Example] `und:"required"`
 }
-
 ---
 
-package sub2
-
-type Foo[T any] struct {
-    T   T
-    Yay string
+type DependentPlain struct {
+    Foo ExamplePlain
+    Bar ExamplePlain `und:"required"`
 }
 
-func (f Foo[T]) UndPlain() FooPlain[T] {
-    return FooPlain[T]{
-        Nay: f.Yay,
-    }
-}
-
-
-type FooPlain[T any] struct {
-    T   T
-    Nay string
-}
-
-func (f FooPlain[T]) UndRaw() Foo[T] {
-    return Foo[T]{
-        Yay: f.Nay,
-    }
-}
-```
-
-以下のように生成されます。
-
-```go
-type IncludesImplementorPlain struct {
-    Foo sub2.FooPlain[int]
-}
-
-func (v IncludesImplementor) UndPlain() IncludesImplementorPlain {
-    return IncludesImplementorPlain{
+func (v Dependent) UndPlain() DependentPlain {
+    return DependentPlain{
         Foo: v.Foo.UndPlain(),
+        Bar: sliceund.Map(
+            v.Bar,
+            func(v Example) ExamplePlain {
+                vv := v.UndPlain()
+                return vv
+            },
+        ).Value(),
     }
 }
 
-func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
-    return IncludesImplementor{
+func (v DependentPlain) UndRaw() Dependent {
+    return Dependent{
         Foo: v.Foo.UndRaw(),
+        Bar: sliceund.Map(
+            sliceund.Defined(v.Bar),
+            func(v ExamplePlain) Example {
+                vv := v.UndRaw()
+                return vv
+            },
+        ),
     }
 }
 ```
@@ -613,7 +536,7 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
 設計にかかる基本的な方針を述べます。
 
 - astのrewriteで実現する
-  - 今回生成するものは`Go`のソースコードを受けとり、定義された型のフィールドを置き換えるなどするため、astをそのまま用いることができれば独自に実装しなければならないものが減ります。
+  - 型の変換は殆ど元の型から構造を変えず、astの付け替えで実現できます。
   - `go/types`以下で実装される型情報だけを使っても生成できるのですが、この場合**コメント情報が消える**ようです。
     - 今回実装するものは元となる型について回っているコメントもそのまま生成されるコードに残したい意図があります。コメントがなくなってフィールドの意図がわからなくなると困るだろうということです。
 - `go/types`以下で定義される型情報も用いる
@@ -621,13 +544,15 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
   - `UndValidate`はastから容易に実装しているかを判別可能ですが、`UndPlain`/`UndRaw`は`T` -> `T'` -> `T`という循環的な変換を行うため、astよりも高度な型情報が必要になります。
   - また、生成の対象になった型をフィールドに含む型(以後`dependant`と呼ばれる)を探索するには、型情報を用いる必要があります。
 - メソッドの作成部分(`ApplyPatch`や`UndPlain`など)は、単なるテキスト書き出しで行う
-  - `github.com/dave/jennifer`は便利ですが、importを外部から管理しづらいため使うことができませんでした。
-  - `text/template`はif/elseで生成内容が大幅に変わる今回のようなケースでは煩雑であるので採用しませんでした。
-  - 要するにこれら二つが想定する使い方をできなさそうなので使いません。
 - ast rewriteで生成した部分とテキストで書きだされたメソッド群は同じファイルに書き込む
   - こうすることでまとめて消しやすくします。
 - 生成元となった型を含むソースコードのパスに`und_patch`のようなサフィックスをしたファイルに書き出す。
   - 関連性をわかりやすくしつつ、いらなくなった時に削除しやすくします。
+- 複数のパッケージを１度に処理する
+  - 前述通り、`UndValidate`, `UndRaw`/`UndPlain`を実装する場合、型変換やメソッド呼び出しがそれらを考慮します。
+  - まとめて処理しないと実行順序を意識しながら何度もコマンドを実行する必要があるので、まとめて処理できるようにします。
+
+![](/images/go-code-generation-from-ast-and-type-info/basic.drawio.png)
 
 ## 実装すべき機能
 
@@ -635,7 +560,7 @@ func (v IncludesImplementorPlain) UndRaw() IncludesImplementor {
 
 ### 機能
 
-- 1. astおよび型情報の収集
+- 1. 複数パッケージからのastおよび型情報の収集
 - 2. struct tagの編集
 - 3. import情報の連携
 - 4. astのrewrite、およびrewriteによって生成されたコードと別の方法で生成されたコードを同じファイルに書き出せるようにする
