@@ -533,24 +533,44 @@ func (v DependentPlain) UndRaw() Dependent {
 
 ## 基本方針
 
-設計にかかる基本的な方針を述べます。
+[生成されるコードのイメージ](#生成されるコードのイメージ)で説明したものを実現するにはどうするかについて考えます。
 
-- astのrewriteで実現する
-  - 型の変換は殆ど元の型から構造を変えず、astの付け替えで実現できます。
+やりたいことを書き下すと
+
+- 対象のstruct typeが`und:""` struct tagの設定されたund typeのfieldを持つかの判定
+- 対象のstruct typeが`UndValidate`, `UndPlain`/`UndRaw`を実装する型――`implementor`――をfieldに持つかの判定
+
+それらを「生成対象の型」や、`matched`と呼びます。
+
+- 上記どちらかの当てはまる場合、型を置き換えた`Patch`, `Plain` typeの生成
+- `ApplyPatch`,`UndValidate`,`UndPlain`などのメソッドの生成
+
+これらの処理は1度のcode generatorの実行で複数のpackageをまとめて処理したほうがよいです。
+なぜなら、生成対象の型は実行後`implementor`(`UndValidate`,`UndPlain`/`UndRaw`を実装する)になるからです。生成対象の型への依存チェーンが複数のpackageにまたがっていると、単一のpackageしか同時に処理できないコマンド体系では依存関係を考慮した順序で何度も生成を呼び出す必要があります。これはライブラリが丸め込みたい煩雑さです。
+生成対象の型をfieldに含むstruct typeを以後`dependant`と呼びます。
+
+code generatorはexportされていないfieldに対しても処理を行うため、生成対象と同じpackage内に書き出される必要があります。
+
+- 生成対象の型の判定 => `go/types`で型情報を参照して行います。
+- `Patch`, `Plain` typeの生成 => astのrewriteで行います。
+  - 型の書き換えはfield構造を全く変えず、und typeでfieldを*wrap*したり、*unwrap*したりするだけのため、astの付け替えでやると都合がよいです。
   - `go/types`以下で実装される型情報だけを使っても生成できるのですが、この場合**コメント情報が消える**ようです。
     - 今回実装するものは元となる型について回っているコメントもそのまま生成されるコードに残したい意図があります。コメントがなくなってフィールドの意図がわからなくなると困るだろうということです。
-- `go/types`以下で定義される型情報も用いる
-  - 前述のとおり、`UndValidate`および`UndPlain`/`UndRaw`を実装する型がフィールドに含まれる場合、そちらを呼び出すようなコードを作成します。
-  - `UndValidate`はastから容易に実装しているかを判別可能ですが、`UndPlain`/`UndRaw`は`T` -> `T'` -> `T`という循環的な変換を行うため、astよりも高度な型情報が必要になります。
-  - また、生成の対象になった型をフィールドに含む型(以後`dependant`と呼ばれる)を探索するには、型情報を用いる必要があります。
-- メソッドの作成部分(`ApplyPatch`や`UndPlain`など)は、単なるテキスト書き出しで行う
-- ast rewriteで生成した部分とテキストで書きだされたメソッド群は同じファイルに書き込む
-  - こうすることでまとめて消しやすくします。
-- 生成元となった型を含むソースコードのパスに`und_patch`のようなサフィックスをしたファイルに書き出す。
-  - 関連性をわかりやすくしつつ、いらなくなった時に削除しやすくします。
-- 複数のパッケージを１度に処理する
-  - 前述通り、`UndValidate`, `UndRaw`/`UndPlain`を実装する場合、型変換やメソッド呼び出しがそれらを考慮します。
-  - まとめて処理しないと実行順序を意識しながら何度もコマンドを実行する必要があるので、まとめて処理できるようにします。
+- `ApplyPatch`,`UndValidate`,`UndPlain`などのメソッドの生成 => `fmt.Sprintf`で行います
+  - 理由は後述
+- `UndRaw`/`UndPlain`実装の判定: `go/types`で型情報をたどって行います。
+  - `UndPlain`/`UndRaw`は`T` --(`UndPlain`)--> `T'` --(`UndRaw`)--> `T`という循環的な変換を行うため`interface`で表現できません。
+  - 型情報をたどって`UndPlain`の返り値の`UndRaw`メソッドの返り値が元の型と一致するかをチェックします。
+- 複数のpackageをまとめて処理する
+  - => [golang.org/x/tools/go/packages]で複数パッケージをまとめて処理します
+  - => 型の依存関係を洗い出してgraphを形成することで、複数packageにまたがった依存によって連鎖的に`dependant`となった型の判定を適切に行えるようにします。
+
+ファイルの書き出しは以下で`SuffixWriter`を定義して、型を含むファイルのファイル名を受けて`.und_patch.go`のようなsuffixを付けたファイルに生成対象の型に紐づいて生成されたものはすべてまとめて書き出します。
+こうすることで再生成の際に上書きすることや、まとめて削除するのが容易になります。
+
+https://github.com/ngicks/go-codegen/blob/main/codegen/suffixwriter/writer.go
+
+ざっくり図示すると以下のような感じです
 
 ![](/images/go-code-generation-from-ast-and-type-info/basic.drawio.png)
 
