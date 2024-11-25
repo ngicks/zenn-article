@@ -1733,7 +1733,6 @@ type DeeplyNested struct {
     A []map[string][5]und.Und[Implementor] `und:"required"`
 }
 
-//undgen:generated
 func (v DeeplyNested) UndValidate() (err error) {
     {
         validator := undtag.UndOptExport{
@@ -2250,7 +2249,7 @@ https://github.com/ngicks/go-codegen/tree/2a35a98a9c52910efb646ac714b307bd9a4371
   - `Plain`だけを使っても運用が通用したほうが便利ではあると思うためそうなるように検証を重ねていこうかなと思っています。
 - もう一つは、さらなるオプションの追加です。
   - type-suffixオプション: 現状、生成される型は元の型名+`Patch`|`Plain`の名前がつきます。これが固定だと少し具合が悪いかなと思います。
-  - denylistオプション: また、今は`validator`,`plain`は`//undgen:ignore`というコメントがついていない型はすべて生成対象となってしまいます。これはこのcode genreatorが複数のパッケージを同時に処理することを前提とするため、cli引数からallowlist/denylistを受けとるのが煩雑であるためこういった決断を下していました。ここをもう少し見直してdenylistを受けとれるようにしたほうが良いかなあと思っています。
+  - denylistオプション: また、今は`validator`,`plain`は`//codegen:ignore`というコメントがついていない型はすべて生成対象となってしまいます。これはこのcode genreatorが複数のパッケージを同時に処理することを前提とするため、cli引数からallowlist/denylistを受けとるのが煩雑であるためこういった決断を下していました。ここをもう少し見直してdenylistを受けとれるようにしたほうが良いかなあと思っています。
 
 さらに、今回作ったものを通じて型情報の操作に習熟したのでもっと違うものも作れるようになりました。今後はそちらも作って行くことになるかと思います。
 
