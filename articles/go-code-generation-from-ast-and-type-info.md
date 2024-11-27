@@ -2,14 +2,14 @@
 title: "[Go]ast(dst)と型情報からコードを生成する(partial-json patcher etc)"
 emoji: "📊"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: ["go"]
+topics: ["go", "contest2024"]
 published: true
 ---
 
 ## EDIT: 2024/11/27
 
 急いで書いたら読みにくかったので大幅改修。
-差分: https://github.com/ngicks/zenn-article/pull/1
+差分(見なくていい): https://github.com/ngicks/zenn-article/pull/1
 
 ## ast(dst)と型情報からコードを生成する(partial-json patcher etc)
 
@@ -1558,7 +1558,7 @@ type (
 
 ということで、`printer.Fprint`の前に`type`キーワード、`' '`(スペース)を出力しておきます。
 
-https://github.com/ngicks/go-codegen/blob/8a51f001909b00eca13d37660103a98cdfa945ee/codegen/generator/undgen/gen_plain.go#L111-L113
+https://github.com/ngicks/go-codegen/blob/8a51f001909b00eca13d37660103a98cdfa945ee/codegen/generator/undgen/gen_plain.go#L111-L114
 
 (上記の`ats`は`*ast.TypeSpec`)
 
