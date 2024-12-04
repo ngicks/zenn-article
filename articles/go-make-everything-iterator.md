@@ -170,6 +170,7 @@ func SortedStableFunc[E any](seq iter.Seq[E], cmp func(E, E) int) []E
 
 - [proposal: regexp: add iterator forms of matching methods(#61902)](https://github.com/golang/go/issues/61902)
 - [bytes, strings: add iterator forms of existing functions (#61901)](https://github.com/golang/go/issues/61901)
+  - `Go1.24`でリリースされます
 
 ## x/exp/xiter
 
