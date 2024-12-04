@@ -11,6 +11,13 @@ published: true
 急いで書いたら読みにくかったので大幅改修。
 差分(見なくていい): https://github.com/ngicks/zenn-article/pull/1
 
+## EDIT: 2024/12/04
+
+https://github.com/golang/go/issues/45669
+
+`Go1.24`から`omitzero`が`encoding/json`に追加される。
+この記事はそのことに気付かず書かれている。
+
 ## ast(dst)と型情報からコードを生成する(partial-json patcher etc)
 
 こんにちは

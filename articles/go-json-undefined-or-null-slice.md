@@ -6,6 +6,13 @@ topics: ["go"]
 published: true
 ---
 
+## EDIT: 2024/12/04
+
+https://github.com/golang/go/issues/45669
+
+`Go1.24`から`omitzero`が`encoding/json`に追加される。
+それに伴って記事に述べられているnon-sliceバージョンの`und.Und`のほうが推奨しやすくなったりいろいろ事情が変わる。
+
 ## GoのT | null | undefinedは[]Option[T]でよかった
 
 - [github.com/oapi-codegen/nullable]が`map[bool]T`をベースに`encoding/json`にオミットされることが可能な`T | null | undefined`な型を定義していた
