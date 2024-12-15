@@ -46,14 +46,14 @@ go version go1.23.2 linux/amd64
 
 ```go.mod
 require (
-	github.com/dave/dst v0.27.3
-	github.com/google/go-cmp v0.6.0
-	github.com/ngicks/go-iterator-helper v0.0.16
-	github.com/ngicks/und v1.0.0-alpha6
-	github.com/spf13/cobra v1.8.1
-	github.com/spf13/pflag v1.0.5
-	golang.org/x/tools v0.28.0
-	gotest.tools/v3 v3.5.1
+    github.com/dave/dst v0.27.3
+    github.com/google/go-cmp v0.6.0
+    github.com/ngicks/go-iterator-helper v0.0.16
+    github.com/ngicks/und v1.0.0-alpha6
+    github.com/spf13/cobra v1.8.1
+    github.com/spf13/pflag v1.0.5
+    golang.org/x/tools v0.28.0
+    gotest.tools/v3 v3.5.1
 )
 ```
 
@@ -131,54 +131,54 @@ javascriptに[structuredClone](https://developer.mozilla.org/en-US/docs/Web/API/
 package main
 
 import (
-	"encoding/json"
-	"fmt"
+    "encoding/json"
+    "fmt"
 )
 
 type Foo struct {
-	Foo string
-	Bar *Bar
+    Foo string
+    Bar *Bar
 }
 
 type Bar struct {
-	Baz int
-	Qux float64
+    Baz int
+    Qux float64
 }
 
 func main() {
-	org := Foo{
-		Foo: "foo",
-		Bar: &Bar{
-			Baz: 12,
-			Qux: 10.24,
-		},
-	}
+    org := Foo{
+        Foo: "foo",
+        Bar: &Bar{
+            Baz: 12,
+            Qux: 10.24,
+        },
+    }
 
-	bin, err := json.Marshal(org)
-	if err != nil {
-		// handle error. here, I just simply let it panic
-		panic(err)
-	}
+    bin, err := json.Marshal(org)
+    if err != nil {
+        // handle error. here, I just simply let it panic
+        panic(err)
+    }
 
-	var cloned Foo
-	err = json.Unmarshal(bin, &cloned)
-	if err != nil {
-		panic(err)
-	}
+    var cloned Foo
+    err = json.Unmarshal(bin, &cloned)
+    if err != nil {
+        panic(err)
+    }
 
-	printFoo := func(f Foo) string {
-		return fmt.Sprintf(`Foo{Foo:%q, Bar:Bar{Baz:%d, Qux:%f}}`, f.Foo, f.Bar.Baz, f.Bar.Qux)
-	}
+    printFoo := func(f Foo) string {
+        return fmt.Sprintf(`Foo{Foo:%q, Bar:Bar{Baz:%d, Qux:%f}}`, f.Foo, f.Bar.Baz, f.Bar.Qux)
+    }
 
-	fmt.Printf("org = %s\ncloned = %s\n", printFoo(org), printFoo(cloned))
-	// org = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
-	// cloned = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
+    fmt.Printf("org = %s\ncloned = %s\n", printFoo(org), printFoo(cloned))
+    // org = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
+    // cloned = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
 
-	// modification to one does not affect the other.
-	org.Bar.Baz = -20
-	fmt.Printf("org = %s\ncloned = %s\n", printFoo(org), printFoo(cloned))
-	// org = Foo{Foo:"foo", Bar:Bar{Baz:-20, Qux:10.240000}}
-	// cloned = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
+    // modification to one does not affect the other.
+    org.Bar.Baz = -20
+    fmt.Printf("org = %s\ncloned = %s\n", printFoo(org), printFoo(cloned))
+    // org = Foo{Foo:"foo", Bar:Bar{Baz:-20, Qux:10.240000}}
+    // cloned = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
 }
 ```
 
@@ -207,67 +207,67 @@ Pros, Consは以下になります。
 package main
 
 import (
-	"fmt"
-	"reflect"
+    "fmt"
+    "reflect"
 )
 
 type Foo struct {
-	Foo string
-	Bar *Bar
+    Foo string
+    Bar *Bar
 }
 
 type Bar struct {
-	Baz int
-	Qux float64
+    Baz int
+    Qux float64
 }
 
 func cloneReflect(org any) reflect.Value {
-	orgRv := reflect.ValueOf(org)
-	clonedRv := reflect.New(orgRv.Type()).Elem()
+    orgRv := reflect.ValueOf(org)
+    clonedRv := reflect.New(orgRv.Type()).Elem()
 
-	for i := range orgRv.NumField() {
-		fOrg := orgRv.Field(i)
-		fCloned := clonedRv.Field(i)
+    for i := range orgRv.NumField() {
+        fOrg := orgRv.Field(i)
+        fCloned := clonedRv.Field(i)
 
-		switch fOrg.Kind() {
-		case reflect.String, reflect.Int, reflect.Float64:
-			fCloned.Set(fOrg)
-		case reflect.Pointer:
-			if fOrg.IsNil() {
-				continue
-			}
-			rv := reflect.New(fOrg.Type().Elem())
-			rv.Elem().Set(cloneReflect(fOrg.Elem().Interface()))
-			fCloned.Set(rv)
-		}
-	}
-	return clonedRv
+        switch fOrg.Kind() {
+        case reflect.String, reflect.Int, reflect.Float64:
+            fCloned.Set(fOrg)
+        case reflect.Pointer:
+            if fOrg.IsNil() {
+                continue
+            }
+            rv := reflect.New(fOrg.Type().Elem())
+            rv.Elem().Set(cloneReflect(fOrg.Elem().Interface()))
+            fCloned.Set(rv)
+        }
+    }
+    return clonedRv
 }
 
 func main() {
-	org := Foo{
-		Foo: "foo",
-		Bar: &Bar{
-			Baz: 12,
-			Qux: 10.24,
-		},
-	}
+    org := Foo{
+        Foo: "foo",
+        Bar: &Bar{
+            Baz: 12,
+            Qux: 10.24,
+        },
+    }
 
-	printFoo := func(f Foo) string {
-		return fmt.Sprintf(`Foo{Foo:%q, Bar:Bar{Baz:%d, Qux:%f}}`, f.Foo, f.Bar.Baz, f.Bar.Qux)
-	}
+    printFoo := func(f Foo) string {
+        return fmt.Sprintf(`Foo{Foo:%q, Bar:Bar{Baz:%d, Qux:%f}}`, f.Foo, f.Bar.Baz, f.Bar.Qux)
+    }
 
-	cloned := cloneReflect(org).Interface().(Foo)
+    cloned := cloneReflect(org).Interface().(Foo)
 
-	fmt.Printf("org = %s\ncloned = %s\n", printFoo(org), printFoo(cloned))
-	// org = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
-	// cloned = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
+    fmt.Printf("org = %s\ncloned = %s\n", printFoo(org), printFoo(cloned))
+    // org = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
+    // cloned = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
 
-	// modification to one does not affect the other.
-	org.Bar.Baz = -20
-	fmt.Printf("org = %s\ncloned = %s\n", printFoo(org), printFoo(cloned))
-	// org = Foo{Foo:"foo", Bar:Bar{Baz:-20, Qux:10.240000}}
-	// cloned = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
+    // modification to one does not affect the other.
+    org.Bar.Baz = -20
+    fmt.Printf("org = %s\ncloned = %s\n", printFoo(org), printFoo(cloned))
+    // org = Foo{Foo:"foo", Bar:Bar{Baz:-20, Qux:10.240000}}
+    // cloned = Foo{Foo:"foo", Bar:Bar{Baz:12, Qux:10.240000}}
 }
 ```
 
@@ -333,18 +333,18 @@ Pros, Consは以下になります。
 package paramcb
 
 type A[T any] struct {
-	A B[string, T]
-	B C[[]string]
-	C B[C[string], []C[string]]
+    A B[string, T]
+    B C[[]string]
+    C B[C[string], []C[string]]
 }
 
 type B[T, U any] struct {
-	T T
-	U U
+    T T
+    U U
 }
 
 type C[T any] struct {
-	T T
+    T T
 }
 ```
 
@@ -412,18 +412,171 @@ func (Type[T, U, V,...]) CloneFunc(cloneT func(T) T, cloneU func(U) U, cloneV fu
 
 type parameterやgenericsは[A Tour of GoのType parameters](https://go.dev/tour/generics/1)で説明されているので説明は割愛します。
 
-## 実装の方式、考慮事項
+## 生成されるメソッドのイメージ
+
+以下のような型があるとき
+
+```go
+type A struct {
+    A string
+    B int
+    C *int
+}
+```
+
+理想的には下記が生成されます。
+
+```go
+func (a A) Clone() A {
+    return A{
+        A: a.A,
+        B: a.B,
+        C: func(v *int) *int {
+            if v == nil {
+                return nil
+            }
+            vv := *v
+            return &vv
+        }(a.C),
+    }
+}
+```
+
+さらに、各フィールドは`[]T`や`map[K]V`がいくつネストしてもいいものとします。
+つまり以下のような型があるとき、
+
+```go
+type B struct {
+    A [][]string
+    B map[string]map[string]int
+}
+```
+
+理想的には下記のようなメソッドが生成されます。
+
+```go
+func (v B) Clone() B {
+    return B{
+        A: func(v [][]string) [][]string {
+            if v == nil {
+                return
+            }
+            out := make([][]string, len(v), cap(v))
+            for k, v := range v {
+                if v == nil {
+                    continue
+                }
+                vv := make([]string, len(v), cap(v))
+                copy(vv, v)
+                out[k] = vv
+            }
+            return out
+        }(b.A),
+        B: func(v map[string]map[string]int) map[string]map[string]int {
+            if v == nil {
+                return
+            }
+            out := make(map[string]map[string]int)
+            for k, v := range v {
+                out[k] = maps.Clone(v)
+            }
+            return out
+        }(b.B),
+    }
+}
+```
+
+加えて、type paramがある場合は`CloneFunc(cloneT func(T) T, cloneU func(U) U, ...)`のような形で各type paramをcloneするためのコールバック関数を受けとります。
+生成された`CloneFunc`がさらに別の型の`CloneFunc`を呼び出す場合、`cloneT`などのコールバックを受け渡してうまくcloneを行っていきます。
+
+もちろん、生成対象となっている型(`A[T any]`)が別のtype paramを持つ型(`B[T, U any]`)を含み、それがtype param以外でinstantiateされている(`B[string, T]`)こともあり得ます。その場合は、instantiateに使われた型に対応したclonerをコールバック関数として渡します(`func(s string) string, cloneT`)。
+
+つまり下記のような型があるとき、
+
+```go
+type A[T any] struct {
+    A B[string, T]
+}
+
+type B[T, U any] struct {
+    T T
+    U U
+}
+```
+
+下記が生成されます。
+
+```go
+func (a A[T]) CloneFunc(cloneT func(T) T) A[T] {
+    return A[T]{
+        A: a.A.CloneFunc(
+            func(v string) string {
+                return v
+            },
+            cloneT,
+        ),
+    }
+}
+
+func (b B[T, U]) CloneFunc(cloneT func(T) T, cloneU func(U) U) B[T, U] {
+    return B[T, U]{
+        T: cloneT(b.T),
+        U: cloneU(b.U),
+    }
+}
+```
+
+## `Clone`/`CloneFunc`の実装方針
+
+- 単なる代入でコピーできるものに関してはフィールドにその値を代入します。
+- 各フィールドが単純な関数呼び出し(e.g. `maps.Clone`など)ですまない時、無名の関数を作成して即座に呼び出します。
+  - scopeを分けて生成されるコードを単純にします。
+  - 呼び出さずに`CloneFunc`に渡すこともできます。
+  - [inline](https://github.com/golang/go/blob/go1.23.4/src/cmd/compile/internal/inline/inl.go), [devirtualize](https://github.com/golang/go/blob/go1.23.4/src/cmd/compile/internal/devirtualize/devirtualize.go)などでコンパイラが最適化してくれることを期待します。
+    - 実際にコンパイラがどういうコードを生成するのかは確認していません・・・
+  - 全くな同じ定義の無名関数が複数あったら一つにまとめるような最適化もどこかにあるだろうと予測しています。(すみません。これは全く確認してないです。)
+- 生成時に読み込んだパッケージ群外で生成されたnamed typeのclone方法は全く感知しません。代わりに特定の型にマッチすると指定したclone functionを呼び出すカスタムハンドラーのサポートをするものとします。これによって外部の型のcloneも可能にします。
+
+## code generator実装の基本方針
 
 ここからは[前回の記事: \[Go\]ast(dst)と型情報からコードを生成する(partial-json patcher etc)](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info)がありますが特に内容が前提となっているわけではありません。
+
+実装前にあった当初の方針が下記になります。
+
+- 1. 型情報を収集する
+  - 高度な型の判別には型情報が不可欠です。
+  - この手のcode generatorは大抵型情報を使っている印象です。
+  - 型情報を使って、ある型に*method*(`Clone`/`CloneFunc`)を実装してもよいかを判別します
+    - 例えば以下のような型のみを含む型は生成対象になりません。
+      - channelを含む
+      - NoCopyである(e.g. `*sync.Mutex`, `*sync.RWMutex`)もしくは
+      - named typeであり
+      - 生成対象のパッケージ群で定義されたものでなく
+      - `implementor`(*method*を実装する)ではなく
+      - `clone-by-assign`(non-pointerのみを含む型)でないとき
+- 2. 型情報をグラフ化する
+  - named typeをnodeとし、node間にedgeを描くことでグラフとします
+  - グラフを辿ることで`Clone`/`CloneFunc`を実装することになる生成対象の型を含む型を探索します。
+  - `A`(ある生成対象の型)を含む`B`(別の型)の`Clone`/`CloneFunc`実装内で`A`の`Clone`を呼び出していいのかを判断するには、グラフをたどって行く必要があります。
+  - `A`を含む`B`を含む`C`という型がある場合、ソースコードからわかる依存関係は`C` -> `B` -> `A`ですが、やりたい判別には逆順の`A` -> `B` -> `C`で辿る必要があります。
+  - そのためグラフを事前に作っておく必要があります。
+- 3. `[]map[string]*[5]T`という型があるとき、`[]map[string]*[5]`の部分と、`T`に分けて考えます。
+  - 前者は`for-loop`などで展開することでコピー可能です
+  - `T`の部分だけclone方法が型によって変わります。
+- 4. channel, NoCopy type(e.g. `*sync.Mutex`, `*sync.RWMutex`), funcの取り扱いをユーザーに決めさせるためにConfigを受けとれるようにする
+
+## 型情報を収集する
+
+高度な型の判別のために型情報を収集します。`go/ast`, `go/types`で定義された各型がast, 型情報に対応しており、これらを使うことでgo source codeを解析した結果の型情報を取り扱うことができます。
 
 ### [golang.org/x/tools/go/packages]による`ast`, `type info`の読み込み
 
 [golang.org/x/tools/go/packages]を用いるとGo source code解析してast、type info、そのほかのメタデータなどを得ることができます。
 
 [go/ast], [go/types]がそれぞれast解析、astからtype info解析を行う機能を提供しているのですが、対象となるGo source codeが外部モジュールをimportしているとき、これをうまく読み込む手段をこれらは用意していません。
-そのため、go moduleのdependency graphを形成して末端のnodeとなる、自分以外に何もimportしていないmoduleから順番に解析してimporterとしてtype infoを返すようなものを自作する必要があるのですが、それをやってくれるのが[golang.org/x/tools/go/packages]なのです。
+そのため、go moduleのdependency graphを形成して末端のnodeとなる、自分以外に何もimportしていないmoduleから順番に解析してimporterとしてtype infoを返すようなものを自作する必要があります。それをやってくれるのが[golang.org/x/tools/go/packages]なのです。
 
-[golang.org/x/tools/go/packages]でtype checkまで行うコードは以下のようになります
+[golang.org/x/tools/go/packages]でastを解析して、type checkした結果を受けとるには以下のようにします
 
 ```go
 import "golang.org/x/tools/go/packages"
@@ -445,10 +598,114 @@ func main() {
 }
 ```
 
-`packages.Load`でpackage patternを受けとり、マッチするmoduleの各種情報を[\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.28.0/go/packages#Package)として取得します。
+`packages.Load`でpackage patternを受けとり、マッチするmoduleの各種情報を[\[\]\*packages.Package](https://pkg.go.dev/golang.org/x/tools@v0.28.0/go/packages#Package)として取得します。
 
-`*packages.Config`の`Mode`がロードする情報をコントロールします。上記は`PkgPath`(string), `Types`(`*types.Package`), `Syntax`(`[]*ast.File`), `TypeInfo`(`*types.Info`), `TypesSizes`(`types.Sizes`)がロードされます。
-`Mode`ビットは`Need{field name}`という名前(になっていないものもいくつかあるが)で各種定義されています。
+`*packages.Config`の`Mode`がビットフラグでロードする情報をコントロールします。上記は`PkgPath`(string), `Types`(`*types.Package`), `Syntax`(`[]*ast.File`), `TypeInfo`(`*types.Info`), `TypesSizes`(`types.Sizes`)がロードされます。
+`Mode`ビットは`Need{field name}`という名前(になっていないものもいくつかあるが)で各種定義されていますのでほしい情報に合わせてbitwise-ORをとります。
+
+### 型情報を使った各型の判別
+
+複雑な型や、interfaceで表現することができない型の条件は`go/types`以下で定義される型情報を直接走査して判定を行います。
+
+#### `NoCopy`(assignによってコピーすると`go vet`が`copies lock value`と警告される型)の判別
+
+`Lock` methodを備える型を直接(pointerによってindirectされずに)含む型はno-copyなどと言われて、代入や関数の引数に渡すことでコピーが起きると`go vet`で警告を受けます。
+
+```go
+type noCopy struct{}
+func(noCopy) Lock()
+
+type noCopy2 struct {
+    l noCopy
+}
+
+type notNoCopy struct {
+    l *noCopy
+}
+```
+
+上記の
+
+- `noCopy`は`Lock` methodを実装するためNoCopyです。
+- `noCopy2`はnon-pointerとして`noCopy`を含むためNoCopyです。
+- `notNoCopy`はpointerとして`noCopy`を含むためNoCopyではありません。
+
+pointerと言えるのは、`interface`, `map[K]V`, `[]T`を含みます。array(`[n]T`)はpointerではないので以下も`noCopy`です
+
+```go
+type noCopyArray struct {
+    l [3]noCopy
+}
+```
+
+`Clone`/`CloneFunc`はこれらをコピーしないように単にフィールドをzero valueのままほおっておくとか、含まれる型はそもそも生成対象から外すとか、pointerならpointerをコピーするとかをユーザーに選ばせたいので、no-copyの判定を行う必要があります。
+
+以下のように実装します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L9-L49
+
+`findMethod`の実装は以下
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L101-L108
+
+`asNamed`, `asInterface`, `as[T]`の実装は以下
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L64-L77
+
+この実装はgo vetのそれとは異なり、`sync.Locker`のような`interface`を[struct embedding](https://gobyexample.com/struct-embedding)することで`Lock`を実装するnon-interface型もpointerではないとみなし、no-copy typeとして判定します。
+
+つまり以下はこの実装ではNoCopyとして取り扱われますが、`go vet`は警告しません
+
+```go
+type notNoCopy2 struct {
+    sync.Locker
+}
+```
+
+#### `implementor`(`Clone`/`CloneFunc`を実装する型)の判別
+
+ある型`A`が内部に型`B`を持つとき、`B`が`implementor`(`Clone`/`CloneFunc`を実装する型)であるならば`A`の*method*(`Clone`/`CloneFunc`)は`B`の*method*を呼び出します。
+`Clone`はともかく、`CloneFunc`は複雑かつ、`interface`として表現できない複雑な条件であるため、型情報を用いた判別を行います。
+
+`Clone`の実装は以下のように判定します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/method_checker.go#L101-L123
+
+`Clone`以外のmethod nameでもいいように、`Name`フィールドでパラメータ化してありますが実際の呼び出しは`Name: "Clone"`以外ですることはありません。
+
+`asPointer`の実装は以下。
+`Go`の通常のinterfaceのルールと同じく`types.NewMethodSet`はnon-pointer型にはreceiverがnon-pointer型のmethodしか見せなくなっています。
+そのためすでにpointerでない場合は`types.NewPointer`でラップすることでpointerに変換します。
+ただし`interface`のpointerをとると逆に`types.NewMethodSet`はmethodを返さなくなるため、`interface`である型はpointerに包まないようにします。
+[*types.Named](named type)もしくはinterface literal以外はmethodを実装することはないため、それ以外の型の場合はそのまま引数を返します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L79-L90
+
+`noArgSingleValue`の実装は以下
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L110-L131
+
+`unwrapPointer`の実装は以下
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L92-L99
+
+ここで敷く条件は、`Clone`のreceiverはpointerでもnon-pointerでもよいが、返す型はnon-pointerでなければならないというものです。
+
+`CloneFunc`の実装は以下のように判別します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/method_checker.go#L125-L196
+
+前述通り、`CloneFunc(cloneT func(T) T, cloneU func(U) U, ...)`というシグネチャであるかを判別します。処理の単純性のために、`type A[T, U any]`に対して`CloneFunc(cloneU func(U) U, cloneT func(T) T)`のような感じで、type paramとclonerコールバック関数の順序が変わることを許さないようにしています。
+判定する型によっては`A[string, T]`のような感じで具体的な型や別のtype paramでinstantiateされていることがあるため、単純に`types.Identical`だけでは判別できないことに留意します。
+
+#### `clone-by-assign`(non-pointerのみを含む型)の判別
+
+`clone-by-assign`(non-pointerのみを含む型)である場合は、生成対象のパッケージ群で定義されている型でない時でも単純にassignすればよいので、これを判別できるようにしておきます。これの具体例は[log/slog.Attr](https://pkg.go.dev/log/slog@go1.23.4#Attr)などですね。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/tester.go#L5-L31
+
+わりかし単純です。named typeが含まれるときの扱いをフラグで渡せるようにしておくような特別な措置があります。
+これはnamed typeが`implementor`であることがありうるので、それが自明でないときにnamed typeが含まれていれば即座にfalseを返せるようにするためにあります。
 
 ### 生成対象の型依存関係のグラフ化、グラフを逆にたどることで生成対象の型を列挙する。
 
@@ -474,52 +731,6 @@ https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9
 https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/typegraph/type_graph.go#L568-L578
 
 マークされた型は`Clone`/`CloneFunc`を実装することになるため、これらの方に対しては盲目に(型情報によらずに)`Clone`/`CloneFunc`を呼び出すコードを吐き出してよいことになります。
-
-### 型情報を使った各型の判別
-
-複雑な型や、interfaceで表現することができない型の条件は`go/types`以下で定義される型情報を直接走査して判定を行います。
-
-#### `Clone`/`CloneFunc`を実装する型(_implementor_)
-
-`Clone`/`CloneFunc`の判別は`go/types`以下で定義される型情報を用います。
-
-`Clone`の実装は以下のように判定します。
-
-https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/method_checker.go#L101-L123
-
-`findMethod`の実装は以下
-
-https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L101-L108
-
-`asPointer`の実装は以下
-`Go`の通常のinterfaceのルールと同じく`types.NewMethodSet`はnon-pointer型にはreceiverがnon-pointer型のmethodしか見せなくなっています。
-そのため、`interface`ではないときはpointerにwrapしてから`types.NewMethodSet`に渡します。
-
-https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L79-L90
-
-`noArgSingleValue`の実装は以下
-
-https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L110-L131
-
-`unwrapPointer`の実装は以下
-
-https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L92-L99
-
-ここで敷く条件は、`Clone`のreceiverはpointerでもnon-pointerでもよいが、返す型はnon-pointerでなければならないというものです。
-
-#### `NoCopy`(assignによってコピーすると`go vet`が`copies lock value`で怒る型)か
-
-`Lock` methodを備える型を直接(pointerによってindirectされずに)含む型はno-copyなどと言われて、代入や関数の引数に渡すことでコピーが起きると`go vet`で警告を受けます。
-
-`Clone`/`CloneFunc`はこれらをコピーしないように単にフィールドをzero valueのままほおっておくとか、含まれる型はそもそも生成対象から外すとか、pointerならpointerをコピーするとかをユーザーに選ばせたいので、no-copyの判定を行う必要があります。
-
-以下のように実装します。
-
-https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/matcher.go#L9-L49
-
-この実装はgo vetのそれとは異なり、`sync.Locker`のような`interface`を[struct embedding](https://gobyexample.com/struct-embedding)して`Lock`を実装するnon-interface型もpointerではないとみなし、no-copy typeとして判定します。
-
-#### assignによってcloneできる型か
 
 ### build constraintsのコピー
 
