@@ -141,16 +141,14 @@ javascriptに[structuredClone](https://developer.mozilla.org/en-US/docs/Web/API/
   - バイナリフォーマットに変換するため、各フォーマットごとに表現力の限界がある。
 
 表現力の限界の例は`JSON`にはポインターに当たる機能がないというものがあります。そのため`JSON`では`ring buffer`のような循環構造を表現できません。
-循環構造の表現が必須であれば`YAML`を用いるのが一つ解決方法かもしれませんん。`YAML`には[anchor](https://yaml.org/spec/1.2.2/#anchors-and-aliases)仕様があります。
+循環構造の表現が必須であれば`YAML`を用いるのが一つの解決方法かもしれませんん。`YAML`には[anchor](https://yaml.org/spec/1.2.2/#anchors-and-aliases)仕様があります。
 
-`Go`は`encoding/*`以下にいくつかのデータ変換パッケージを提供します。例えば以下のようなものがあります。
+`Go`は`encoding/*`以下でいくつかのデータ変換パッケージを提供します。例えば以下のようなものがあります。
 
 - [encoding/json](https://pkg.go.dev/encoding/json@go1.23.4): `JSON`と`Go`データ構造の相互変換機能
 - [encoding/gob](https://pkg.go.dev/encoding/gob@go1.23.4): self-describingなバイナリと`Go`データ構造の相互変換機能
 
-`gob`は多分`Go object`の略ですかね。
-
-`gob`は使ったことがないため筆者には特に何かを述べることができません。
+`gob`は多分`Go object`の略ですかね。`gob`は使ったことがないため筆者には特に何かを述べることができません。
 
 例として`encoding/json`を用いた`deep clone`を以下に示します。
 
@@ -773,7 +771,58 @@ https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9
 
 `[]map[string]*[5]T`という型があるとき、`[]map[string]*[5]`の部分と、`T`に分けて考え、前者側向けの共通処理を用意します。
 
-### build constraintsのコピー
+## code generatorの実装
+
+### Configの定義
+
+たとえ挙動を変えうる設定項目が一つもなくてもconfigを主体にAPIを設計しないとあとから設定項目を追加するのが破壊的変更なってしまいます。
+今回作成するcode generatorはchannelやNoCopy typeの取り扱いをユーザーに決めてもらおうと思っていたので`Config`を以下のように定義しています。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/generator.go#L25-L28
+
+今後項目が増えるかもしれませんが現在はこれだけです。
+
+`MatcherConfig`は以下のように定義されます。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/matcher.go#L22-L43
+
+これも項目が増えるかもしれませんが現時点ではこれだけです。`NoCopy`, `Channel`, `Func`のグローバルオプションをそれぞれ用意しています。
+`CopyHandleIgnore`ならフィールドはclone対象にならず、clone後にはzero valueになります。`CopyHandleDisallow`ならこれを含む型は生成対象から除外されます。`CopyHandleCopyPointer`は、そのフィールドがpointerであるとき(=`*T`, interface, channelなど)の時のみコピーを行いそれ以外の時は`Disallow`として取り扱います。
+
+`CustomHandlers`は後述します。
+
+`Config`に`Generate` methodを実装します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/generator.go#L52-L56
+
+### matcherの定義
+
+グラフ作成時にも使う
+クソでかswitch-case
+
+### 各型のclone
+
+### field unwrapperと組み合わせる
+
+### source fileにsuffixを付けたファイルへ書き出し
+
+## Custom handler
+
+## build constraintsのコピー
+
+## 今後
+
+- unexport fieldを持たないstructおよびそれを含む`map`, `slice`-base typeのclonerをad-hocに吐き出す
+- known clone by assignの拡充
+  - stdを全部洗う
+- overlayオプション
+  - per-package-level option, per-type-level option
+  - code-generatorによってい生成された型にcommentをつけることができないため、commentによるattrの定義ができないため。
+- in-placeオプションの拡充
+  - フィールドレベルでclonerの指定変更など。
+  - priorityは低い
+- templateによるcustom-handlerの受付
+  - cli経由呼び出しでも柔軟にカスタマイズできるように
 
 [Go]: https://go.dev/
 [Go1.18]: https://tip.golang.org/doc/go1.18
