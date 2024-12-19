@@ -310,6 +310,7 @@ func main() {
 #### code generatorによってdeep clonerを実装する
 
 [The Go Blog: Generating code](https://go.dev/blog/generate)などからわかる通り、`Go`にはcode generatorを呼び出すための`//go:generate` directiveが存在します。
+([directive](https://tip.golang.org/doc/comment#syntax)というのは`//`のあとに` `(space)を含まないコメントのことです。これは`go doc`などに表示されなくなるような特別扱いがあります。[ここ](https://pkg.go.dev/cmd/compile#hdr-Compiler_Directives)などを参照。)
 このdirective commentが書きこまれたgo source codeを指定して`go generate ./path/to/file.go`を実行すると、`//go:generate`の後に書かれたコマンドが実行される仕組みになっています。
 
 `Go`自身も`//go:generate`を活用しており、
@@ -745,8 +746,10 @@ https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9
 
 生成される`Clone`/`CloneFunc`メソッドは、struct fieldに`Clone`/`CloneFunc`を実装する型が含まれる場合、これらを優先的に呼び出すことになりますが、生成対象となる型が更に別の生成対象となる型を含んでいる場合、初回実行時にはそれらのmethodは生成前であるため存在しません。
 そのため、stableな出力結果を得るためには、型が参照する別のnamed typeが生成対象となっているのかを検知する必要があります。
+その過程で型情報をすべて列挙するため、この時点で型に`Clone`/`CloneFunc`を実装してよいか、無視すべきかを判別しておきます。
 
-source codeや、それの解析結果自体がある意味依存関係のグラフとなっています。ただ、型がどこから参照されているかという情報は筆者が知る限り含まれていないため、この逆方向の依存関係を洗い出すための特別な実装が必要となります。
+source codeや、それの解析結果自体が型、呼び出しの依存関係の順向きグラフとなっています。
+今回知りたいのは型がどこから参照されているかという逆向きの情報であるため、それを洗い出すための特別な実装が必要となります。
 
 以下のpackageでそれを実装します。
 
@@ -765,11 +768,49 @@ https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9
 
 https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/typegraph/type_graph.go#L568-L578
 
-マークされた型は`Clone`/`CloneFunc`を実装することになるため、これらの方に対しては盲目に(型情報によらずに)`Clone`/`CloneFunc`を呼び出すコードを吐き出してよいことになります。
+いずれかのマークがされた型にのみ`Clone`/`CloneFunc`を実装していきます。
+逆に言うとマークされた型に対しては盲目的に(型情報によらずに)`Clone`/`CloneFunc`を呼び出してよいことになります。
 
 ## field unwrapper
 
 `[]map[string]*[5]T`という型があるとき、`[]map[string]*[5]`の部分と、`T`に分けて考え、前者側向けの共通処理を用意します。
+
+以下のようにoutermost(初期化と返却)、mid(中間経路)、inner end(`T`のclone expression)の三つに分けます。
+
+```go
+func (v []map[string]*[5]T) []map[string]*[5]T {
+/* outermost */ out := make([]map[string]*[5]T, len(v), cap(v))
+/*       mid */ for k, v := range v {
+/*       mid */     next := make(map[string]*[5]T)
+/*       mid */     for k, v := range v {
+/*       mid */         next := new([5]T)
+// ...
+/* inner end */         for k, vv := range v {
+/* inner end */             v[k] = cloneExpr(vv)
+/* inner end */         }
+// ...
+/*       mid */     }
+/*       mid */ }
+/* outermost */ return out
+}
+```
+
+outermostは返すclonedの初期化と返却を行います。
+midは`for`(`slice`,`array`,`map`)か`if v != nil`(`pointer`)で引数の`v`を1つずつ*unwrap*していき、そのたび一つ内側の型のcloneされたオブジェクトを初期化します(`[]map[string]*[5]T` -> `map[string]*[5]T` -> `*[5]T` -> `[5]T`)
+inner endは`T`ごとのclone expressionを記述します。`implementor`なら`Clone`/`CloneFunc`、`clone-by-assign`なら単に`vv`を代入するのみ、という感じです。
+
+そのため、`ast.Expr`をunwrapするための関数を下記のように定義します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/method.go#L421-L433
+
+`types.Type`ではなく`ast.Expr`を使っているのは特に理由はありません。`typegraph.EdgeKind`を使わなくてもunwrapは成立するんですが、この外部医情報との連携がうまくいっていない場合にpanicしてほしいので`ast.Expr`のみで終始しないようにしてあります。
+
+上記よりfield unwrapperを`unwrapFieldAlongPath`として定義します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/method.go#L435-L552
+
+`fromExpr, toExpr ast.Expr`を引数に取ることで`fromExpr -> toExpr`な関数を出力します。clonerなのでこの二つは全く同じ`ast.Expr`が渡されることになります。
+返り値の関数`unwrapper`で上記で言うclone exprを`wrappee func(string) string`として受け取ってfield unwrapperをテキストで出力します。
 
 ## code generatorの実装
 
@@ -794,6 +835,76 @@ https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9
 `Config`に`Generate` methodを実装します。
 
 https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/generator.go#L52-L56
+
+こうすれば`Config`を無視して何かをすることはできなくなります。
+
+### struct fieldにコメントをつけて挙動を変更できるようにする
+
+挙動のfine tuningのためにstruct fieldにdirective commentをつけることでconfigをper-fieldレベルで上書きできるようにします。
+
+#### typegraphのデータにstruct fieldのコメントを格納できるよう拡張する
+
+[型情報をグラフ化する](#型情報をグラフ化する)のところで説明した通り、今回実装するcode generatorは事前に型情報グラフ化して、その時に渡された`matcher`の結果で生成対象の型を決定します。
+per-fieldレベルの設定によってtype graphのマッチする、しないが左右されるためtypegraphの機能としてper-fieldレベルのデータを収めることとします。
+
+そこで以下のようにoptionを定義し、
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/typegraph/option.go#L3-L19
+
+`typegraph.Node`に`Priv`(private)データを含めるようにします。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/typegraph/type_graph.go#L60-L74
+
+こういうのはC言語だとよく見るパターンですね。
+
+`PrivParser`はmatcher呼び出しの直前で呼び出します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/typegraph/type_graph.go#L304-L311
+
+この`Priv`データ自体はtypegraphにとって関心のある所ではないため`any`になっています。データは利用者ごとに別々のものを用意したほうがよいでしょう。
+
+```go
+type Node[T] any {
+    // ...
+    Priv *T
+}
+```
+
+としてもよかったのですが、optionalなもののためにtype paramを追加するのはわかりにくい気がしてやめておきました。
+
+#### コメントを解析する
+
+前述通り`*typegraph.Node`を受けとって型情報ないしはast情報を用いて`Priv`に情報をセットできるようになっています。
+
+Priv dataはいかように`clonerPriv`として定義します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/priv.go#L26-L36
+
+これは前述のConfigをoverrideできるようにロジックを集約しておきます。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/priv.go#L38-L52
+
+「struct fieldにdirective commentをつける」のstruct fieldについているコメントは下記で言うと`A`に付いているコメントは`// 3`, `/* 4 */`, `// 7`に当たる位置のみと定義します。
+
+```go
+type A struct {
+	_ int
+	// 1
+
+	// 2
+
+	// 3
+	/* 4 */ A /* 5 */ string /* 6 */ `json:"a"` // 7
+	/* 8 */
+	// 9
+	B               string /* 10 */
+	// 11
+}
+```
+
+解析はdstにいったん変換してから行います。コメントのstableな取り扱いのためには必須です。Goの`go/ast`におけるコメントの取り扱いは単なるオフセットなのでかなりややこしいです
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/priv.go#L54-L111
 
 ### matcherの定義
 
