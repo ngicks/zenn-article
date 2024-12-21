@@ -899,23 +899,141 @@ type A struct {
 	// 9
 	B               string /* 10 */
 	// 11
+    C                 int
+	// 12
+	// 13
 }
 ```
 
+[\*ast.Field](https://pkg.go.dev/go/ast@go1.23.4#Field)の定義より、1つの`*ast.Field`は複数の`Name`を持てることに注意します。
+
+```go
+type A struct {
+    Foo, Bar, Baz string
+}
+```
+
+上記の`Foo`,`Bar`, `Baz`は1つの`*ast.Field`で表現されます。
+型情報である`*types.Struct`が備える`Field`メソッドは定義順でn番目のフィールドを取得するAPIです。その点の違いを認識しておく必要があります。
+全く同じコメントがアタッチしてあるという解析結果になるにしろすべての`Names`を列挙する必要があります。
+
 解析はdstにいったん変換してから行います。コメントのstableな取り扱いのためには必須です。Goの`go/ast`におけるコメントの取り扱いは単なるオフセットなのでかなりややこしいです
+
+上記の場合,`A`, `B`, `C`についているコメントは`dst`上では
+
+```go
+st := dts.Type.(*dst.StructType)
+a := st.Fields.List[1]
+b := st.Fields.List[2]
+c := st.Fields.List[3]
+
+//
+// // 2
+//
+// // 3
+// /* 4 */ A /* 5 */ string /* 6 */ `json:"a"` // 7
+//
+
+a.Decs.Start
+// [0] = "// 2"
+// [1] = "\n"
+// [2] = "// 3"
+// [3] = "/* 4 */"
+a.Decs.End
+
+//
+// /* 8 */
+// // 9
+// B               string /* 10 */
+//
+
+// [0] = "// 7"
+b.Decs.Start
+// [0] = "/* 8 */"
+// [1] = "\n"
+// [2] = "// 9"
+b.Decs.End
+// [0] = "/* 10 */"
+
+//
+// // 11
+// C                 int
+// // 12
+// // 13
+//
+
+c.Decs.Start
+// [0] = "// 11"
+c.Decs.End
+// [0] = "\n"
+// [1] = "// 12"
+// [2] = "// 13"
+```
+
+という風になります。`dst`上でもコメントの取り扱いは微妙であとにフィールドが続くかによって何がどこに入ってくるか変わってしまいます。
+
+- `Start`は最後の`\n`以後
+- `End`は一行
+
+がフィールドにアタッチされたコメントということになります。
+
+これらのコメントを列挙する関数を`ParseFieldDirectiveCommentDst`として定義すると、以下のように各フィールドのコメントを解析できます。
+(これそのものはシンプルなテキスト解析なので特にいうことはありません)
 
 https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/priv.go#L54-L111
 
 ### matcherの定義
 
-グラフ作成時にも使う
-クソでかswitch-case
+与えられた型に対してどのようなコードを生成すればよいかを判別するmatcherを定義します。
+どのようにハンドルすべきか(`type handleKind int`)を定義して、それを返す部分と、実際にコードを生成する部分を分けて実装します。前者がこのmatcherです。
+こうすると以下の点で好都合です
+
+- 型グラフ生成時のmatcherとして同じ処理を使いまわせます
+- そもそもmatcher部分が巨大かつユーザーに内部状態を教えるためにloggerを受けとるため実際のコード生成はコード生成だけに集中しないとごちゃごちゃして読めたもんじゃないです
+- config項目の拡充などでmatcher部分は今後も変わり続けますがコード生成部分は多分あんまりもう変わらないので分離できておくと差分が見やすくていいです
+
+クソデカswitch-case
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/matcher.go#L144-L340
+
+ログも含めて現状200行ぐらいですがまあまあ見通しがいいので関数分割はまだしなくてよさそう。
 
 ### 各型のclone
 
+前述のmatcherの呼び出して、得られた`handleKind`をswitch-caseで分岐することで各型のcloneを生成します。前述のfield unwrapperがあるため、実際には`[][]T`のような型があるときには`T`のclone方法のみを生成します。
+
+`T`が型グラフの構築時にmatchedとなった型については`Clone`/`CloneFunc`を呼び出す必要があるので、その考慮を加えるために`handleField`というラッパーを経由してmatcherを呼び出します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/matcher.go#L379-L420
+
+各型向けに呼び出します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/method.go#L223-L228
+
+switch-caseで分岐してそれぞれ向けのテキストを生成します。
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/method.go#L255-L406
+
+struct literalと`CloneFunc`のtype argに対して再帰呼び出しが必要でややこしいですがmatcher部分と分離したため割合単純なコードになっています。
+
 ### field unwrapperと組み合わせる
 
+`unwrapFieldAlongPath`の呼び出しによって得られたfield unwrapperと組み合わせて最終的な`cloner func(string) string`が得られます
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/method.go#L248-L253
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/generator/cloner/method.go#L408-L418
+
 ### source fileにsuffixを付けたファイルへ書き出し
+
+あとはこれを書き出したら終わりです。
+
+対象となった型が含まれていたファイル名+suffixなファイルに吐き出す方式をとるため以下で`suffixwriter`を定義します
+
+https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/suffixwriter/writer.go
+
+[token.FileSet.Position](https://pkg.go.dev/go/token@go1.23.4#FileSet.Position)で得られる[token.Position](https://pkg.go.dev/go/token@go1.23.4#Position)からファイル名が得られます。
+これを引数に`suffixwriter`を呼び出すことで所望の挙動を実現できます。
 
 ## Custom handler
 
