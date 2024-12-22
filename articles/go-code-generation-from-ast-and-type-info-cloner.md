@@ -735,7 +735,7 @@ https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9
 
 #### `clone-by-assign`(non-pointerのみを含む型)の判別
 
-`clone-by-assign`(non-pointerのみを含む型)である場合は、生成対象のパッケージ群で定義されている型でない時でも単純にassignすればよいので、これを判別できるようにしておきます。これの具体例は[log/slog.Attr](https://pkg.go.dev/log/slog@go1.23.4#Attr)などですね。
+`clone-by-assign`(non-pointerのみを含む型)である場合は、生成対象のパッケージ群で定義されている型でない時でも単純にassignすればよいので、これを判別できるようにしておきます。これの具体例は[image/color.RGBA64](https://pkg.go.dev/image/color@go1.23.4#RGBA64)などですね。
 
 https://github.com/ngicks/go-codegen/blob/99bf20cadbdeafb66781c16882fffc765baab9a2/codegen/matcher/tester.go#L5-L31
 
@@ -1317,7 +1317,10 @@ https://github.com/ngicks/go-codegen/tree/15a24b031aac0b07d8ed2b2471fac88b5ca8ca
 
 - unexport fieldを持たないstructおよびそれを含む`map`, `slice`-base typeのclonerをad-hocに吐き出す
 - known clone by assignの拡充
-  - stdを全部洗う
+  - 機械的にチェックできるものに関してはリストしています: [bf84c5390a6a](https://github.com/ngicks/go-codegen/commit/bf84c5390a6a56dc08be2fee6cf5311c00507bb0)
+  - [unique.Handle](https://pkg.go.dev/unique@go1.23.4#Handle)や`error`もclone-by-assign扱いされています。あとは[time.Location](https://pkg.go.dev/time@go1.23.4#Location)とかもしてもいいのかな。
+  - ざっくりチェックしていってますが([c3a53901c55](https://github.com/ngicks/go-codegen/commit/c3a53901c55f6dc6bc13747c0938836da832635f))、全部はまだ終わってないです。
+  - 暇なときにstdを全部洗うこととします。
 - overlayオプション
   - struct fieldにコメントをつけることでfine tuningが行えますが、外部データからも全く同じことができるようにする。
   - 他のcode generatorによって生成された型にコメントをつけて回るのは現実的にしたくない運用だからそこをカバーしに行くためです。
@@ -1327,11 +1330,24 @@ https://github.com/ngicks/go-codegen/tree/15a24b031aac0b07d8ed2b2471fac88b5ca8ca
   - フィールドを無視させたり、単なるassignに変えたり
 - templateによるcustom handlerの受付
   - 現状custom handlerはgoのプログラムとして呼び出す場合にのみ渡せますが、これをcli経由でも渡せるように整備するということです。
-  - `text/template`で解釈できるテキストとしてcustom handlerを定義できれば
+  - `text/template`で解釈できるテキストとしてcustom handlerを定義できればよいわけです。
+  - `text/template`はテキストから呼び出せる関数を任意に定義可能なのでなんでもできるんですが、
+  - それはそれとして1度もそういうことをしたことがないのでノウハウがないため大変ですね。
 - ドキュメントを整備する
   - 現状これらのサブコマンドの説明がgit repositoryのトップに全然なくて誰も把握できてないと思います。
   - 誰が読むのかもわからないドキュメントを読みやすく整備するのは精神との戦いだったりしますね
   - そもそもぱっと読んでわかるドキュメントを備えたOSSってのが珍しくて、ソースを読んでようやくなるほどなってなることが多いです。多分大変なことなんですよね。
+- [前回の記事の##おわりに](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info#%E3%81%8A%E3%82%8F%E3%82%8A%E3%81%AB)で触れた別のcode generatorを作っていく。
+  - そこに上げている`wrapper`の必要性を日々感じていて困っているのでいったん切り上げて別テーマに行くのもありですね。
+
+## 感想
+
+そこそこ実用に耐えるレベルにはなってきたかな～？って感じですね。すぐできると思ったんですが、がっつりやってたのに1か月ぐらいかかっちゃいましたね。
+あとは使ってみて荒を洗い出すところですね。code generatorは割と既存プロジェクトにもぶっこみやすかったりするんでどこかで使ってみようと思っています。
+
+[前回の記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info)で作成した`undgen`に次いで、結構な要素を使いまわした別のcode generatorを作ったわけですが、こうして別のものを作ってみるとどこが使いまわせてどこが全然関係ないところなのかが見えてきて頭の中がまとまるので結構面白いです。特に`typegraph`周りには`undgen`固有の残骸が残ってて、全く使いまわせないのに不適切なところに不適切なものを定義してしまっていることに気付きました。ここから広げた枝を改めて刈り込む工程があります。
+
+よく木こりのジレンマという言葉がありますが、でも斧を研いでノミや錐をこしらえているときが一番楽しいです。
 
 [Go]: https://go.dev/
 [Go1.18]: https://tip.golang.org/doc/go1.18
