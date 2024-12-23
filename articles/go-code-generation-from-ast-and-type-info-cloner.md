@@ -51,7 +51,7 @@ go version go1.23.2 linux/amd64
 require (
     github.com/dave/dst v0.27.3
     github.com/google/go-cmp v0.6.0
-    github.com/ngicks/go-iterator-helper v0.0.16
+    github.com/ngicks/go-iterator-helper v0.0.18
     github.com/ngicks/und v1.0.0-alpha6
     github.com/spf13/cobra v1.8.1
     github.com/spf13/pflag v1.0.5
