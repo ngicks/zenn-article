@@ -695,15 +695,15 @@ type noCopyArray struct {
 
 以下のように実装します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/matcher.go#L9-L49
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L9-L49
 
 `findMethod`の実装は以下
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/matcher.go#L101-L108
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L101-L108
 
 `asNamed`, `asInterface`, `as[T]`の実装は以下
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/matcher.go#L64-L77
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L64-L77
 
 この実装はgo vetのそれとは異なり、`sync.Locker`のような`interface`を[struct embedding](https://gobyexample.com/struct-embedding)することで`Lock`を実装しているnon-interface型もpointerではないとみなし、no-copy typeとして判定します。
 
@@ -724,7 +724,7 @@ type notNoCopy2 struct {
 
 `Clone`の実装は以下のように判定します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/method_checker.go#L101-L123
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/method_checker.go#L101-L123
 
 引数が`func (Type) Clone() Type`か`func (*Type) Clone() Type`というmethodを持つときtrueを返します。
 
@@ -732,7 +732,7 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 `asPointer`の実装は以下。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/matcher.go#L79-L90
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L79-L90
 
 [types.NewMethodSet]で、ある型が実装するmethod setを得ることができますが、`Go`の通常のinterfaceのルールと同じくnon-pointer型にはreceiverがnon-pointer型のmethodしか見せなくなっています。
 すべてのmethodを見つけるために、型がpointerでない場合は`types.NewPointer`でラップすることでpointerに変換します。
@@ -741,17 +741,17 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 `noArgSingleValue`の実装は以下
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/matcher.go#L110-L131
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L110-L131
 
 `unwrapPointer`の実装は以下
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/matcher.go#L92-L99
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L92-L99
 
 ##### CloneFunc
 
 `CloneFunc`の実装は以下のように判別します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/method_checker.go#L125-L196
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/method_checker.go#L125-L196
 
 前述通り、`CloneFunc(cloneT func(T) T, cloneU func(U) U, ...)`というシグネチャであるかを判別します。処理の単純性のためにtype paramとclonerコールバック関数の順序は一致することを必須とします。
 判定する型によっては`A[string, T]`のような感じで具体的な型だけでなく、さらに別のtype paramでinstantiateされていることがあります。
@@ -761,7 +761,7 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 `clone-by-assign`(non-pointerのみを含む型)である場合は、生成対象のパッケージ群で定義されている型でない時でも単純にassignすればよいので、これを判別できるようにしておきます。これの具体例は[image/color.RGBA64](https://pkg.go.dev/image/color@go1.23.4#RGBA64)などですね。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/matcher/tester.go#L5-L31
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/tester.go#L5-L31
 
 わりかし単純です。ただし、`stepNext func(*types.Named) bool`を受けとってnamed typeに対してマッチするとき再帰しないで`false`を返す措置があります。
 こういうシグネチャになっているのは、引数が生成対象のnamed typeであったり、`implementor`あるので*method*を実装しているので、それらを`clone-by-assign`として取り扱わずそれらの*method*を呼び出すようにしたいからです。とくに`implementor`に対しては*method*内でどういうフックを行っているか明らかでないのでとりあえず呼び出さないと実装者の意図に反する可能性があります。
@@ -806,7 +806,7 @@ source codeや、それの解析結果自体が型、呼び出しの依存関係
 
 以下のpackageでそれを実装します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/typegraph/type_graph.go
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go
 
 このグラフは作成時に渡された`[]*packages.Package`内部のnamed typeをすべて列挙し、named type同士の依存関係を親から子、子から親に相互に参照できるようにedgeでつなぎます。
 
@@ -820,11 +820,11 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 `IterUpward`を以下のように実装し、matcherでmatchした型から依存関係を親側に向けてたどります。channelを含む*edge route*に対しては`Clone`/`CloneFunc`を呼び出すことはできないため、これらを含むedgeはフィルターして辿らないこととします。そのため`edgeFilter`を受けとるようになっています。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/typegraph/type_graph.go#L584-L614
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L584-L614
 
 `MarkDependant`を以下のように定義することで、`IterUpward`で辿られた型を`dependant`としてマークします。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/typegraph/type_graph.go#L572-L582
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L572-L582
 
 いずれかのマークがされた型にのみ`Clone`/`CloneFunc`を実装していきます。
 逆に言うとマークされた型に対しては盲目的に(型情報によらずに)`Clone`/`CloneFunc`を呼び出してよいことになります。
@@ -864,7 +864,7 @@ inner endは`T`ごとのclone expressionを記述します。`implementor`なら
 
 ここでは`types.Type`で行うこととします
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/method.go#L487-L501
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L480-L494
 
 `typegraph.EdgeKind`は前述の*edge route*の種類を表現するenum-likeな値です。
 これを使わなくてもunwrapは成立するんですが、こうするとtypegraph情報との連携がうまくいっていない場合にtype-assertionのところでpanicするので便利です
@@ -886,7 +886,9 @@ type C struct {
 
 上記よりfield unwrapperを`unwrapFieldAlongPath`として定義します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/method.go#L503-L628
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L496-L621
+
+(返された関数を2度以上呼び出すと(そうなることを意図していないにもかかわらず)結果が変わるよくない実装になっています。参考にする人がいるかはわかりませんが注意してください。)
 
 `fromTy, toTy types.Type`を引数に取ることで`fromTy -> toTy`な関数を出力します。のちの再利用を前提として変換先に別の型を指定できるようになっていますが、今回はclonerなのでこの二つは全く同じ`types.Type`が渡されることになります。
 返り値の関数`unwrapper`で上記で言うclone exprを`wrappee func(string) string`として受け取とり`inner end`でそれを呼び出すようなfield unwrapperをテキストで出力します。
@@ -898,13 +900,13 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 たとえ挙動を変えうる設定項目が一つもなくてもconfigを主体にAPIを設計しないとあとから設定項目を追加するのが破壊的変更なってしまいますので毎回何かを無理くりひねり出すんですが幸いにも今回はいくつかユーザーに取り扱いを決めてほしいものがあります。
 そこで`Config`を以下のように定義しています。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/generator.go#L25-L28
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/generator.go#L25-L28
 
 今後項目が増えるかもしれませんが現在はこれだけです。
 
 `MatcherConfig`は以下のように定義されます。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/matcher.go#L22-L45
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/matcher.go#L22-L45
 
 これも項目が増えるかもしれませんが現時点ではこれだけです。`NoCopy`, `Channel`, `Func`, `Interface`のグローバルオプションをそれぞれ用意しています。
 `CopyHandleIgnore`ならフィールドはclone対象にならず、clone後にはzero valueになります。`CopyHandleDisallow`ならこれを含む型は生成対象から除外されます。`CopyHandleCopyPointer`は、そのフィールドがpointerであるとき(=`*T`, interface, channelなど)の時のみコピーを行いそれ以外の時は`Ignore`として取り扱います。
@@ -913,7 +915,7 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 `Config`に`Generate` methodを実装します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/generator.go#L52-L56
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/generator.go#L52-L56
 
 こうすれば`Config`を無視して何かをすることはできなくなります。
 
@@ -928,21 +930,21 @@ per-fieldレベルの設定によってtype graphのマッチする、しない�
 
 そこで以下のようにoptionを定義し、
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/typegraph/option.go#L3-L19
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/option.go#L3-L19
 
 typegraphの`New`関数でOptionを受けとれるようにします。(破壊的変更を加えました)
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/typegraph/type_graph.go#L226-L232
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L226-L232
 
 `typegraph.Node`に`Priv`(private)データを含めるようにします。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/typegraph/type_graph.go#L64-L78
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L64-L78
 
 こういうのはC言語だとよく見るパターンですね。
 
 `PrivParser`はmatcher呼び出しの直前で呼び出します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/typegraph/type_graph.go#L308-L315
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L308-L315
 
 この`Priv`データ自体はtypegraphにとって関心のある所ではないため`any`になっています。データは利用者ごとに別々のものを用意したほうがよいでしょう。
 
@@ -961,11 +963,11 @@ type Node[T any] any {
 
 Priv dataは以下の`clonerPriv`として定義します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/priv.go#L26-L36
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/priv.go#L26-L36
 
 これは前述のConfigをoverrideできるようにロジックを集約しておきます。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/priv.go#L38-L52
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/priv.go#L38-L52
 
 (`Interface`のオーバーライドが実装されていない！そのうち直ります。)
 
@@ -989,28 +991,6 @@ type A struct {
     // 13
 }
 ```
-
-[\*ast.Field](https://pkg.go.dev/go/ast@go1.23.4#Field)の定義より、1つの`*ast.Field`は0個、ないしは複数の`Name`を持つことがあることに注意します。
-
-```go
-type A struct {
-    Foo, Bar, Baz string
-}
-```
-
-上記の`Foo`,`Bar`, `Baz`は1つの`*ast.Field`で表現されます。
-
-```go
-type A struct {
-    Embedded
-}
-```
-
-という風にstruct embeddingが行われている場合、ast上では`Name`が0個でfieldの型だけあるという風に扱われます。
-型情報上では`Embedded`という名前の1個のfieldとして取り扱われます。
-
-型情報である`*types.Struct`が備える`Field`メソッドは定義順でn番目のフィールドを取得するAPIです。その点の違いを認識しておく必要があります。
-全く同じコメントがアタッチしてあるという解析結果になるにしろすべての`Names`を列挙する必要があります。
 
 解析は[github.com/dave/dst]を用いて、dstにいったん変換してから行います。
 `dst`では`ast`と違い、コメントは直前もしくは直後のnodeにアタッチされているものとして取り扱われます。
@@ -1077,7 +1057,7 @@ fieldにアタッチされたコメントは以下のように定義できます
 これらのコメントを列挙する関数を`ParseFieldDirectiveCommentDst`として定義すると、以下のように各フィールドのコメントを解析できます。
 (これそのものはシンプルなテキスト解析なので特にいうことはありません)
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/priv.go#L54-L111
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/priv.go#L54-L111
 
 ### matcherの定義
 
@@ -1091,13 +1071,13 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 あるnamed typeから別のnamed type、あるいは他の型を含むことができない型(`int`,`array`のようなbasic typeもしくはtype paramなど)までをたどり、*edge route node*とその最終的な型を引数にしてコールバック関数を呼ぶ`TraverseTypes`を定義し、これを活用します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/typegraph/type_graph.go#L491-L542
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L491-L542
 
 `TraverseTypes`を使って型をとり、判別を行います。struct literalが含まれる場合は再帰処理で対応するのでstruct literalが出たら*traverse*を中断したり、custom handler(後述)にマッチしたらマッチする直前までのfield unwrapperを生成したいのでそこで処理を中断したりといろいろ考慮を加えます。
 
 そしてmatcher本体ロジックは下記のクソデカswitch-case
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/matcher.go#L181-L446
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/matcher.go#L181-L446
 
 デカい！デカくてzennのpreviewだと最後まで表示できていないですね(200行までの制限がかかっているようです)。
 
@@ -1109,15 +1089,15 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 `T`が型グラフの構築時にmatchedとなった型については`Clone`/`CloneFunc`を呼び出す必要があるので、その考慮を加えるために`handleField`というラッパーを経由してmatcherを呼び出します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/matcher.go#L520-L587
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/matcher.go#L508-L550
 
 各型向けに呼び出します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/method.go#L225-L231
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L218-L224
 
 switch-caseで分岐してそれぞれ向けのテキストを生成します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/method.go#L267-L381
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L260-L374
 
 struct literalと`CloneFunc`のtype argに対して再帰呼び出しが必要でややこしいですがmatcher部分と分離したため割合単純なコードになっています。
 
@@ -1125,9 +1105,9 @@ struct literalと`CloneFunc`のtype argに対して再帰呼び出しが必要�
 
 `unwrapFieldAlongPath`の呼び出しによって得られたfield unwrapperと組み合わせて最終的な`cloner func(string) string`が得られます
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/method.go#L260-L265
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L253-L258
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/method.go#L383-L393
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L376-L386
 
 ### source fileにsuffixを付けたファイルへ書き出し
 
@@ -1135,7 +1115,7 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 対象となった型が含まれていたファイル名+suffixなファイルに吐き出す方式をとるため以下で`suffixwriter`を定義します
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/suffixwriter/writer.go
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/suffixwriter/writer.go
 
 [token.FileSet.Position](https://pkg.go.dev/go/token@go1.23.4#FileSet.Position)で得られる[token.Position](https://pkg.go.dev/go/token@go1.23.4#Position)からファイル名が得られます。
 これを引数に`suffixwriter`を呼び出すことで所望の挙動を実現できます。
@@ -1160,7 +1140,7 @@ C言語では[#ifdef](https://learn.microsoft.com/ja-jp/cpp/preprocessor/hash-if
 今夏実装したcode generatorでは生成元の型が定義されたファイルのpackage clause、import declをそのまま再利用して生成されるファイルに書き出します。
 この時書き出すpackage commentを`//go:build`コメントのみになるようにフィルターします。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/codegen/comment.go#L14-L25
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/codegen/comment.go#L14-L25
 
 [go/build/constraint.IsGoBuild](https://pkg.go.dev/go/build/constraint@go1.23.4#IsGoBuild), [go/build/constraint.IsPlusBuild](https://pkg.go.dev/go/build/constraint@go1.23.4#IsPlusBuild)が定義されているのでこれをそのまま使います。
 
@@ -1169,7 +1149,7 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 こうしてtrimされたpackage-commentを`PrintFileHeader`内でprintしていきます。
 この関数は出力されるファイルすべてに対して呼ばれるprinterでpackage comment, package clauseとimport declをすべて出力するものです。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/codegen/print.go#L251-L290
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/codegen/print.go#L251-L290
 
 `printer.Fprint`がコメントだけとかそういうレベルのprintに対応していないのでちょっと頑張って出力しています。
 
@@ -1256,13 +1236,13 @@ if m["foo"] { // キーがなければboolのzero valueであるfalseが返る
 }
 ```
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/suffixwriter/suffix.go#L69-L107
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/suffixwriter/suffix.go#L69-L107
 
 `go`コマンドが入っていない環境は全く想定していませんが、一応ない場合はソースに埋めておいたものにfallbackするようにしておきます。(`go`コマンドがない環境では[golang.org/x/tools/go/packages]`.Load`が動作しない)
 
 前述通りファイルの出力の際には`suffixwirter`で`.cloner`のようなsuffixを加えてファイル名に書き込みを行いますが、ここをbuild constraintsとなるsuffixをさらに末尾に加えるように改変します。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/suffixwriter/suffix.go#L109-L152
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/suffixwriter/suffix.go#L109-L152
 
 とりあえず書いてテストが通る程度なので見てすぐわかる程度に非効率なコードですが当面はこうでいいとしています。
 
@@ -1271,7 +1251,7 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 cloneの処理はユーザーごとに別のものを与えたかったりすることは十分に想定できます。
 そこで、Custom handlerを渡せるようにします。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/custom_handler.go#L38-L48
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/custom_handler.go#L38-L48
 
 - `Matcher`がtrueを返す時にこのcustom handlerを実行します
   - 例えば`[]map[string]*[5]T`がstruct fieldの型であるとき、`Matcher`は`[]map[string]*[5]T`, `map[string]*[5]T`, `*[5]T`, `[5]T`, `T`を引数に何度も呼ばれます。
@@ -1280,7 +1260,7 @@ https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a3
 
 `CustomHandlerExprData`の`ImportMap`は`types.Qualifier`になれたりするようなものです。`types.TypeString`とともに使ってもよいようにしてあります。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/imports/parser.go#L389-L399
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/imports/parser.go#L389-L399
 
 ```go
 typeExpr := types.TypeString(data.Ty, data.ImportMap.Qualifier(data.PkgPath))
@@ -1292,7 +1272,7 @@ typeExpr := types.TypeString(data.Ty, data.ImportMap.Qualifier(data.PkgPath))
 
 いくつかbuilt-inのcustom handlerを定義しておいています。
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/custom_handler.go#L50-L253
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/custom_handler.go#L50-L253
 
 例えば、`[n]T`を単なる代入に変換するcustom handlerが適用すると以下のコードを生成した部分が
 
@@ -1325,8 +1305,8 @@ inner = v
 - `xml.Token`に対して`xml.CopyToken`を呼び出す。
   - `xml.Token`はinterfaceで、`[]byte`であることがありうるのでコピー必須です。
 - basic type、もしくは既知の`clone-by-assign`、もしくはそれらのarrayに対して単なる代入を行う。
-  - pointerを一切含まない型に関しては機械的に列挙可能なのでしておきました([これ](https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/clone_by_assign_types_std.generated.go))
-  - [unique.Handle](https://pkg.go.dev/unique@go1.23.4#Handle)や[\*time.Location](https://pkg.go.dev/time@go1.23.4#Location)など、定義上、APIでの取り扱い上内部に`pointer`を含んでいてもそのまま代入すればいいものは目で確認しながらリスト化していってます。([ここ](https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/clone_by_assign_types_known.go))
+  - pointerを一切含まない型に関しては機械的に列挙可能なのでしておきました([これ](https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/clone_by_assign_types_std.generated.go))
+  - [unique.Handle](https://pkg.go.dev/unique@go1.23.4#Handle)や[\*time.Location](https://pkg.go.dev/time@go1.23.4#Location)など、定義上、APIでの取り扱い上内部に`pointer`を含んでいてもそのまま代入すればいいものは目で確認しながらリスト化していってます。([ここ](https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/clone_by_assign_types_known.go))
 
 やる気がでたら拡充します。
 
@@ -1430,31 +1410,31 @@ Flags:
 
 以下にexample typeとその生成結果が出力されます。
 
-https://github.com/ngicks/go-codegen/tree/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/internal/testtargets
+https://github.com/ngicks/go-codegen/tree/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets
 
 tree構造のcloneのexampleとか
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/internal/testtargets/tree/tree.go
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/tree/tree.go
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/internal/testtargets/tree/tree.clone.go
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/tree/tree.clone.go
 
 (exampleなのに本当に動作するbinary treeの実装を書いちゃった)
 
 struct literalを含む型に対するexampleとか
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/internal/testtargets/structlit/lit.go
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/structlit/lit.go
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/internal/testtargets/structlit/lit.clone.go
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/structlit/lit.clone.go
 
 type aliasを含む場合のexampleとか
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/internal/testtargets/alias/alias.go
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/alias/alias.go
 
-https://github.com/ngicks/go-codegen/blob/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/internal/testtargets/alias/alias.clone.go
+https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/alias/alias.clone.go
 
 build constraintsを含む場合のexampleとか
 
-https://github.com/ngicks/go-codegen/tree/786a137c2ae68d5242208610898dba7f9961a382/codegen/generator/cloner/internal/testtargets/constraint
+https://github.com/ngicks/go-codegen/tree/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/constraint
 
 色々用意してあります。
 
@@ -1484,6 +1464,323 @@ https://github.com/ngicks/go-codegen/tree/786a137c2ae68d5242208610898dba7f9961a3
 - [前回の記事の##おわりに](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info#%E3%81%8A%E3%82%8F%E3%82%8A%E3%81%AB)で触れた別のcode generatorを作っていく。
   - そこに上げている`wrapper`の必要性を日々感じていて困っているのでいったん切り上げて別テーマに行くのもありですね。
 
+## おまけ: go/ast, go/typesお気をつけポインツ
+
+### ast
+
+#### type declのunderlying typeは`()`で囲むことができる
+
+[The Go Programming Language SpecificationのTypesのところ](https://go.dev/ref/spec#Types)をよーく見たらわかるんですが、以下は合法です。
+
+[playground](https://go.dev/play/p/8jwQW6DiA-g)
+
+```go
+type B (struct{})
+```
+
+これは見たことがない。ただ安易に[*ast.TypeSpec]を`typeSpec.Type.(*ast.StructType)`として判定を行うと、合法なソースコードが処理できないというissueが上がってくることもありうる・・・かもしれないですね。
+
+一応考慮に入れるなら以下のようにすればよいでしょう。
+
+[playground](https://go.dev/play/p/sf6iHCyJrlT)
+
+```go
+package main
+
+import (
+    "fmt"
+    "go/ast"
+    "go/parser"
+    "go/token"
+)
+
+var src = `package foo
+
+type A (((struct{})))
+`
+
+func main() {
+    fset := token.NewFileSet()
+    file, err := parser.ParseFile(fset, "foo.go", src, parser.ParseComments|parser.AllErrors)
+    if err != nil {
+        panic(err)
+    }
+
+    var ts *ast.TypeSpec
+
+SERACH:
+    for _, dec := range file.Decls {
+        genDecl, ok := dec.(*ast.GenDecl)
+        if !ok {
+            continue
+        }
+        if genDecl.Tok != token.TYPE {
+            continue
+        }
+        for _, spec := range genDecl.Specs {
+            ts = spec.(*ast.TypeSpec)
+            break SERACH
+        }
+
+    }
+    handleStructType(ts)
+}
+
+func handleStructType(ts *ast.TypeSpec) {
+    unwrapped := ts.Type
+
+    var loopCount int
+    const maxDepth = 100
+    for {
+        if loopCount >= maxDepth {
+            panic("too deep parenthesis")
+        }
+        paren, ok := unwrapped.(*ast.ParenExpr)
+        if !ok {
+            break
+        }
+        unwrapped = paren.X
+        loopCount++
+    }
+    st, ok := unwrapped.(*ast.StructType)
+    if !ok {
+        // handle
+        return
+    }
+    fmt.Printf("structType = %v\n", st)
+    // structType = &{24 0xc0000a81e0 false}
+}
+```
+
+Goのフォーマッティングルールだと冗長なParenthesis(`()`) は削除されて一つになるようですが、構文ルール上は`type A ((((struct {}))))`みたいなものも許容されると思います。
+
+システム外部から入力を受け付けるケースではparenthesisの深さに上限をつけないと`DoS`を可能にしてしまうと思います。`Go`のソースコードを外部から受け付けるシステムがあるかは置いておいて、ですが。
+
+#### \*ast.StructTypeのFieldは0個もしくは複数個のNamesを持つ。
+
+`Go`のstructはは複数のFieldを一行に掛けますよね。
+
+[\*ast.Field](https://pkg.go.dev/go/ast@go1.23.4#Field)の定義より、1つの`*ast.Field`は複数の`Names`を持つことがあります。
+
+```go
+type A struct {
+    Foo, Bar, Baz string
+}
+```
+
+上記の`Foo`,`Bar`, `Baz`は1つの`*ast.Field`で表現されます。
+
+さらに、この`Names`は0個の時もあります。以下のようにstruct embeddingが行われているときです。
+
+```go
+type A struct {
+    Embedded
+}
+```
+
+この時、`go/types`で定義される型情報上では`Embedded`という名前の1個のfieldとして取り扱われます。
+
+型情報である`*types.Struct`が備える`Field`メソッドは定義順でn番目のフィールドを取得するAPIです。その点の違いを認識しておく必要があります。
+
+すべてのFieldの名前を列挙するには以下のように定義するとよいでしょう。
+
+```go
+type FieldDescAst struct {
+    Pos   int
+    Name  string
+    Field *ast.Field
+}
+
+func FieldAst(st *ast.StructType) iter.Seq[FieldDescAst] {
+    return func(yield func(FieldDescAst) bool) {
+        if st.Fields == nil || len(st.Fields.List) == 0 {
+            return
+        }
+        pos := 0
+        for i := 0; i < len(st.Fields.List); i++ {
+            f := st.Fields.List[i]
+            names := f.Names
+            if len(names) == 0 {
+                // embedded field
+                unwrapped := f.Type
+                var name string
+            UNWRAP:
+                for {
+                    switch x := unwrapped.(type) {
+                    default:
+                        panic(fmt.Errorf("unknown type in an anonymous field: %T in %v", unwrapped, f.Type))
+                    case *ast.Ident:
+                        name = x.Name
+                        break UNWRAP
+                    case *ast.StarExpr:
+                        unwrapped = x.X
+                    case *ast.SelectorExpr:
+                        unwrapped = x.Sel
+                    case *ast.IndexExpr: // type param
+                        unwrapped = x.X
+                    case *ast.IndexListExpr:
+                        unwrapped = x.X
+                    }
+                }
+                if !yield(FieldDescAst{pos, name, f}) {
+                    return
+                }
+                pos++
+            } else {
+                for _, name := range names {
+                    if !yield(FieldDescAst{pos, name.Name, f}) {
+                        return
+                    }
+                    pos++
+                }
+            }
+        }
+    }
+}
+```
+
+[EmbeddedFieldのspec](https://go.dev/ref/spec#EmbeddedField)よりembedできるのはnamed typeかそれへのpointerのみです。type paramとtype paramへのポインターはembedできません。
+
+- 型の名前となるidentifierは`*ast.Ident`
+- ポインターは`*ast.StarExpr`
+- `X.Sel`(=外部packageの型)は`*ast.SelectorExpr`
+- `X[Index]`(=type paramが1つのgeneric type)は`*ast.IndexExpr`
+- `X[Index1, Index2,...]`(=type paramが複数のgeneric type)は`*ast.IndexListExpr`
+
+となります。
+
+### types
+
+#### unaliasしよう
+
+[The Go Blog: What's in an (Alias) Name?](https://go.dev/blog/alias-names)より、`Go`では名前をaliasすることができます。
+`Go 1.24`からaliasがtype paramを持てるようになります。
+
+```go
+type Foo[T, U comparable] struct{}
+
+type (
+    Foo2 = Foo[int, string]
+    // Go 1.23かそれ以前だと非合法
+    Foo3[T interface{ ~int | ~uint }] = Foo[int, T]
+)
+```
+
+厄介なことに、type aliasはsliceなどの無名の型を含むことができます。
+
+```go
+type A = []B
+type B = map[string]C
+type C = chan D
+type D struct {
+    // ...
+}
+type E = struct{ Foo string }
+type F = interface{ Look() }
+```
+
+struct literalやinterface literalにもaliasを行うことができます。
+
+[types.Unalias](https://pkg.go.dev/go/types@go1.23.4#Unalias)を使うことで、aliasされていない方を取り出すことができます。
+
+[playground](https://go.dev/play/p/HSE-CZrz943)
+
+```go
+package main
+
+import (
+    "fmt"
+    "go/ast"
+    "go/importer"
+    "go/parser"
+    "go/token"
+    "go/types"
+)
+
+func parseStringSource(src string) (*token.FileSet, *ast.File, *types.Package) {
+    fset := token.NewFileSet()
+    f, err := parser.ParseFile(fset, "hello.go", src, parser.ParseComments|parser.AllErrors)
+    if err != nil {
+        panic(err)
+    }
+    conf := &types.Config{
+        Importer: importer.Default(),
+    }
+    pkg := types.NewPackage("hello", "main")
+    chk := types.NewChecker(conf, fset, pkg, nil)
+    err = chk.Files([]*ast.File{f})
+    if err != nil {
+        panic(err)
+    }
+    return fset, f, pkg
+}
+
+func main() {
+    _, _, pkg := parseStringSource(`package main
+
+type A = B
+type B = C
+type C = D
+type D struct {
+    // ...
+}
+
+type AA = [][]B
+`)
+
+    a := pkg.Scope().Lookup("A")
+    aa := pkg.Scope().Lookup("AA")
+    fmt.Printf("type name = %s\n", types.TypeString(a.Type(), func(p *types.Package) string { return "" }))
+    // type name = A
+    fmt.Printf("unaliased A = %s\n", types.TypeString(types.Unalias(a.Type()), func(p *types.Package) string { return "" }))
+    // unaliased A = D
+    fmt.Printf("unaliased AA = %s\n", types.TypeString(types.Unalias(aa.Type()), func(p *types.Package) string { return "" }))
+    // unaliased AA = [][]B
+}
+```
+
+上記からわかる通り、alias以外の型までunaliasしてくれます。
+
+型を見たらとりあえず`types.Unalias`するぐらいの勢いでよいと思います。
+
+#### type asserterを定義しよう
+
+例えば以下のようなstructがあるとします。
+
+```go
+type A struct {
+    F1 func()
+    F2 Fn
+}
+
+type Fn func()
+```
+
+`F1`の型は[*types.Signature], `F2`の方は[*types.Named]です。
+どちらも特定のsignatureを満たす`func`なわけですから、同じように取り扱いたいときはよくあると思います。
+
+そこで以下のようなhelperを定義しておくと便利だと気づきました。
+
+```go
+func asUnderlying[T types.Type](ty types.Type) T {
+    ty = types.Unalias(ty)
+    t, ok := ty.(T)
+    if ok {
+        return t
+    }
+    named, ok := ty.(*types.Named)
+    if !ok {
+        // should be nil
+        return *new(T)
+    }
+    ty = types.Unalias(named.Underlying())
+    t, _ = ty.(T)
+    return t
+}
+```
+
+aliasingを無視し、元となっている型が`T`であるか、`T`がnamed typeならそのunderlying typeが`T`であるかをチェックします。
+
 ## 感想
 
 そこそこ実用に耐えるレベルにはなってきたかな～？って感じですね。すぐできると思ったんですが、がっつりやってたのに1か月ぐらいかかっちゃいましたね。
@@ -1512,6 +1809,7 @@ https://github.com/ngicks/go-codegen/tree/786a137c2ae68d5242208610898dba7f9961a3
 [*types.Chan]: https://pkg.go.dev/go/types@go1.23.4#Chan
 [*types.Struct]: https://pkg.go.dev/go/types@go1.23.4#Struct
 [*types.Named]: https://pkg.go.dev/go/types@go1.23.4#Named
+[*types.Signature]: https://pkg.go.dev/go/types@go1.23.4#Signature
 [*types.Alias]: https://pkg.go.dev/go/types@go1.23.4#Alias
 [types.Object]: https://pkg.go.dev/go/types@go1.23.4#Object
 [types.Type]: https://pkg.go.dev/go/types@go1.23.4#Type
