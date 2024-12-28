@@ -1134,7 +1134,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 プラットフォーム固有の機能やパラメータを同名の関数や定数をプラットフォームごとに定義しておき、`linux`向けとか`mac`向けとか、`amd64`向けとか`arm64`むけとか、そういったbuild constraintsでパッケージに含まれる定義を切り替えられるようにします。
 そうすることで他のプラットフォーム非依存なコードから呼び出せるようにします。
 
-他で言えば[wails](https://wails.io/)(ElectronやTauriの`Go`みたいなものでおおむね間違っていない)のdevビルドとprodビルドをbuild constraintで切り替えて、dev版ではweb viewにdev toolsを表示しておくとかそういう使い方も考えられます。しょっちゅう使われるものという印象もないですが、覚えておくと便利なときもあると思います。
+他で言えば[wails](https://wails.io/)(ElectronやTauriの`Go`版でおおむね間違っていない)のdevビルドとprodビルドをbuild constraintで切り替えて、dev版ではweb viewにdev toolsを表示しておくとかそういう使い方も考えられます。しょっちゅう使われるものという印象もないですが、覚えておくと便利なときもあると思います。
 
 `go`コマンドに組み込みのbuild constraintsには`GOOS`(`linux`, `windows`, `darwin`など)や`GOARCH`(`amd64`, `arm64`など)などがあります。
 これらは`go env GOOS`などで確認できる値として勝手にbuild tagに設定されます。
