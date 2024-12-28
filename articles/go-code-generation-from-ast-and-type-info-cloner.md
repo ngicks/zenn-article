@@ -88,18 +88,21 @@ fmt.Printf("s1.bar=%q, s2.bar=%q\n", s1.bar, s2.bar)
 ```
 
 ただし、型が[pointer](https://go.dev/tour/moretypes/1)(`*T`)を含む場合は話が変わっています。
+「含む」というのは下記をさします。
 
-- (1) structのfieldが`pointer`の時(e.g. `struct { A *string }`)
-- (2) 型が`slice`, `map`, `channel`を含むとき。
-  - これらは暗黙的に`pointer`を含む。
-- (3) それらを`underlying type`するとき(e.g. `type A *B`)
-- (4) struct, arrayが`pointer`を含む型を含む時(=(1),(2),(3)のいずれがfieldに指定されているstructなど)
+- (1) 型がpointerであるとき
+  - `*T`
+  - `slice`, `map`, `channel`, `func`, `interface`
+    - これらは暗黙的にpointerを含む
+- (2) (1)ないしは(1)へのtype aliasを[underlying type](https://go.dev/ref/spec#Underlying_types)とするとき
+  - `type A B`とするとき、`B`が`underlying type`です
+  - ただし`pointer`, `interface`を`underlying`とした型にはmethodを定義できません。
+- (3) (1),(2)をstruct field, array elementに含むとき
 
 これらの場合、単純なassignでは値の完全なコピーは行われません。
 なぜなら、`pointer`がassignされた場合、そのアドレス値がコピーされるためです。
 `pointer`は(リンク先の`A Tour of Go`で説明されている通り)メモリー上のある位置を指し示すアドレスの値です。いってしまえば`uint`です。
-アドレスとはメモリ上のある位置を表す数値です。メモリが貸し会議室なら`pointer`は会議室番号です。
-`*T`は実際上は`uint`なのだからassignによって`uint`の値がコピーされます。`uint`が指し示したさきの値をコピーしないことはこう考えると当たり前に思えるはずです。
+`*T`は実際上は`uint`なのだからassignによって`uint`の値がコピーされます。`uint`が指し示したさきの値をコピーしないことはこう考えると当たり前に聞こえるはず。
 
 pointerは[dereference](https://go.dev/ref/spec#Address_operators)することでassignによるコピーが行うことができます
 
@@ -764,7 +767,8 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/tester.go#L5-L31
 
 わりかし単純です。ただし、`stepNext func(*types.Named) bool`を受けとってnamed typeに対してマッチするとき再帰しないで`false`を返す措置があります。
-こういうシグネチャになっているのは、引数が生成対象のnamed typeであったり、`implementor`あるので*method*を実装しているので、それらを`clone-by-assign`として取り扱わずそれらの*method*を呼び出すようにしたいからです。とくに`implementor`に対しては*method*内でどういうフックを行っているか明らかでないのでとりあえず呼び出さないと実装者の意図に反する可能性があります。
+こういうシグネチャになっているのは、引数が生成対象のnamed typeであったり、`implementor`であったりして、*method*を実装しているとき、それらを`clone-by-assign`として取り扱わないようにしたいからです。その時にはそれらの*method*を呼び出すようにします。
+とくに`implementor`に対しては*method*内でどういうフックを行っているか明らかでないのでとりあえず呼び出さないと実装者の意図に反する可能性があります。
 
 ## 型情報をグラフ化する
 
@@ -1069,7 +1073,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 - そもそもmatcher部分が巨大かつユーザーに内部状態を教えるためにloggerを受けとるため実際のコード生成はコード生成だけに集中しないとごちゃごちゃして読めたもんじゃないです
 - config項目の拡充などでmatcher部分は今後も変わり続けますがコード生成部分は多分あんまりもう変わらないので分離できておくと差分が見やすくていいです
 
-あるnamed typeから別のnamed type、あるいは他の型を含むことができない型(`int`,`array`のようなbasic typeもしくはtype paramなど)までをたどり、*edge route node*とその最終的な型を引数にしてコールバック関数を呼ぶ`TraverseTypes`を定義し、これを活用します。
+あるnamed typeから別のnamed type、あるいは他の型を含むことができない型(`int`のようなbasic typeや`func`, `interface`, `type param`など)までをたどり、*edge route node*とその最終的な型を引数にしてコールバック関数を呼ぶ`TraverseTypes`を定義し、これを活用します。
 
 https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L491-L542
 
@@ -1124,9 +1128,20 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 [go command documentationのBuild constraintsの項](https://pkg.go.dev/cmd/go#hdr-Build_constraints)からわかる通り、`//go:build` directive commentや、ファイル名に`_linux`や`_amd64`などのsuffixをつけることでbuild constraintsを指定できます。
 
-C言語では[#ifdef](https://learn.microsoft.com/ja-jp/cpp/preprocessor/hash-ifdef-and-hash-ifndef-directives-c-cpp)などを活用して、ファイルの中でもconstraintに合わせて定数や関数の定義を切り替えることができます。ファイルの特定の行があるかどうかを制御する`if`のようなものですから、ファイル内で、例えば`linux`と`windows`向けそれぞれの関数や変数を同名で複数書いておくことで、関数インターフェイスを変えずに環境スイッチをさせるようなことができます。
+リンク先でも説明されていますがbuild constraintsとはどのような条件でこのファイルがpackageに含まれるかを決めるものです。
 
-`Go`では一方で、1ファイルに1つしか`//go:build`が存在することが許さないようになっています。それぞれの環境向けのファイルを複数作っておき、それぞれで同名の関数を定義するようなことができます。
+よくある使われ方はマルチプラットフォーム対応です。
+プラットフォーム固有の機能やパラメータを同名の関数や定数をプラットフォームごとに定義しておき、`linux`向けとか`mac`向けとか、`amd64`向けとか`arm64`むけとか、そういったbuild constraintsでパッケージに含まれる定義を切り替えられるようにします。
+そうすることで他のプラットフォーム非依存なコードから呼び出せるようにします。
+
+他で言えば[wails](https://wails.io/)(ElectronやTauriの`Go`みたいなものでおおむね間違っていない)のdevビルドとprodビルドをbuild constraintで切り替えて、dev版ではweb viewにdev toolsを表示しておくとかそういう使い方も考えられます。しょっちゅう使われるものという印象もないですが、覚えておくと便利なときもあると思います。
+
+`go`コマンドに組み込みのbuild constraintsには`GOOS`(`linux`, `windows`, `darwin`など)や`GOARCH`(`amd64`, `arm64`など)などがあります。
+これらは`go env GOOS`などで確認できる値として勝手にbuild tagに設定されます。
+そのほかの任意のbuild tagは[Command Documentation: go](https://pkg.go.dev/cmd/go#hdr-Compile_packages_and_dependencies)より、`go`コマンドのサブコマンドのうちビルド行うもの(`build`, `test`, etc)に`-tags` cliオプションを使って設定します。
+
+C言語では[#ifdef](https://learn.microsoft.com/ja-jp/cpp/preprocessor/hash-ifdef-and-hash-ifndef-directives-c-cpp)などを活用して、ファイルの中でもconstraintに合わせて定数や関数の定義を切り替えることができます。ファイルの特定の行があるかどうかを制御する`if`のようなものですから、1つのファイル内で複数のconstraintによる分岐が行えます。
+`Go`では一方で、1ファイルに1つしか`//go:build`が存在することが許さないようになっています。それぞれの環境向けのファイルを複数作っておき、それぞれで同名の関数/パラメータを定義することになります。
 
 さて、build constraintを尊重する方法についてですが、以下の二つがあります。
 
@@ -1144,7 +1159,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 [go/build/constraint.IsGoBuild](https://pkg.go.dev/go/build/constraint@go1.23.4#IsGoBuild), [go/build/constraint.IsPlusBuild](https://pkg.go.dev/go/build/constraint@go1.23.4#IsPlusBuild)が定義されているのでこれをそのまま使います。
 
-`IsPlusBuild`は`// +build`から始まる行に対してtrueを返します。これが`Go1.16`かそれ以前までに使われていた形式で、`Go1.18`あたりからほぼdeprecationを迎えているはずですが、一応簡単にサポートできるのでベストエフォートで対応してあります。たしか`// +build`は複数行にまたがって書くことができるので、上記の関数ではうまく判定できないと思います。
+`IsPlusBuild`は`// +build`から始まる行に対してtrueを返します。これが`Go1.16`かそれ以前までに使われていた形式で、`Go1.17`でdeprecation、`Go1.18`から基本的に削除されているはずですが、一応簡単にサポートできるのでベストエフォートで対応してあります。後述する`Custom Handler`で`maps.Clone`を使用するため、暗黙的に`Go1.21`以上がこのcode generatorの対象バージョンとなっています。そのためサポートする必要自体はないと思っています。
 
 こうしてtrimされたpackage-commentを`PrintFileHeader`内でprintしていきます。
 この関数は出力されるファイルすべてに対して呼ばれるprinterでpackage comment, package clauseとimport declをすべて出力するものです。
@@ -1315,9 +1330,9 @@ inner = v
 [github.com/spf13/cobra](https://github.com/spf13/cobra)を使ってサブコマンドとして呼び出せるようにしてあります。
 
 ```
-# go run github.com/ngicks/go-codegen/codegen@b278bb28531cbe824bb65580126789cd36f4842c cloner --help
-go: downloading github.com/ngicks/go-codegen v0.0.0-20241223104634-b278bb28531c
-go: downloading github.com/ngicks/go-codegen/codegen v0.0.0-20241223104634-b278bb28531c
+# go run github.com/ngicks/go-codegen/codegen@4224b871db39203e7587360fda30fabb90cde6d4 cloner --help
+go: downloading github.com/ngicks/go-codegen v0.0.0-20241227045719-4224b871db39
+go: downloading github.com/ngicks/go-codegen/codegen v0.0.0-20241227045719-4224b871db39
 cloner generates clone methods on target types.
 
 cloner command generates 2 kinds of clone methods
@@ -1440,10 +1455,14 @@ https://github.com/ngicks/go-codegen/tree/4224b871db39203e7587360fda30fabb90cde6
 
 ## 今後
 
+- prefer-slices-cloneオプションの追加
+  - capの正確なコピーができない反面`slices.Clone`のほうがzero valueでの初期化を挟まない分パフォーマンスがよいです
+  - capの正確なコピーが必要ないケースのほうが多そうなのでこちらがデフォルトになるかもしれないです。
 - known clone by assignの拡充
   - まだ洗いきっていないstd libのpackageがあるので全部見る。
 - overlayオプション
-  - 型定義やstruct fieldにコメントをつけることでfine tuningが行えますが、外部データからも全く同じことができるようにする。
+  - in-placeオプション(型定義やstruct fieldにコメントをつけて行う設定)と同じことを外部データからもできるようにする。
+    - フィールド単位の無視とか、コピー方法の指定とかです。
   - 他のcode generatorによって生成された型にコメントをつけて回るのは現実的にしたくない運用だからそこをカバーしに行くためです。
     - [github.com/oapi-codegen/oapi-codegen]の生成するコードにさらに`Clone`を生成してみて、server interfaceとかに不要なのにcloneを生成して困っています。
 - in-placeオプションの拡充
@@ -1482,7 +1501,7 @@ type B (struct{})
 
 一応考慮に入れるなら以下のようにすればよいでしょう。
 
-[playground](https://go.dev/play/p/sf6iHCyJrlT)
+[playground](https://go.dev/play/p/VYrWT_mDiMo)
 
 ```go
 package main
@@ -1508,7 +1527,7 @@ func main() {
 
     var ts *ast.TypeSpec
 
-SERACH:
+SEARCH:
     for _, dec := range file.Decls {
         genDecl, ok := dec.(*ast.GenDecl)
         if !ok {
@@ -1519,7 +1538,7 @@ SERACH:
         }
         for _, spec := range genDecl.Specs {
             ts = spec.(*ast.TypeSpec)
-            break SERACH
+            break SEARCH
         }
 
     }
@@ -1552,15 +1571,19 @@ func handleStructType(ts *ast.TypeSpec) {
 }
 ```
 
-Goのフォーマッティングルールだと冗長なParenthesis(`()`) は削除されて一つになるようですが、構文ルール上は`type A ((((struct {}))))`みたいなものも許容されると思います。
+構文ルール上、`type A ((((struct {}))))`みたいにいくつもparenthesisがネストするのは許されています。
+筆者環境では`gofumpt`によるフォーマットをかけていますがこれだと冗長なParenthesis(`()`) は削除されて一つになります。
 
-システム外部から入力を受け付けるケースではparenthesisの深さに上限をつけないと`DoS`を可能にしてしまうと思います。`Go`のソースコードを外部から受け付けるシステムがあるかは置いておいて、ですが。
+システム外部から入力を受け付けるケースではparenthesisの深さに上限をつけないと`DoS`を可能にしてしまいます。
+`Go`のソースコードを外部から受け付けるシステムがあるかは置いておいて、ですが。
 
 #### \*ast.StructTypeのFieldは0個もしくは複数個のNamesを持つ。
 
 `Go`のstructはは複数のFieldを一行に掛けますよね。
 
 [\*ast.Field](https://pkg.go.dev/go/ast@go1.23.4#Field)の定義より、1つの`*ast.Field`は複数の`Names`を持つことがあります。
+
+[*types.Struct]にはn番目のfieldを取得するAPIしかないため、astをベースに型情報との連携を行うとき、fieldの列挙が不正確だと不整合を起します。
 
 ```go
 type A struct {
@@ -1579,8 +1602,6 @@ type A struct {
 ```
 
 この時、`go/types`で定義される型情報上では`Embedded`という名前の1個のfieldとして取り扱われます。
-
-型情報である`*types.Struct`が備える`Field`メソッドは定義順でn番目のフィールドを取得するAPIです。その点の違いを認識しておく必要があります。
 
 すべてのFieldの名前を列挙するには以下のように定義するとよいでしょう。
 
@@ -1739,7 +1760,7 @@ type AA = [][]B
 }
 ```
 
-上記からわかる通り、alias以外の型までunaliasしてくれます。
+上記からわかる通り、最初のalias以外の型までunaliasしてくれます。
 
 型を見たらとりあえず`types.Unalias`するぐらいの勢いでよいと思います。
 
