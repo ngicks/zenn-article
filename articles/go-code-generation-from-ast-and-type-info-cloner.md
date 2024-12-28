@@ -698,15 +698,15 @@ type noCopyArray struct {
 
 以下のように実装します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L9-L49
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/matcher.go#L9-L49
 
 `findMethod`の実装は以下
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L101-L108
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/matcher.go#L101-L108
 
 `asNamed`, `asInterface`, `as[T]`の実装は以下
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L64-L77
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/matcher.go#L64-L77
 
 この実装はgo vetのそれとは異なり、`sync.Locker`のような`interface`を[struct embedding](https://gobyexample.com/struct-embedding)することで`Lock`を実装しているnon-interface型もpointerではないとみなし、no-copy typeとして判定します。
 
@@ -727,7 +727,7 @@ type notNoCopy2 struct {
 
 `Clone`の実装は以下のように判定します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/method_checker.go#L101-L123
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/method_checker.go#L101-L123
 
 引数が`func (Type) Clone() Type`か`func (*Type) Clone() Type`というmethodを持つときtrueを返します。
 
@@ -735,7 +735,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 `asPointer`の実装は以下。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L79-L90
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/matcher.go#L79-L90
 
 [types.NewMethodSet]で、ある型が実装するmethod setを得ることができますが、`Go`の通常のinterfaceのルールと同じくnon-pointer型にはreceiverがnon-pointer型のmethodしか見せなくなっています。
 すべてのmethodを見つけるために、型がpointerでない場合は`types.NewPointer`でラップすることでpointerに変換します。
@@ -744,17 +744,17 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 `noArgSingleValue`の実装は以下
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L110-L131
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/matcher.go#L110-L131
 
 `unwrapPointer`の実装は以下
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/matcher.go#L92-L99
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/matcher.go#L92-L99
 
 ##### CloneFunc
 
 `CloneFunc`の実装は以下のように判別します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/method_checker.go#L125-L196
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/method_checker.go#L125-L196
 
 前述通り、`CloneFunc(cloneT func(T) T, cloneU func(U) U, ...)`というシグネチャであるかを判別します。処理の単純性のためにtype paramとclonerコールバック関数の順序は一致することを必須とします。
 判定する型によっては`A[string, T]`のような感じで具体的な型だけでなく、さらに別のtype paramでinstantiateされていることがあります。
@@ -764,7 +764,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 `clone-by-assign`(non-pointerのみを含む型)である場合は、生成対象のパッケージ群で定義されている型でない時でも単純にassignすればよいので、これを判別できるようにしておきます。これの具体例は[image/color.RGBA64](https://pkg.go.dev/image/color@go1.23.4#RGBA64)などですね。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/matcher/tester.go#L5-L31
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/matcher/tester.go#L5-L31
 
 わりかし単純です。ただし、`stepNext func(*types.Named) bool`を受けとってnamed typeに対してマッチするとき再帰しないで`false`を返す措置があります。
 こういうシグネチャになっているのは、引数が生成対象のnamed typeであったり、`implementor`であったりして、*method*を実装しているとき、それらを`clone-by-assign`として取り扱わないようにしたいからです。その時にはそれらの*method*を呼び出すようにします。
@@ -810,7 +810,7 @@ source codeや、それの解析結果自体が型、呼び出しの依存関係
 
 以下のpackageでそれを実装します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go
 
 このグラフは作成時に渡された`[]*packages.Package`内部のnamed typeをすべて列挙し、named type同士の依存関係を親から子、子から親に相互に参照できるようにedgeでつなぎます。
 
@@ -824,11 +824,11 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 `IterUpward`を以下のように実装し、matcherでmatchした型から依存関係を親側に向けてたどります。channelを含む*edge route*に対しては`Clone`/`CloneFunc`を呼び出すことはできないため、これらを含むedgeはフィルターして辿らないこととします。そのため`edgeFilter`を受けとるようになっています。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L584-L614
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go#L584-L614
 
 `MarkDependant`を以下のように定義することで、`IterUpward`で辿られた型を`dependant`としてマークします。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L572-L582
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go#L572-L582
 
 いずれかのマークがされた型にのみ`Clone`/`CloneFunc`を実装していきます。
 逆に言うとマークされた型に対しては盲目的に(型情報によらずに)`Clone`/`CloneFunc`を呼び出してよいことになります。
@@ -868,7 +868,7 @@ inner endは`T`ごとのclone expressionを記述します。`implementor`なら
 
 ここでは`types.Type`で行うこととします
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L480-L494
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/method.go#L480-L494
 
 `typegraph.EdgeKind`は前述の*edge route*の種類を表現するenum-likeな値です。
 これを使わなくてもunwrapは成立するんですが、こうするとtypegraph情報との連携がうまくいっていない場合にtype-assertionのところでpanicするので便利です
@@ -890,7 +890,7 @@ type C struct {
 
 上記よりfield unwrapperを`unwrapFieldAlongPath`として定義します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L496-L621
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/method.go#L496-L621
 
 (返された関数を2度以上呼び出すと(そうなることを意図していないにもかかわらず)結果が変わるよくない実装になっています。参考にする人がいるかはわかりませんが注意してください。)
 
@@ -904,13 +904,13 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 たとえ挙動を変えうる設定項目が一つもなくてもconfigを主体にAPIを設計しないとあとから設定項目を追加するのが破壊的変更なってしまいますので毎回何かを無理くりひねり出すんですが幸いにも今回はいくつかユーザーに取り扱いを決めてほしいものがあります。
 そこで`Config`を以下のように定義しています。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/generator.go#L25-L28
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/generator.go#L25-L28
 
 今後項目が増えるかもしれませんが現在はこれだけです。
 
 `MatcherConfig`は以下のように定義されます。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/matcher.go#L22-L45
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/matcher.go#L22-L45
 
 これも項目が増えるかもしれませんが現時点ではこれだけです。`NoCopy`, `Channel`, `Func`, `Interface`のグローバルオプションをそれぞれ用意しています。
 `CopyHandleIgnore`ならフィールドはclone対象にならず、clone後にはzero valueになります。`CopyHandleDisallow`ならこれを含む型は生成対象から除外されます。`CopyHandleCopyPointer`は、そのフィールドがpointerであるとき(=`*T`, interface, channelなど)の時のみコピーを行いそれ以外の時は`Ignore`として取り扱います。
@@ -919,7 +919,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 `Config`に`Generate` methodを実装します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/generator.go#L52-L56
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/generator.go#L52-L56
 
 こうすれば`Config`を無視して何かをすることはできなくなります。
 
@@ -934,21 +934,21 @@ per-fieldレベルの設定によってtype graphのマッチする、しない�
 
 そこで以下のようにoptionを定義し、
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/option.go#L3-L19
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/option.go#L3-L19
 
 typegraphの`New`関数でOptionを受けとれるようにします。(破壊的変更を加えました)
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L226-L232
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go#L226-L232
 
 `typegraph.Node`に`Priv`(private)データを含めるようにします。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L64-L78
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go#L64-L78
 
 こういうのはC言語だとよく見るパターンですね。
 
 `PrivParser`はmatcher呼び出しの直前で呼び出します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L308-L315
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go#L308-L315
 
 この`Priv`データ自体はtypegraphにとって関心のある所ではないため`any`になっています。データは利用者ごとに別々のものを用意したほうがよいでしょう。
 
@@ -967,11 +967,11 @@ type Node[T any] any {
 
 Priv dataは以下の`clonerPriv`として定義します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/priv.go#L26-L36
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/priv.go#L26-L36
 
 これは前述のConfigをoverrideできるようにロジックを集約しておきます。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/priv.go#L38-L52
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/priv.go#L38-L52
 
 (`Interface`のオーバーライドが実装されていない！そのうち直ります。)
 
@@ -1061,7 +1061,7 @@ fieldにアタッチされたコメントは以下のように定義できます
 これらのコメントを列挙する関数を`ParseFieldDirectiveCommentDst`として定義すると、以下のように各フィールドのコメントを解析できます。
 (これそのものはシンプルなテキスト解析なので特にいうことはありません)
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/priv.go#L54-L111
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/priv.go#L54-L111
 
 ### matcherの定義
 
@@ -1075,13 +1075,13 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 あるnamed typeから別のnamed type、あるいは他の型を含むことができない型(`int`のようなbasic typeや`func`, `interface`, `type param`など)までをたどり、*edge route node*とその最終的な型を引数にしてコールバック関数を呼ぶ`TraverseTypes`を定義し、これを活用します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/typegraph/type_graph.go#L491-L542
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go#L491-L542
 
 `TraverseTypes`を使って型をとり、判別を行います。struct literalが含まれる場合は再帰処理で対応するのでstruct literalが出たら*traverse*を中断したり、custom handler(後述)にマッチしたらマッチする直前までのfield unwrapperを生成したいのでそこで処理を中断したりといろいろ考慮を加えます。
 
 そしてmatcher本体ロジックは下記のクソデカswitch-case
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/matcher.go#L181-L446
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/matcher.go#L181-L446
 
 デカい！デカくてzennのpreviewだと最後まで表示できていないですね(200行までの制限がかかっているようです)。
 
@@ -1093,15 +1093,15 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 `T`が型グラフの構築時にmatchedとなった型については`Clone`/`CloneFunc`を呼び出す必要があるので、その考慮を加えるために`handleField`というラッパーを経由してmatcherを呼び出します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/matcher.go#L508-L550
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/matcher.go#L508-L550
 
 各型向けに呼び出します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L218-L224
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/method.go#L218-L224
 
 switch-caseで分岐してそれぞれ向けのテキストを生成します。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L260-L374
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/method.go#L260-L374
 
 struct literalと`CloneFunc`のtype argに対して再帰呼び出しが必要でややこしいですがmatcher部分と分離したため割合単純なコードになっています。
 
@@ -1109,9 +1109,9 @@ struct literalと`CloneFunc`のtype argに対して再帰呼び出しが必要�
 
 `unwrapFieldAlongPath`の呼び出しによって得られたfield unwrapperと組み合わせて最終的な`cloner func(string) string`が得られます
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L253-L258
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/method.go#L253-L258
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/method.go#L376-L386
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/method.go#L376-L386
 
 ### source fileにsuffixを付けたファイルへ書き出し
 
@@ -1119,7 +1119,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 対象となった型が含まれていたファイル名+suffixなファイルに吐き出す方式をとるため以下で`suffixwriter`を定義します
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/suffixwriter/writer.go
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/suffixwriter/writer.go
 
 [token.FileSet.Position](https://pkg.go.dev/go/token@go1.23.4#FileSet.Position)で得られる[token.Position](https://pkg.go.dev/go/token@go1.23.4#Position)からファイル名が得られます。
 これを引数に`suffixwriter`を呼び出すことで所望の挙動を実現できます。
@@ -1155,7 +1155,7 @@ C言語では[#ifdef](https://learn.microsoft.com/ja-jp/cpp/preprocessor/hash-if
 今夏実装したcode generatorでは生成元の型が定義されたファイルのpackage clause、import declをそのまま再利用して生成されるファイルに書き出します。
 この時書き出すpackage commentを`//go:build`コメントのみになるようにフィルターします。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/codegen/comment.go#L14-L25
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/codegen/comment.go#L14-L25
 
 [go/build/constraint.IsGoBuild](https://pkg.go.dev/go/build/constraint@go1.23.4#IsGoBuild), [go/build/constraint.IsPlusBuild](https://pkg.go.dev/go/build/constraint@go1.23.4#IsPlusBuild)が定義されているのでこれをそのまま使います。
 
@@ -1164,100 +1164,338 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 こうしてtrimされたpackage-commentを`PrintFileHeader`内でprintしていきます。
 この関数は出力されるファイルすべてに対して呼ばれるprinterでpackage comment, package clauseとimport declをすべて出力するものです。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/codegen/print.go#L251-L290
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/codegen/print.go#L251-L290
 
 `printer.Fprint`がコメントだけとかそういうレベルのprintに対応していないのでちょっと頑張って出力しています。
 
 ### ファイルのsuffixがbuild constraintであるときはコピーする
 
 `Go`はファイル名が`_test` suffixを除いたときに`_os`, `_arch`, `_os_arch`でsuffixされている場合暗黙的なbuild constraintsとして取り扱います。
-サポートされるos, archの一覧は`go tool dist list`で得られます。
+サポートされるos, archの一覧は`go tool dist list -json`で得られます。
 
-:::details go tool dist listの出力
+:::details go tool dist list -jsonの出力
 
 ```
-# go tool dist list
-aix/ppc64
-android/386
-android/amd64
-android/arm
-android/arm64
-darwin/amd64
-darwin/arm64
-dragonfly/amd64
-freebsd/386
-freebsd/amd64
-freebsd/arm
-freebsd/arm64
-freebsd/riscv64
-illumos/amd64
-ios/amd64
-ios/arm64
-js/wasm
-linux/386
-linux/amd64
-linux/arm
-linux/arm64
-linux/loong64
-linux/mips
-linux/mips64
-linux/mips64le
-linux/mipsle
-linux/ppc64
-linux/ppc64le
-linux/riscv64
-linux/s390x
-netbsd/386
-netbsd/amd64
-netbsd/arm
-netbsd/arm64
-openbsd/386
-openbsd/amd64
-openbsd/arm
-openbsd/arm64
-openbsd/ppc64
-openbsd/riscv64
-plan9/386
-plan9/amd64
-plan9/arm
-solaris/amd64
-wasip1/wasm
-windows/386
-windows/amd64
-windows/arm
-windows/arm64
+# go tool dist list -json
+[
+        {
+                "GOOS": "aix",
+                "GOARCH": "ppc64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "android",
+                "GOARCH": "386",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "android",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "android",
+                "GOARCH": "arm",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "android",
+                "GOARCH": "arm64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "darwin",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": true
+        },
+        {
+                "GOOS": "darwin",
+                "GOARCH": "arm64",
+                "CgoSupported": true,
+                "FirstClass": true
+        },
+        {
+                "GOOS": "dragonfly",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "freebsd",
+                "GOARCH": "386",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "freebsd",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "freebsd",
+                "GOARCH": "arm",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "freebsd",
+                "GOARCH": "arm64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "freebsd",
+                "GOARCH": "riscv64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "illumos",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "ios",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "ios",
+                "GOARCH": "arm64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "js",
+                "GOARCH": "wasm",
+                "CgoSupported": false,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "386",
+                "CgoSupported": true,
+                "FirstClass": true
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": true
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "arm",
+                "CgoSupported": true,
+                "FirstClass": true
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "arm64",
+                "CgoSupported": true,
+                "FirstClass": true
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "loong64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "mips",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "mips64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "mips64le",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "mipsle",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "ppc64",
+                "CgoSupported": false,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "ppc64le",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "riscv64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "linux",
+                "GOARCH": "s390x",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "netbsd",
+                "GOARCH": "386",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "netbsd",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "netbsd",
+                "GOARCH": "arm",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "netbsd",
+                "GOARCH": "arm64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "openbsd",
+                "GOARCH": "386",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "openbsd",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "openbsd",
+                "GOARCH": "arm",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "openbsd",
+                "GOARCH": "arm64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "openbsd",
+                "GOARCH": "ppc64",
+                "CgoSupported": false,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "openbsd",
+                "GOARCH": "riscv64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "plan9",
+                "GOARCH": "386",
+                "CgoSupported": false,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "plan9",
+                "GOARCH": "amd64",
+                "CgoSupported": false,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "plan9",
+                "GOARCH": "arm",
+                "CgoSupported": false,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "solaris",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "wasip1",
+                "GOARCH": "wasm",
+                "CgoSupported": false,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "windows",
+                "GOARCH": "386",
+                "CgoSupported": true,
+                "FirstClass": true
+        },
+        {
+                "GOOS": "windows",
+                "GOARCH": "amd64",
+                "CgoSupported": true,
+                "FirstClass": true
+        },
+        {
+                "GOOS": "windows",
+                "GOARCH": "arm",
+                "CgoSupported": false,
+                "FirstClass": false
+        },
+        {
+                "GOOS": "windows",
+                "GOARCH": "arm64",
+                "CgoSupported": true,
+                "FirstClass": false
+        }
+]
 ```
 
 :::
 
-この内容を`/`でsplitしてありうるprefixの一覧を`map[string]bool`に集めます
-`Go`にはzero valueが概念がありますから`O(1)`で存在チェックをしたい場合には`map[K]bool`をよく利用します。
-`map[K]struct{}`とすると以下のように2行必要ですが
+`JSON`は内容から以下のように定義できるので
 
-```go
-var m map[string]struct{}
-_, ok := m["foo"]
-if ok {
-    // ...
-}
-```
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/suffixwriter/suffix.go#L17-L22
 
-`map[K]bool`なら1行で済みます
+コマンドを呼び出して`json.Unmarshal`します
 
-```go
-var m map[string]bool
-if m["foo"] { // キーがなければboolのzero valueであるfalseが返る
-    // ...
-}
-```
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/suffixwriter/suffix.go#L101-L111
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/suffixwriter/suffix.go#L69-L107
+`json.Unmarshal`の結果を`map[string]bool`に集めます
 
-`go`コマンドが入っていない環境は全く想定していませんが、一応ない場合はソースに埋めておいたものにfallbackするようにしておきます。(`go`コマンドがない環境では[golang.org/x/tools/go/packages]`.Load`が動作しない)
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/suffixwriter/suffix.go#L76-L99
 
-前述通りファイルの出力の際には`suffixwirter`で`.cloner`のようなsuffixを加えてファイル名に書き込みを行いますが、ここをbuild constraintsとなるsuffixをさらに末尾に加えるように改変します。
+`go`コマンドが入っていない環境は全く想定していませんが、一応ない場合はソースに埋めておいたものにfallbackするようにしてあります。(`go`コマンドがない環境では[golang.org/x/tools/go/packages]`.Load`が動作しない)
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/suffixwriter/suffix.go#L109-L152
+前述通りファイルの出力の際には`suffixwirter`で`.cloner`のようなsuffixを加えてファイル名に書き込みを行いますが、ここをbuild constraintsとなるsuffixが元のファイル名についている場合はsuffixの後ろに移動させるように考慮を加えます。
+
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/suffixwriter/suffix.go#L113-L126
+
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/suffixwriter/suffix.go#L135-L172
 
 とりあえず書いてテストが通る程度なので見てすぐわかる程度に非効率なコードですが当面はこうでいいとしています。
 
@@ -1266,7 +1504,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 cloneの処理はユーザーごとに別のものを与えたかったりすることは十分に想定できます。
 そこで、Custom handlerを渡せるようにします。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/custom_handler.go#L38-L48
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/custom_handler.go#L38-L48
 
 - `Matcher`がtrueを返す時にこのcustom handlerを実行します
   - 例えば`[]map[string]*[5]T`がstruct fieldの型であるとき、`Matcher`は`[]map[string]*[5]T`, `map[string]*[5]T`, `*[5]T`, `[5]T`, `T`を引数に何度も呼ばれます。
@@ -1275,7 +1513,7 @@ https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6
 
 `CustomHandlerExprData`の`ImportMap`は`types.Qualifier`になれたりするようなものです。`types.TypeString`とともに使ってもよいようにしてあります。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/imports/parser.go#L389-L399
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/imports/parser.go#L389-L399
 
 ```go
 typeExpr := types.TypeString(data.Ty, data.ImportMap.Qualifier(data.PkgPath))
@@ -1287,7 +1525,7 @@ typeExpr := types.TypeString(data.Ty, data.ImportMap.Qualifier(data.PkgPath))
 
 いくつかbuilt-inのcustom handlerを定義しておいています。
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/custom_handler.go#L50-L253
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/custom_handler.go#L50-L253
 
 例えば、`[n]T`を単なる代入に変換するcustom handlerが適用すると以下のコードを生成した部分が
 
@@ -1320,8 +1558,8 @@ inner = v
 - `xml.Token`に対して`xml.CopyToken`を呼び出す。
   - `xml.Token`はinterfaceで、`[]byte`であることがありうるのでコピー必須です。
 - basic type、もしくは既知の`clone-by-assign`、もしくはそれらのarrayに対して単なる代入を行う。
-  - pointerを一切含まない型に関しては機械的に列挙可能なのでしておきました([これ](https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/clone_by_assign_types_std.generated.go))
-  - [unique.Handle](https://pkg.go.dev/unique@go1.23.4#Handle)や[\*time.Location](https://pkg.go.dev/time@go1.23.4#Location)など、定義上、APIでの取り扱い上内部に`pointer`を含んでいてもそのまま代入すればいいものは目で確認しながらリスト化していってます。([ここ](https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/clone_by_assign_types_known.go))
+  - pointerを一切含まない型に関しては機械的に列挙可能なのでしておきました([これ](https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/clone_by_assign_types_std.generated.go))
+  - [unique.Handle](https://pkg.go.dev/unique@go1.23.4#Handle)や[\*time.Location](https://pkg.go.dev/time@go1.23.4#Location)など、定義上、APIでの取り扱い上内部に`pointer`を含んでいてもそのまま代入すればいいものは目で確認しながらリスト化していってます。([ここ](https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/clone_by_assign_types_known.go))
 
 やる気がでたら拡充します。
 
@@ -1330,9 +1568,7 @@ inner = v
 [github.com/spf13/cobra](https://github.com/spf13/cobra)を使ってサブコマンドとして呼び出せるようにしてあります。
 
 ```
-# go run github.com/ngicks/go-codegen/codegen@4224b871db39203e7587360fda30fabb90cde6d4 cloner --help
-go: downloading github.com/ngicks/go-codegen v0.0.0-20241227045719-4224b871db39
-go: downloading github.com/ngicks/go-codegen/codegen v0.0.0-20241227045719-4224b871db39
+# go run github.com/ngicks/go-codegen/codegen@6a0b75516f057f51967eb566eaf255890f975192 cloner --help
 cloner generates clone methods on target types.
 
 cloner command generates 2 kinds of clone methods
@@ -1425,31 +1661,31 @@ Flags:
 
 以下にexample typeとその生成結果が出力されます。
 
-https://github.com/ngicks/go-codegen/tree/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets
+https://github.com/ngicks/go-codegen/tree/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/internal/testtargets
 
 tree構造のcloneのexampleとか
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/tree/tree.go
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/internal/testtargets/tree/tree.go
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/tree/tree.clone.go
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/internal/testtargets/tree/tree.clone.go
 
 (exampleなのに本当に動作するbinary treeの実装を書いちゃった)
 
 struct literalを含む型に対するexampleとか
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/structlit/lit.go
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/internal/testtargets/structlit/lit.go
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/structlit/lit.clone.go
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/internal/testtargets/structlit/lit.clone.go
 
 type aliasを含む場合のexampleとか
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/alias/alias.go
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/internal/testtargets/alias/alias.go
 
-https://github.com/ngicks/go-codegen/blob/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/alias/alias.clone.go
+https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/internal/testtargets/alias/alias.clone.go
 
 build constraintsを含む場合のexampleとか
 
-https://github.com/ngicks/go-codegen/tree/4224b871db39203e7587360fda30fabb90cde6d4/codegen/generator/cloner/internal/testtargets/constraint
+https://github.com/ngicks/go-codegen/tree/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/internal/testtargets/constraint
 
 色々用意してあります。
 
