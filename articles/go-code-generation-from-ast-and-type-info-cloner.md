@@ -626,8 +626,8 @@ func (b B[T, U]) CloneFunc(cloneT func(T) T, cloneU func(U) U) B[T, U] {
 
 [golang.org/x/tools/go/packages]を用いるとGo source code解析してast、type info、そのほかのメタデータなどを得ることができます。
 
-[go/ast], [go/types]がそれぞれast解析、astからtype info解析を行う機能を提供しているのですが、対象となるGo source codeが外部モジュールをimportしているとき、これをうまく読み込む手段をこれらは用意していません。
-そのため、go moduleのdependency graphを形成して末端のnodeとなる、自分以外に何もimportしていないmoduleから順番に解析してimporterとしてtype infoを返すようなものを自作する必要があります。それをやってくれるのが[golang.org/x/tools/go/packages]なのです。
+[go/parser], [go/types]がそれぞれast解析、astからtype info解析を行う機能を提供しているのですが、対象となるGo source codeが外部モジュールをimportしているとき、これをうまく読み込む手段をこれらは用意していません。
+そのため、go moduleのdependency graphを解析して末端のnodeとなる、自分以外に何もimportしていないmoduleから順番に解析してimporterとしてtype infoを返すようなものを自作する必要があります。それをやってくれるのが[golang.org/x/tools/go/packages]なのです。
 
 [golang.org/x/tools/go/packages]でastを解析して、type checkした結果を受けとるには以下のようにします
 
@@ -722,7 +722,7 @@ type notNoCopy2 struct {
 #### `implementor`(`Clone`/`CloneFunc`を実装する型)の判別
 
 ある型`A`が内部に型`B`を持つとき、`B`が`implementor`(`Clone`/`CloneFunc`を実装する型)であるならば`A`の*method*(`Clone`/`CloneFunc`)は`B`の*method*を呼び出します。
-`Clone`はともかく、`CloneFunc`は複雑かつ、`interface`として表現できない複雑な条件であるため、型情報を用いた判別を行います。
+`Clone`はともかく、`CloneFunc`は`interface`として表現できない複雑な条件であるため、型情報を用いた判別を行います。
 
 ##### Clone
 
@@ -875,19 +875,20 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 これを使わなくてもunwrapは成立するんですが、こうするとtypegraph情報との連携がうまくいっていない場合にtype-assertionのところでpanicするので便利です
 
 `ast.Expr`でなく`types.Type`を使う理由はtype aliasをunaliasするのが型情報を必要とするからです。
-例えばですが、下記のようにtype aliasが何度も重なっていることはあり得ます。
+例えばですが、下記のようにtype aliasが何度も重なっていたり、`slice`や`map`のような無名の型を含むことは構文ルール上許されています。
 
 ```go
 type A = B
 
-type B = C
+type B = []C
 
 type C struct {
     // ..
 }
 ```
 
-`type A = B`のast nodeを受け取っているとき`A`から`B`まではastのunwrapするだけで簡単に取り出せますが、`B`から`C`をたどるのはまさに型情報です。
+`A = B, B = C`のような単純なaliasならば単に`A`の名前で型を参照すればよいのですが、`B = []C`のようなことをされると、`A`, `B`をunwrapしなければcloneが行えないことになります。
+これは型情報を用いず`ast`で追いきるのは少々困難です。外部Go moduleの型をaliasすることができるためです。
 
 上記よりfield unwrapperを`unwrapFieldAlongPath`として定義します。
 
@@ -922,6 +923,7 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 
 https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/generator.go#L52-L56
 
+これがこのcode generatorへのエントリポイントです。
 こうすれば`Config`を無視して何かをすることはできなくなります。
 
 ### in-place option: struct fieldにコメントをつけて挙動を変更できるようにする
@@ -945,7 +947,7 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 
 https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go#L64-L78
 
-こういうのはC言語だとよく見るパターンですね。
+こういうの(`*void priv`)はC言語だとよく見るパターンですね。
 
 `PrivParser`はmatcher呼び出しの直前で呼び出します。
 
@@ -998,6 +1000,12 @@ type A struct {
 ```
 
 解析は[github.com/dave/dst]を用いて、dstにいったん変換してから行います。
+
+`dst`は`decorated syntax tree`の略語であると述べられています。
+`dst`は`ast`とほぼ同じ構造で、`*ast.File`と`*dst.File`の相互変換が可能です。
+ほぼ同じですが、`ast`からコメントの取り扱いが変わっており、コメントが各nodeにアタッチされるようになっています。
+`ast`ではコメントは単にファイル先頭からのオフセットとして位置が定義されているため、`ast`の書き換え、特にnodeの追加を行うとオフセットが狂って正常なprintが行えないという問題がありました。`dst`はこれを解決することを意図しています。
+
 `dst`では`ast`と違い、コメントは直前もしくは直後のnodeにアタッチされているものとして取り扱われます。
 Goの`go/ast`におけるコメントの取り扱いは単なるオフセットなので`dst`と比べると取り扱いがかなりややこしいです。
 
@@ -1066,21 +1074,28 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 
 ### matcherの定義
 
-与えられた型に対してどのようなコードを生成すればよいかを判別するmatcherを定義します。
-どのようにハンドルすべきか(`type handleKind int`)を定義して、それを返す部分と、実際にコードを生成する部分を分けて実装します。前者がこのmatcherです。
-こうすると以下の点で好都合です
+code generatorは生成対象が`struct`を`underlying`とする場合は各フィールドの型に対しての、`map`, `slice`, `array`を`underlying`とする場合はその型に対しての、それぞれ向けのfield unwrapperとclone exprをテキストとして生成すれば所望の挙動を実現できます。
+ここで、各型のclonerを生成する処理は使いまわすことができます。
 
-- 型グラフ生成時のmatcherとして同じ処理を使いまわせます
-- そもそもmatcher部分が巨大かつユーザーに内部状態を教えるためにloggerを受けとるため実際のコード生成はコード生成だけに集中しないとごちゃごちゃして読めたもんじゃないです
-- config項目の拡充などでmatcher部分は今後も変わり続けますがコード生成部分は多分あんまりもう変わらないので分離できておくと差分が見やすくていいです
+各型のclonerの生成する部分は、型をどのようにハンドルすべきか(`type handleKind int`)を定義して、(1)「各型を判別して`handleKind`を返す部分」と、(2)「実際にコードを生成する部分」を分けて実装します。
+(1)を`matcher`と呼びます。
 
+この分割は以下の点で好都合です
+
+- 型グラフ生成時の`matcher`として同じ処理を使いまわせます
+- そもそも`matcher`部分が巨大かつユーザーに内部状態を教えるためにloggerを受けとるため実際のコード生成はコード生成だけに集中しないとごちゃごちゃして読めたもんじゃないです
+- config項目の拡充などで`matcher`部分は今後も変わり続けますがコード生成部分は多分あんまりもう変わらないので分離できておくと差分が見やすくていいです
+
+ようするに(1)と(2)は別々の意図を持ったもので、別々の要因で変更が加わることがあり得る。[SRP](https://en.wikipedia.org/wiki/Single-responsibility_principle)に従うと分けておくと後々楽ということです。
+
+`matcher`は、*edge route node*のstackとbottom typeの`T`を分けて考えると簡単です。
 あるnamed typeから別のnamed type、あるいは他の型を含むことができない型(`int`のようなbasic typeや`func`, `interface`, `type param`など)までをたどり、*edge route node*とその最終的な型を引数にしてコールバック関数を呼ぶ`TraverseTypes`を定義し、これを活用します。
 
 https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/typegraph/type_graph.go#L491-L542
 
 `TraverseTypes`を使って型をとり、判別を行います。struct literalが含まれる場合は再帰処理で対応するのでstruct literalが出たら*traverse*を中断したり、custom handler(後述)にマッチしたらマッチする直前までのfield unwrapperを生成したいのでそこで処理を中断したりといろいろ考慮を加えます。
 
-そしてmatcher本体ロジックは下記のクソデカswitch-case
+そして`matcher`本体ロジックは下記のクソデカswitch-case
 
 https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/matcher.go#L181-L446
 
@@ -1090,7 +1105,7 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 
 ### 各型のclone
 
-前述のmatcherの呼び出して、得られた`handleKind`をswitch-caseで分岐することで各型のcloneを生成します。前述のfield unwrapperがあるため、実際には`[][]T`のような型があるときには`T`のclone方法のみを生成します。
+前述の`matcher`を呼び出して得られた`handleKind`をswitch-caseで分岐することで各型のcloneを生成します。前述のfield unwrapperがあるため、実際には`[][]T`のような型があるときにはbottom type `T`のclone方法のみを生成します。
 
 `T`が型グラフの構築時にmatchedとなった型については`Clone`/`CloneFunc`を呼び出す必要があるので、その考慮を加えるために`handleField`というラッパーを経由してmatcherを呼び出します。
 
@@ -1127,15 +1142,19 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 
 ## build constraintsのコピー
 
+ファイルに書き出す際、生成対象の型を含むソースファイルのbuild constraintsを尊重しなければcompilation errorになってしまう可能性が高いため、これを考慮する実装が必要です。
+
 [go command documentationのBuild constraintsの項](https://pkg.go.dev/cmd/go#hdr-Build_constraints)からわかる通り、`//go:build` directive commentや、ファイル名に`_linux`や`_amd64`などのsuffixをつけることでbuild constraintsを指定できます。
+
+:::details build constraintsとはなんぞや
 
 リンク先でも説明されていますがbuild constraintsとはどのような条件でこのファイルがpackageに含まれるかを決めるものです。
 
 よくある使われ方はマルチプラットフォーム対応です。
 プラットフォーム固有の機能やパラメータを同名の関数や定数をプラットフォームごとに定義しておき、`linux`向けとか`mac`向けとか、`amd64`向けとか`arm64`むけとか、そういったbuild constraintsでパッケージに含まれる定義を切り替えられるようにします。
-そうすることで他のプラットフォーム非依存なコードから呼び出せるようにします。
+そうすることで他のプラットフォーム非依存な部分とプラットフォーム依存部分でコードを切り分けることができます。
 
-他で言えば[wails](https://wails.io/)(ElectronやTauriの`Go`版でおおむね間違っていない)のdevビルドとprodビルドをbuild constraintで切り替えて、dev版ではweb viewにdev toolsを表示しておくとかそういう使い方も考えられます。しょっちゅう使われるものという印象もないですが、覚えておくと便利なときもあると思います。
+他で言えば[wails](https://wails.io/)(ElectronやTauriの`Go`版でおおむね間違っていない)のdevビルドとprodビルドをbuild constraintで切り替えて、dev版ではweb viewにdev toolsを表示しておくとかそういう使い方も考えられます。
 
 `go`コマンドに組み込みのbuild constraintsには`GOOS`(`linux`, `windows`, `darwin`など)や`GOARCH`(`amd64`, `arm64`など)などがあります。
 これらは`go env GOOS`などで確認できる値として勝手にbuild tagに設定されます。
@@ -1144,7 +1163,9 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 C言語では[#ifdef](https://learn.microsoft.com/ja-jp/cpp/preprocessor/hash-ifdef-and-hash-ifndef-directives-c-cpp)などを活用して、ファイルの中でもconstraintに合わせて定数や関数の定義を切り替えることができます。ファイルの特定の行があるかどうかを制御する`if`のようなものですから、1つのファイル内で複数のconstraintによる分岐が行えます。
 `Go`では一方で、1ファイルに1つしか`//go:build`が存在することが許さないようになっています。それぞれの環境向けのファイルを複数作っておき、それぞれで同名の関数/パラメータを定義することになります。
 
-さて、build constraintを尊重する方法についてですが、以下の二つがあります。
+:::
+
+build constraintを尊重するには以下の二つを行います。
 
 - `//go:build`コメントをコピーする
 - ファイルのsuffixがbuild constraintであるときはコピーする
@@ -1153,7 +1174,7 @@ C言語では[#ifdef](https://learn.microsoft.com/ja-jp/cpp/preprocessor/hash-if
 
 コピーするというよりは`//go:build`コメント以外を消すというのが正しいです。
 
-今夏実装したcode generatorでは生成元の型が定義されたファイルのpackage clause、import declをそのまま再利用して生成されるファイルに書き出します。
+今回実装したcode generatorでは生成元の型が定義されたファイルのpackage clause、import declをそのまま再利用して生成されるファイルに書き出します。
 この時書き出すpackage commentを`//go:build`コメントのみになるようにフィルターします。
 
 https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/codegen/comment.go#L14-L25
@@ -1508,7 +1529,7 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 - `Matcher`がtrueを返す時にこのcustom handlerを実行します
   - 例えば`[]map[string]*[5]T`がstruct fieldの型であるとき、`Matcher`は`[]map[string]*[5]T`, `map[string]*[5]T`, `*[5]T`, `[5]T`, `T`を引数に何度も呼ばれます。
 - `Imports`でこのcustom handlerが使用する外部パッケージを指定します。
-- `Expr`で各種データを受けとって`func(s string) string`を返します。`s`はclone処理の引数にすべき変数の変数名です。`isFunc`がtrueのとき、返された`expr`は呼び出し可能な関数ですので、clonerはこれを呼び出すようなコードを生成します。
+- `Expr`でclone exprを`func(s string) string`として返します。引数`s`が、clone exprの引数となるべきidentのテキスト表現となります。各種データを引数で受けるため、これを使って処理を分岐させます。返したclone exprが呼びだし可能である場合`isFunc`をtrueとして返します。trueのときcode generatorはこれを呼び出すようなコードを生成します。
 
 `CustomHandlerExprData`の`ImportMap`は`types.Qualifier`になれたりするようなものです。`types.TypeString`とともに使ってもよいようにしてあります。
 
@@ -1535,7 +1556,7 @@ for k, v := range /* [5]string */ v {
 }
 ```
 
-以下のようになります。
+以下になります。
 
 ```go
 inner = v
@@ -1546,6 +1567,7 @@ inner = v
 - `T`がclone-by-assignなとき、`[]T`に対して`copy`ベースのcloneを実行する
   - forを回すより最適化された処理をするようなことを読んだのでやってますが特に確証はありません。
   - する意味なかったら泣きながら消します。
+  - [45038#issuecomment-799795384](https://github.com/golang/go/issues/45038#issuecomment-799795384)より`slices.Clone`のほうがよりperformantですが、capの正確なコピーができません。
 - `V`がclone-by-assignなとき、`map[K]V`に対して`maps.Clone`を呼び出す
   - これもforを回すより最適化された処理を呼び出していたのでこうしています。
 - `time.Time`に対して`time.Date(v.Year(), v.Month(), v.Day(), v.Hour(), v.Minute(), v.Second(), v.Nanosecond(), v.Location())`を呼び出す
@@ -1555,7 +1577,6 @@ inner = v
   - `math/big`をあまり使わないので詳しくないですが、`big.New*`して`Set`を呼び出さないとコピーされない作りになっています
   - これらは内部的に`[]Word`を持つので暗黙的に`pointer`を持っています。
 - `xml.Token`に対して`xml.CopyToken`を呼び出す。
-  - `xml.Token`はinterfaceで、`[]byte`であることがありうるのでコピー必須です。
 - basic type、もしくは既知の`clone-by-assign`、もしくはそれらのarrayに対して単なる代入を行う。
   - pointerを一切含まない型に関しては機械的に列挙可能なのでしておきました([これ](https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/clone_by_assign_types_std.generated.go))
   - [unique.Handle](https://pkg.go.dev/unique@go1.23.4#Handle)や[\*time.Location](https://pkg.go.dev/time@go1.23.4#Location)など、定義上、APIでの取り扱い上内部に`pointer`を含んでいてもそのまま代入すればいいものは目で確認しながらリスト化していってます。([ここ](https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/generator/cloner/clone_by_assign_types_known.go))
@@ -1691,6 +1712,7 @@ https://github.com/ngicks/go-codegen/tree/6a0b75516f057f51967eb566eaf255890f9751
 ## 今後
 
 - prefer-slices-cloneオプションの追加
+  - 現在は`T`がclone-by-assignであるとき、`[]T`に対して`copy`ベースの処理を行うのがデフォルトになっています
   - capの正確なコピーができない反面`slices.Clone`のほうがzero valueでの初期化を挟まない分パフォーマンスがよいです
   - capの正確なコピーが必要ないケースのほうが多そうなのでこちらがデフォルトになるかもしれないです。
 - known clone by assignの拡充
@@ -1810,11 +1832,10 @@ func handleStructType(ts *ast.TypeSpec) {
 筆者環境では`gofumpt`によるフォーマットをかけていますがこれだと冗長なParenthesis(`()`) は削除されて一つになります。
 
 システム外部から入力を受け付けるケースではparenthesisの深さに上限をつけないと`DoS`を可能にしてしまいます。
-`Go`のソースコードを外部から受け付けるシステムがあるかは置いておいて、ですが。
 
 #### \*ast.StructTypeのFieldは0個もしくは複数個のNamesを持つ。
 
-`Go`のstructはは複数のFieldを一行に掛けますよね。
+`Go`のstructは複数のFieldを一行に書くことができます。
 
 [\*ast.Field](https://pkg.go.dev/go/ast@go1.23.4#Field)の定義より、1つの`*ast.Field`は複数の`Names`を持つことがあります。
 
@@ -1909,7 +1930,7 @@ func FieldAst(st *ast.StructType) iter.Seq[FieldDescAst] {
 
 #### unaliasしよう
 
-[The Go Blog: What's in an (Alias) Name?](https://go.dev/blog/alias-names)より、`Go`では名前をaliasすることができます。
+[The Go Blog: What's in an (Alias) Name?](https://go.dev/blog/alias-names)より、`Go`では型をaliasすることができます。
 `Go 1.24`からaliasがtype paramを持てるようになります。
 
 ```go
@@ -1937,7 +1958,7 @@ type F = interface{ Look() }
 
 struct literalやinterface literalにもaliasを行うことができます。
 
-[types.Unalias](https://pkg.go.dev/go/types@go1.23.4#Unalias)を使うことで、aliasされていない方を取り出すことができます。
+[types.Unalias](https://pkg.go.dev/go/types@go1.23.4#Unalias)を使うことで、aliasされていない型を取り出すことができます。
 
 [playground](https://go.dev/play/p/HSE-CZrz943)
 
@@ -2035,12 +2056,12 @@ func asUnderlying[T types.Type](ty types.Type) T {
 }
 ```
 
-aliasingを無視し、元となっている型が`T`であるか、`T`がnamed typeならそのunderlying typeが`T`であるかをチェックします。
+aliasingを無視し、元となっている型が`T`であるか、`ty`がnamed typeならそのunderlying typeが`T`であるかをチェックします。
 
 ## 感想
 
 そこそこ実用に耐えるレベルにはなってきたかな～？って感じですね。すぐできると思ったんですが、がっつりやってたのに1か月ぐらいかかっちゃいましたね。
-あとは使ってみて荒を洗い出すところですね。とりあえず1回使ってみてtype aliasで`type A = []B`みたいな型があると動作しないのに気付いてから慌てて直したりしました。
+あとは使ってみて荒を洗い出すところですね。とりあえず1回使ってみてtype aliasで`type A = []B`みたいな型があると動作しなかったり、fieldがembedされた型に対して正常に動作しないのに気づいたりしてから慌てて直してます。
 
 他のcode generatorが吐いた型に対してさらに`Clone` methodを生成するという前からやりたかったことができるようになったことで、生活がほんの少し楽になりました。
 他のcode generatorというのは[github.com/oapi-codegen/oapi-codegen]なんですが、時と場合によってstruct literalを含む型が吐かれたり、type aliasであれこれやられたり`*map[K]V`が吐かれたり、手で書いてたらめったに見ないことのオンパレードになってハードルが上がりまくるので大変でした。おかげでコーナーケースがある程度潰せていると思います。
@@ -2055,6 +2076,7 @@ aliasingを無視し、元となっている型が`T`であるか、`T`がnamed 
 [Go1.23]: https://tip.golang.org/doc/go1.23
 [GoのJSONのT | null | undefinedは\[\]Option\[T\]で表現できる]: https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
 [go/ast]: https://pkg.go.dev/go/ast@go1.23.4
+[go/parser]: https://pkg.go.dev/go/parser@go1.23.4
 [go/types]: https://pkg.go.dev/go/types@go1.23.4
 [*ast.ArrayType]: https://pkg.go.dev/go/ast@go1.23.4#ArrayType
 [*ast.MapType]: https://pkg.go.dev/go/ast@go1.23.4#MapType
