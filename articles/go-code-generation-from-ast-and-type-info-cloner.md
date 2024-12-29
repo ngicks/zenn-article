@@ -32,7 +32,8 @@ published: false
 
 対象読者のレベル感を会社の同僚に置くため基本的な概念の説明を多く含めようと考えています。([A Tour of Go](https://go.dev/tour/list)は最低限こなしている)
 そのため`Go`やcomputer-scienceに長じた読者はある程度とばしながら読んでいただければと思います。
-ただし`ast`や`type info`そのものの説明は過去の記事で何度か書いたので省きます。そこからかなり難易度が高くなってしまうかも。すみません。
+ただし`ast`や`type info`そのものの説明は省きます。別記事に分けようという判断です(現時点では何も書いていないですが)。そこからかなり難易度が高くなってしまうかも。すみません。
+型周りの説明は[github.com/golang/exampleのgotypes](https://github.com/golang/example/tree/master/gotypes)を読んでいただくほうが早いかと思います(といいつつ私はこれを読んだだけだと全く訳が分からなかったですが。)
 
 ## 対象環境
 
@@ -1496,8 +1497,6 @@ https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f9751
 https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/suffixwriter/suffix.go#L113-L126
 
 https://github.com/ngicks/go-codegen/blob/6a0b75516f057f51967eb566eaf255890f975192/codegen/suffixwriter/suffix.go#L135-L172
-
-とりあえず書いてテストが通る程度なので見てすぐわかる程度に非効率なコードですが当面はこうでいいとしています。
 
 ## Custom handler
 
