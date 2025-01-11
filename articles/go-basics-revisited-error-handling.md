@@ -213,7 +213,7 @@ case *json.SyntaxError:
 
 `Go`には、[io/fs](https://pkg.go.dev/io/fs@go1.23.4)パッケージがあり、抽象的な`fs`操作が可能であることから、典型的なerrorは`fs`パッケージで再定義されています。
 
-[syscall.Errno]が`interface { Is(error) bool }`という`errors`パッケージが特別な考慮を行うためのinterfaceを実装しているので、それをラップしてい返す`os`パッケージのerrorに対しての判別に使うことができます。
+[syscall.Errno]が`interface { Is(error) bool }`という`errors`パッケージが特別な考慮を行うためのinterfaceを実装しているので、それをラップして返す`os`パッケージのerrorに対しての判別に使うことができます。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/is-fs-error/main.go)
 
@@ -592,7 +592,7 @@ func main() {
 }
 ```
 
-`objdump -d ./ah`とすると以下のように出力されます。
+`objdump -d ./ah`とすると以下のように出力されます。(かなり端折ってます)
 
 ```
 000000000048f140 <main.foo.Bar>:
@@ -655,6 +655,8 @@ func main() {
 
 `//go:noinline`をmethodなりfunctionなりにつけるのがミソです。付けないとinline化されるため出力されるアセンブリが読みにくくなることがあります。
 
+`main.main`に着目します。
+
 ```
   48f1e0:    49 3b 66 10              cmp    0x10(%r14),%rsp
   48f1e4:    76 1d                    jbe    48f203 <main.main+0x23>
@@ -663,7 +665,7 @@ func main() {
   48f208:    eb d6                    jmp    48f1e0 <main.main>
 ```
 
-まではstack growth preambleとかと呼ばれていて、(多分ほぼすべての)関数の先頭についています。`Go`は、というか`goroutine`はstackが固定サイズでなく成長することがあるので、まず成長が必要かのチェックが走るらしいです。さらにこの`morestack`の呼び出しの中でcooperativeな`goroutine`の切り替えが起こることがあります。つまり特定のタイミングで、stack growthが不要でも必要であるかのようにふるまうことがあるんですね。
+まではstack growth preambleとかと呼ばれていて、(多分ほぼすべての)関数の先頭についています。`Go`は、というか`goroutine`はstackが固定サイズでなく成長することがあるので、まず成長が必要かのチェックが走るらしいです。さらにこの`morestack`の呼び出しの中でcooperativeな`goroutine`の切り替えが起こることがあります。つまり特定のタイミングで、stack growthが不要でも必要であるかのようにふるまうことがあります。
 
 まあそこは置いといて、見てのとおり、
 
@@ -718,18 +720,30 @@ interfaceに値を渡す時は、typed-nilに注意しましょう。
 
 サンプルを以下に挙げます。
 
-[snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/implement-is-as/main.go)
+[snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/implement-is-as-format/main.go)
 
 ```go
-type ErrKind string
+type ErrKind int
 
 func (e ErrKind) Error() string {
-    return string(e)
+    var s strings.Builder
+    s.WriteString("kind ")
+    var count int
+    for i := 0; i < 32; i++ {
+        if e&(1<<i) > 0 {
+            if count > 0 {
+                s.WriteByte('&')
+            }
+            s.WriteString(strconv.Itoa(i + 1))
+            count++
+        }
+    }
+    return s.String()
 }
 
-var (
-    ErrKind1 = ErrKind("kind 1")
-    ErrKind2 = ErrKind("kind 2")
+const (
+    ErrKind1 = ErrKind(1 << iota)
+    ErrKind2
 )
 
 type errBare struct {
@@ -747,7 +761,7 @@ type errIs struct {
 
 func (e *errIs) Is(err error) bool {
     if k, ok := err.(ErrKind); ok {
-        return e.Kind == k
+        return e.Kind&k > 0
     }
     return false
 }
@@ -764,13 +778,15 @@ fmt.Printf("is = %t\n", errors.Is(fmt.Errorf("wrapped; %w", err1), err1)) // is 
 `errIs`ではこの`Is`の実装が利用されるため、trueとなります。
 
 ```go
-err2 := &errIs{errBare{Msg: "is", Kind: ErrKind1}}
+err2 := &errIs{errBare{Msg: "is", Kind: ErrKind1 | ErrKind2}}
 fmt.Printf("is = %t\n", errors.Is(err2, ErrKind1))                        // is = true
-fmt.Printf("is = %t\n", errors.Is(err2, ErrKind2))                        // is = false
+fmt.Printf("is = %t\n", errors.Is(err2, ErrKind2))                        // is = true
 fmt.Printf("is = %t\n", errors.Is(fmt.Errorf("wrapped: %w", err2), err2)) // is = true
 ```
 
-`Is`が実装されていても、`err == target`の比較はそれはそれとして行われるため、`Is`の実装そのものが`receiver == input`をとる必要はありません。したほうが良いとは思います。
+`Is`が実装されていても、`err == target`の比較はそれはそれとして行われるため、`Is`の実装そのものが`receiver == input`を判定する必要はありません。したほうが良いとは思います。
+
+(つまりこうしたほうが基本的にはいいはず)
 
 ```diff go
 func (e *errIs) Is(err error) bool {
@@ -822,18 +838,31 @@ https://github.com/golang/go/blob/go1.22.3/src/os/error.go#L17-L24
 こちらも同じく、`err`(第一引数)が`interface { As(any) bool }`を実装するときにはそれ装を使用するようになっています。単なる`*target == err`を超えた挙動を実現できるため、変換しながら代入とかいろいろできるようになっています。
 
 サンプルを以下に挙げます。
-[snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/implement-is-as/main.go)
+
+[snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/implement-is-as-format/main.go)
 
 ```go
-type ErrKind string
+type ErrKind int
 
 func (e ErrKind) Error() string {
-    return string(e)
+    var s strings.Builder
+    s.WriteString("kind ")
+    var count int
+    for i := 0; i < 32; i++ {
+        if e&(1<<i) > 0 {
+            if count > 0 {
+                s.WriteByte('&')
+            }
+            s.WriteString(strconv.Itoa(i + 1))
+            count++
+        }
+    }
+    return s.String()
 }
 
-var (
-    ErrKind1 = ErrKind("kind 1")
-    ErrKind2 = ErrKind("kind 2")
+const (
+    ErrKind1 = ErrKind(1 << iota)
+    ErrKind2
 )
 
 type errBare struct {
@@ -872,10 +901,14 @@ fmt.Printf("as = %t\n", errors.As(err1, &kind)) // as = false
 
 ```go
 err2 := &errAs{errBare{Msg: "is", Kind: ErrKind1}}
-kind = ""
+kind = 0
 fmt.Printf("as = %t, kind = %s\n", errors.As(err2, &kind), kind) // as = true, kind = kind 1
-kind = ""
+kind = 0
 fmt.Printf("as = %t, kind = %s\n", errors.As(fmt.Errorf("wrapped: %w", err2), &kind), kind) // as = true, kind = kind 1
+
+err2 = &errAs{errBare{Msg: "is", Kind: ErrKind1 | ErrKind2}}
+kind = 0
+fmt.Printf("as = %t, kind = %s\n", errors.As(err2, &kind), kind) // as = true, kind = kind 1&2
 ```
 
 ### interface { As(any) bool }実装の唯一の実装例: net/http.http2StreamError
@@ -971,6 +1004,76 @@ func (e http2StreamError) As(target any) bool {
 
 任意の同一構造のstructを受け付る気があるならこういう感じで`*U`/`**U`両対応が必要です。
 対象読者がただちにこういった実装が必要になるかはわかりませんが、こういう気遣いがいるかもしれないことは覚えておくといいかもしれません。
+
+### Advanced: interface { Format(fmt.State, rune) }を実装する
+
+[fmt.Formatter](https://pkg.go.dev/fmt@go1.23.4#Formatter)を実装すると`fmt.*printf`でどのようにprintされるかの挙動を完全にコントロールできるようになります。
+
+```go
+// Formatter is implemented by any value that has a Format method.
+// The implementation controls how [State] and rune are interpreted,
+// and may call [Sprint] or [Fprint](f) etc. to generate its output.
+type Formatter interface {
+    Format(f State, verb rune)
+}
+```
+
+実装はいい例が思いつきませんでしたが、`%+v`の時は`Error` methodを無視してすべてのfieldを表示するように変更してみます。
+
+[snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/implement-is-as-format/main.go)
+
+```go
+type errFormat struct {
+    errBare
+}
+
+func (e *errFormat) Format(state fmt.State, verb rune) {
+    if verb == 'v' {
+        if state.Flag('+') {
+            _, _ = fmt.Fprintf(state, "msg = %s, kind = %s", e.Msg, e.Kind)
+            return
+        }
+    }
+    // plain does not inherit method from errFormat.
+    type plain errFormat
+    _, _ = fmt.Fprintf(state, fmt.FormatString(state, verb), (*plain)(e))
+}
+```
+
+[fmt.State](https://pkg.go.dev/fmt@go1.23.4#State)自体が[io.Writer]で、結果をここに`Write`するのが`Format` methodの規約となります。
+
+[fmt.FormatString](https://pkg.go.dev/fmt@go1.23.4#FormatString)で`state`と`verb`から`%#v`のようなformat stringを再建できます。
+`%+v`以外のときの挙動を一切変更しないために、それ以外の場合は再建したformat stringで`Fprintf`します。
+`type plain errFormat`とするとこで`Format` methodのないが構造が同じ型を定義します。そうしないと`Format` methodが再帰的に呼びされてstack overflowが起きます。
+この例では`errBase`がembedされていることで`Error` methodは継承されますので都合よく動作します。基本的にはこういったdelegationを全く行わないでこの`Format` methodのなかですべてのパターンをハンドルするか、でなければ`Error`や`String`, `GoString`などは継承するようにしたほうが良いです。
+
+全フォーマットを網羅してprintして`errBase`と`errFormat`の結果を比較します。
+
+`fmt`の実装を洗って全パターンを網羅しました。以下です。
+
+```go
+bare := &errBare{Msg: "is", Kind: ErrKind1}
+for _, v := range "vTtbcdoOqxXUeEfFgGsqp" {
+    verb := string([]rune{v})
+    fmt.Printf("verb %%%s, bare = %"+verb+", format = %"+verb+"\n", verb, bare, &errFormat{*bare})
+    for _, f := range " +-#0" {
+        verb := string([]rune{f, v})
+        fmt.Printf("verb %%%s, bare = %"+verb+", format = %"+verb+"\n", verb, bare, &errFormat{*bare})
+    }
+}
+```
+
+多くなるので`v`の各パターンのみ結果を表示します
+
+```
+verb %v, bare = is, format = is
+verb % v, bare = is, format = is
+verb %+v, bare = is, format = msg = is, kind = kind 1
+verb %-v, bare = is, format = is
+verb %#v, bare = &main.errBare{Msg:"is", Kind:1}, format = &main.plain{errBare:main.errBare{Msg:"is", Kind:1}}
+```
+
+`%+v`のみ挙動をが変更できています。
 
 ## panic-recover
 
@@ -1267,14 +1370,30 @@ func (e *withStack) Unwrap() error {
     return e.err
 }
 
-func WithStack(err error) error {
+func wrapStack(err error, override bool) error {
+    if !override {
+        var ws *withStack
+        if errors.As(err, &ws) {
+            // already wrapped
+            return err
+        }
+    }
+
     var pc [maxDepth]uintptr
-    // skip runtime.Callers, WithStack
-    n := runtime.Callers(2, pc[:])
+    // skip runtime.Callers, WithStack|WithStackOverride, wrapStack
+    n := runtime.Callers(3, pc[:])
     return &withStack{
         err: err,
         pc:  pc[:n],
     }
+}
+
+func WithStack(err error) error {
+    return wrapStack(err, false)
+}
+
+func WithStackOverride(err error) error {
+    return wrapStack(err, true)
 }
 
 func Frames(err error) iter.Seq[runtime.Frame] {
@@ -1338,17 +1457,85 @@ func main() {
         panic(err)
     }
     /*
-        main.frames(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:91)
-        main.calling(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:87)
-        main.deep(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:83)
-        main.example(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:79)
-        main.main(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:70)
+        main.frames(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:96)
+        main.calling(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:92)
+        main.deep(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:88)
+        main.example(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:84)
+        main.main(github.com/ngicks/go-example-basics-revisited/error-handling/with-stack/main.go:102)
         runtime.main(runtime/proc.go:272)
     */
 }
 ```
 
-これは`go run -trimpath ./with-stack/`で実行しているためこうなっています。`-trimpath`オプションがなければソースコードの表示はフルパスになりますので注意してください。
+`runtime.Frame.File`がpackage pathになっていますがこれは`go run -trimpath ./with-stack/`で実行しているためです。`-trimpath`オプションがなければソースコードの表示はローカルストレージ上のフルパスになりますので注意してください。
+
+## 小技集
+
+### []errorをラップして一つにする(簡易)
+
+正確には`[]any`ですが
+
+[snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/wrap-error-dynamic/main.go)
+
+```go
+var (
+    err1 = errors.New("1")
+    err2 = errors.New("2")
+    err3 = errors.New("3")
+)
+
+errs := []any{err1, err2, err3}
+
+const sep = ", "
+format, _ := strings.CutSuffix(strings.Repeat("%w"+sep, len(errs)), sep)
+wrapped := fmt.Errorf(format, errs...)
+
+fmt.Printf("err = %v\n", wrapped) // err = 1, 2, 3
+```
+
+### []errorをラップして一つにする(型)
+
+基本的には上記の[fmt.Errorf]を使うパターンで事足りるんですがラップされた情報の詳細度がたりなくて困ることがあります。
+
+`%w`でエラーをラップした場合は`Unwrap() error`もしくは`Unwrap() []error`を実装した`error`が返されます。
+ただし[このあたり](https://github.com/golang/go/blob/go1.23.4/src/fmt/errors.go#L54-L78)を見るとわかる通り、返されたerrorの`Error` methodが返すstringは`%w` verbを`%v`に置き換えて`fmt.Sprintf`に置き換えた結果と同じものになっています。
+つまり、`%#v`のようなより詳細な情報を要求するverbを使ってラップされたerrorの情報を得ることができません。
+
+そこで以下のように型を定義します。
+
+```go
+type multiError struct{ errs []error }
+
+func (me *multiError) Unwrap() []error {
+    return me.errs
+}
+
+func (me *multiError) format(w io.Writer, fmtStr string) {
+    _, _ = io.WriteString(w, "MultiError: ")
+    for i, err := range me.errs {
+        if i > 0 {
+            _, _ = w.Write([]byte(`, `))
+        }
+        _, _ = fmt.Fprintf(w, fmtStr, err)
+    }
+}
+
+func (me *multiError) Error() string {
+    var s strings.Builder
+    me.format(&s, "%s")
+    return s.String()
+}
+
+func (me *multiError) Format(state fmt.State, verb rune) {
+    me.format(state, fmt.FormatString(state, verb))
+}
+```
+
+[Advanced: interface { Format(fmt.State, rune) }を実装する](<#advanced%3A-interface-%7B-format(fmt.state%2C-rune)-%7Dを実装する>)で述べた通り、`interface { Format(fmt.State, rune) }`を実装すると`fmt.*printf`で各verbが何を表示するかをコントロールできます。
+今回は単に下層のラップされたerror群にそれらを直接渡すだけにします。
+
+このerror typeは[github.com/ngicks/go-common/serr](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.3.1)としてパッケージ化してあります。
+(筆者にはよくあることなんですが、仕事で書いたコードで課題を感じてライブラリとして実装するが、仕事で使うには間に合わなくて結局使っていないというパッケージです。)
 
 [Go]: https://go.dev/
 [Go 1.23]: https://tip.golang.org/doc/go1.23
@@ -1366,6 +1553,7 @@ func main() {
 [io.EOF]: https://pkg.go.dev/io@go1.23.4#EOF
 [fs.ErrNotExist]: https://pkg.go.dev/io/fs@go1.23.4#ErrNotExist
 [io.Reader]: https://pkg.go.dev/io@go1.23.4#Reader
+[io.Writer]: https://pkg.go.dev/io@go1.23.4#Writer
 [fmt.Errorf]: https://pkg.go.dev/fmt@go1.23.4#Errorf
 [type assertion]: https://go.dev/ref/spec#Type_assertions
 [type switch]: https://go.dev/ref/spec#Type_switches
