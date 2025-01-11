@@ -1498,7 +1498,7 @@ fmt.Printf("err = %v\n", wrapped) // err = 1, 2, 3
 基本的には上記の[fmt.Errorf]を使うパターンで事足りるんですがラップされた情報の詳細度がたりなくて困ることがあります。
 
 `%w`でエラーをラップした場合は`Unwrap() error`もしくは`Unwrap() []error`を実装した`error`が返されます。
-ただし[このあたり](https://github.com/golang/go/blob/go1.23.4/src/fmt/errors.go#L54-L78)を見るとわかる通り、返されたerrorの`Error` methodが返すstringは`%w` verbを`%v`に置き換えて`fmt.Sprintf`に置き換えた結果と同じものになっています。
+ただし[このあたり](https://github.com/golang/go/blob/go1.23.4/src/fmt/errors.go#L54-L78)を見るとわかる通り、返されたerrorの`Error` methodが返すstringは`%w` verbを`%v`に置き換えて`fmt.Sprintf`で出力したものと同じになります。
 つまり、`%#v`のようなより詳細な情報を要求するverbを使ってラップされたerrorの情報を得ることができません。
 
 そこで以下のように型を定義します。
