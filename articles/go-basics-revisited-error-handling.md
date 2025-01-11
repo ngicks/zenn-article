@@ -213,7 +213,7 @@ case *json.SyntaxError:
 
 `Go`には、[io/fs](https://pkg.go.dev/io/fs@go1.23.4)パッケージがあり、抽象的な`fs`操作が可能であることから、典型的なerrorは`fs`パッケージで再定義されています。
 
-これらは`interface { Is(error) bool }`という`errors`パッケージが特別な考慮を行うためのinterfaceを実装しているので、`os`パッケージのerrorに対しての判別に使うことができます。
+[syscall.Errno]が`interface { Is(error) bool }`という`errors`パッケージが特別な考慮を行うためのinterfaceを実装しているので、それをラップしてい返す`os`パッケージのerrorに対しての判別に使うことができます。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/is-fs-error/main.go)
 
