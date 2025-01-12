@@ -1532,7 +1532,7 @@ func (me *multiError) Format(state fmt.State, verb rune) {
 ```
 
 [Advanced: interface { Format(fmt.State, rune) }を実装する](<#advanced%3A-interface-%7B-format(fmt.state%2C-rune)-%7Dを実装する>)で述べた通り、`interface { Format(fmt.State, rune) }`を実装すると`fmt.*printf`で各verbが何を表示するかをコントロールできます。
-今回は単に下層のラップされたerror群にそれらを直接渡すだけにします。
+この実装では受け取ったflagとverbでラップされた各errorをprintすることで、flagとverbによるprintされる情報の詳細度のコントロールを受け付けられるようになります。
 
 このerror typeは[github.com/ngicks/go-common/serr](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.3.1)としてパッケージ化してあります。
 (筆者にはよくあることなんですが、仕事で書いたコードで課題を感じてライブラリとして実装するが、仕事で使うには間に合わなくて結局使っていないというパッケージです。)
