@@ -1498,21 +1498,20 @@ fmt.Printf("err = %v\n", wrapped) // err = 1, 2, 3
 基本的には上記の[fmt.Errorf]を使うパターンで事足りるんですがラップされた情報の詳細度がたりなくて困ることがあります。
 
 `%w`でエラーをラップした場合は`Unwrap() error`もしくは`Unwrap() []error`を実装した`error`が返されます。
-ただし[このあたり](https://github.com/golang/go/blob/go1.23.4/src/fmt/errors.go#L54-L78)を見るとわかる通り、返されたerrorの`Error` methodが返すstringは`%w` verbを`%v`に置き換えて`fmt.Sprintf`で出力したものと同じになります。
-つまり、`%#v`のようなより詳細な情報を要求するverbを使ってラップされたerrorの情報を得ることができません。
+ただし[このあたり](https://github.com/golang/go/blob/go1.23.4/src/fmt/errors.go#L54-L78)を見るとわかる通り、返されたerrorの`Error` methodが返すstringは`%w` verbを`%v`に置き換えて`fmt.Sprintf`で出力したものをキャッシュしておき、それを返す実装となっています。
+つまり、返ってきたerrorを`%#v`のようなより詳細な情報を要求するverbでprintしたとしてもこのキャッシュされたstring以上の情報は表示できません。
 
 そこで以下のように型を定義します。
 
 ```go
-type multiError struct{ errs []error }
+type gathered struct{ errs []error }
 
-func (me *multiError) Unwrap() []error {
-    return me.errs
+func (e *gathered) Unwrap() []error {
+    return e.errs
 }
 
-func (me *multiError) format(w io.Writer, fmtStr string) {
-    _, _ = io.WriteString(w, "MultiError: ")
-    for i, err := range me.errs {
+func (e *gathered) format(w io.Writer, fmtStr string) {
+    for i, err := range e.errs {
         if i > 0 {
             _, _ = w.Write([]byte(`, `))
         }
@@ -1520,21 +1519,21 @@ func (me *multiError) format(w io.Writer, fmtStr string) {
     }
 }
 
-func (me *multiError) Error() string {
+func (e *gathered) Error() string {
     var s strings.Builder
-    me.format(&s, "%s")
+    e.format(&s, "%s")
     return s.String()
 }
 
-func (me *multiError) Format(state fmt.State, verb rune) {
-    me.format(state, fmt.FormatString(state, verb))
+func (e *gathered) Format(state fmt.State, verb rune) {
+    e.format(state, fmt.FormatString(state, verb))
 }
 ```
 
 [Advanced: interface { Format(fmt.State, rune) }を実装する](<#advanced%3A-interface-%7B-format(fmt.state%2C-rune)-%7Dを実装する>)で述べた通り、`interface { Format(fmt.State, rune) }`を実装すると`fmt.*printf`で各verbが何を表示するかをコントロールできます。
 この実装では受け取ったflagとverbでラップされた各errorをprintすることで、flagとverbによるprintされる情報の詳細度のコントロールを受け付けられるようになります。
 
-このerror typeは[github.com/ngicks/go-common/serr](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.3.1)としてパッケージ化してあります。
+このerror typeは[github.com/ngicks/go-common/serr](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.4.0)としてパッケージ化してあります。
 (筆者にはよくあることなんですが、仕事で書いたコードで課題を感じてライブラリとして実装するが、仕事で使うには間に合わなくて結局使っていないというパッケージです。)
 
 [Go]: https://go.dev/
