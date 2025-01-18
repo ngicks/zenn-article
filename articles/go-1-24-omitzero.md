@@ -130,6 +130,11 @@ fieldの型がnon pointerで`IsZero`のmethod receiverがpointer typeのとき�
 type foo struct {
     Bar bar `json:",omitzero"`
 }
+
+type bar struct {
+    F1 string
+    F2 int
+}
 ```
 
 zero valueのときomitされるのがわかります。
