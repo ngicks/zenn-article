@@ -3,7 +3,7 @@ title: 'Go1.24からjson:",omitzero"でなんでもomit可能に'
 emoji: "👻"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## Go1.24から`json:",omitzero"`なんでもomit可能になる
@@ -111,7 +111,7 @@ https://github.com/golang/go/issues/45669
 https://github.com/golang/go/blob/go1.24rc2/src/encoding/json/encode.go#L715-L718
 https://github.com/golang/go/blob/master/src/encoding/json/encode.go#L1187-L1219
 
-上記のように、`json:",omitzero"`がつかられていると、
+上記のように、`json:",omitzero"`がつけられていると、
 
 - 型が`interface { IsZero() bool }`を実装している場合、これがtrueを返すとき
 - もしくは[reflect.Value.IsZero](https://pkg.go.dev/reflect@go1.24rc2#Value.IsZero)がtrueを返すとき
@@ -205,7 +205,7 @@ https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
 
 この方法には値がuncomparableになってしまうという明確な問題がありました。
 
-しかし`omitzero`が実装されるため`Go1.24`以降では`Option[Option[T]]`でよくなります。
+`Go1.24`以降では`omitzero`が実装されるため`Option[Option[T]]`で同じ目的を達成できます。
 この場合、`Option`の実装をcomparableにしておけば`T`がcomparableである限り`Option[Option[T]]`もcomparableとなります。
 
 ### 型の定義
@@ -389,4 +389,7 @@ sliceやarrayに含まれる*undefined*である`und.Und[T]`が`null`を出力�
 
 もう`omitempty`つかわなくていいかも。
 
-`Go`も歴史が深いので昔はこうだったけど今はこうすべき見たいなtips集を作ってメンテしていったほうがいいかもしれませんね。
+`Go`も歴史が深くなってきて、昔はこうだったけど今はこうすべき見たいなtipsがいくつか出てきました。
+例えば`for k, v := range`でiterator variableをshadowingしたほうがよかったのは[Go1.22で修正された](https://tip.golang.org/doc/go1.22#language)のでやらなくてよくなりました。
+`omitzero`もそう言ったものの一つです。`omitempty`に比べて仕様が明快なのでこっちを使っていくほうが初心者には優しいと思います。(実際筆者はemptyの判定の条件を初めて見たとき混乱しました。)
+そういうののを集めたtips集を作ってメンテしていったほうがいいかもしれませんね。多分文法とstd libraryの範疇に話をとどめればそんなに大きなものにはなりませんし。
