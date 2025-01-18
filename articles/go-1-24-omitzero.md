@@ -94,19 +94,29 @@ https://github.com/golang/go/blob/go1.24rc2/src/time/time.go#L140-L161
 
 https://github.com/golang/go/issues/45669
 
-ついに上記がmergeされました！いろいろ考慮が必要で時間がかかっていましたがようやくですね。
+ついに上記が採用された形でcloseされました！
+
+大雑把に以下の3つが検討されて`omitzero`に終着した形になります。
+
+- `omitempty`の挙動を変える
+- `MarshalJSON`実装で`nil`を返させる or 特殊なエラーを返させる
+- `omitnil`
+
+`omitzero`が現実的になったのはおそらく`reflect.Value.IsZero`が最適化されて高速化されたからでしょうね。
+実際、`isEmptyValue`の実装のなかで[`IsZero`が呼ばれるようになったのはGo1.22から](https://github.com/golang/go/blob/go1.22.0/src/encoding/json/encode.go#L306-L318)で[Go1.21まででは型ごとに細かいチェックを行っていました](https://github.com/golang/go/blob/go1.21.0/src/encoding/json/encode.go#L304-L320)。
+`Go1.22`で[CL411478](https://go-review.googlesource.com/c/go/+/411478)が適用されたことで`reflect.Value.IsZero`が高速化されたことでこうなったらようです。
 
 ### 実装
 
 https://github.com/golang/go/blob/go1.24rc2/src/encoding/json/encode.go#L715-L718
 https://github.com/golang/go/blob/master/src/encoding/json/encode.go#L1187-L1219
 
-上記のように、`json:",omitzero"`がついているとき、
+上記のように、`json:",omitzero"`がつかられていると、
 
 - 型が`interface { IsZero() bool }`を実装している場合、これがtrueを返すとき
-- 実装しないとき[reflect.Value.IsZero](https://pkg.go.dev/reflect@go1.24rc2#Value.IsZero)がtrueを返すとき
+- もしくは[reflect.Value.IsZero](https://pkg.go.dev/reflect@go1.24rc2#Value.IsZero)がtrueを返すとき
 
-fieldがomitされます。
+のいずれかの時fieldがomitされます。
 
 fieldの型がnon pointerで`IsZero`のmethod receiverがpointer typeのときの考慮が特筆すべき点ですね。
 
@@ -183,6 +193,8 @@ fmt.Printf("%s\n", bin)
 https://github.com/go-json-experiment/json/blob/master/arshal_default.go#L1056-L1061
 https://github.com/go-json-experiment/json/blob/master/fields.go#L200-L217
 
+[このコメント](https://github.com/golang/go/issues/45669#issuecomment-2215356195)から`encoding/json`への`omitzero`の追加は、立ち位置的には仮想的なv2からのバックポートということになります。
+
 ## JSONのT | null | undefinedはOption[Option[T]]で表現できる
 
 `Go1.23`以前ではJSONのT | null | undefinedを単なるstruct fieldで表現するには`[]Option[T]`を用いる必要がありました。
@@ -191,7 +203,12 @@ https://github.com/go-json-experiment/json/blob/master/fields.go#L200-L217
 
 https://zenn.dev/ngicks/articles/go-json-undefined-or-null-slice
 
-しかし`omitzero`があるためこれからは`Option[Option[T]]`でよくなります。
+この方法には値がuncomparableになってしまうという明確な問題がありました。
+
+しかし`omitzero`が実装されるため`Go1.24`以降では`Option[Option[T]]`でよくなります。
+この場合、`Option`の実装をcomparableにしておけば`T`がcomparableである限り`Option[Option[T]]`もcomparableとなります。
+
+### 型の定義
 
 以下のようにstructをunderlyingとした`Option[T]`を定義し、
 
@@ -211,7 +228,11 @@ https://github.com/ngicks/und/blob/v1.0.0-alpha8/und.go#L110-L113
 
 `,omitzero`がこの型のfieldをomitできるのでこれでよくなりました！
 
+### sample
+
 以下のsnippetを`go1.24rc2 run github.com/ngicks/und/example@v1.0.0-alpha8`で実行すると、コメントされたような結果がprintされます。
+
+`und.Und`が`Option[Option[T]]`、`sliceund.Und`が`[]Option[T]`をベースとする型です。
 
 ```go
 package main
@@ -362,6 +383,10 @@ func main() {
 }
 ```
 
+sliceやarrayに含まれる*undefined*である`und.Und[T]`が`null`を出力するのはECMAの`JSON.stringify`と挙動が一致しているためちょうどいい感じになっています。
+
 ## おわりに
 
 もう`omitempty`つかわなくていいかも。
+
+`Go`も歴史が深いので昔はこうだったけど今はこうすべき見たいなtips集を作ってメンテしていったほうがいいかもしれませんね。
