@@ -665,7 +665,7 @@ func main() {
   48f208:    eb d6                    jmp    48f1e0 <main.main>
 ```
 
-まではstack growth preambleとかと呼ばれていて、(多分ほぼすべての)関数の先頭についています。`Go`は、というか`goroutine`はstackが固定サイズでなく成長することがあるので、まず成長が必要かのチェックが走るらしいです。さらにこの`morestack`の呼び出しの中でcooperativeな`goroutine`の切り替えが起こることがあります。つまり特定のタイミングで、stack growthが不要でも必要であるかのようにふるまうことがあります。
+まではstack growth preambleとかと呼ばれていて、(多分)すべての関数の先頭についています。`Go`は、というか`goroutine`はstackが固定サイズでなく成長することがあるので、まず成長が必要かのチェックが走るらしいです。さらにこの`morestack`の呼び出しの中でcooperativeな`goroutine`の切り替えが起こることがあります。つまり特定のタイミングで、stack growthが不要でも必要であるかのようにふるまうことがあります。
 
 まあそこは置いといて、見てのとおり、
 
@@ -1312,11 +1312,11 @@ https://github.com/golang/go/blob/go1.23.4/src/encoding/json/encode.go#L283-L300
 
 https://github.com/golang/go/blob/go1.23.4/src/crypto/hmac/hmac.go#L141-L149
 
-## stacktraceはついてない
+## stacktrace
 
 `Go`のstd libraryはstacktraceの付いたerrorを返してくることがないため、慣習的にerrorにはstacktraceがついていないのが普通です。
 
-### 理由
+### errorにstacktraceがついていない理由
 
 stdのerrorが全般的にstacktrace情報を含んでくれればと思うのですが、
 
@@ -1333,7 +1333,7 @@ stdのerrorが全般的にstacktrace情報を含んでくれればと思うの�
 自分向けのざっくり作ったツールほどerrorのメッセージを丁寧にラップしないので、そういうときこそstacktraceが欲しいですね。
 errorメッセージをさぼって、後になってどこで起きたのかわからないerrorが吐かれて慌ててerrorのラップを整備しだすんですよね(n敗)。
 
-おそらく近いうちにどうこうなる話題ではないので、必要であればerrorにstacktraceを追加するライブラリを使用するのがよろしいかと思います。
+いつかstdでもstacktraceがつくかもしれませんがいつになるのかわからないので必要であればライブラリを利用したほうがよろしいかと思います。
 
 参考: [Goのerrorがスタックトレースを含まない理由](https://methane.hatenablog.jp/entry/2024/04/02/Go%E3%81%AEerror%E3%81%8C%E3%82%B9%E3%82%BF%E3%83%83%E3%82%AF%E3%83%88%E3%83%AC%E3%83%BC%E3%82%B9%E3%82%92%E5%90%AB%E3%81%BE%E3%81%AA%E3%81%84%E7%90%86%E7%94%B1)
 
@@ -1469,11 +1469,202 @@ func main() {
 
 `runtime.Frame.File`がpackage pathになっていますがこれは`go run -trimpath ./with-stack/`で実行しているためです。`-trimpath`オプションがなければソースコードの表示はローカルストレージ上のフルパスになりますので注意してください。
 
+### ログする
+
+`panic`のstacktraceをprintしてログに残したいことはあると思います。
+というのが、nil pointer derefernceがふいに起きたとき、どこでどう起きたのかログにだせないと見当がつかなくて困ったことがあります(1敗)。
+
+単に`panic`のstacktraceを表示するだけなら以下のようにします。
+
+[playground](https://go.dev/play/p/-hstc20PnGF)
+
+```go
+package main
+
+func main() {
+    aaa()
+}
+
+func aaa() {
+    bbb()
+}
+
+func bbb() {
+    ccc()
+}
+
+func ccc() {
+    panic("hey")
+}
+
+/*
+panic: hey
+
+goroutine 1 [running]:
+main.ccc(...)
+    /tmp/sandbox1615949582/prog.go:16
+main.bbb(...)
+    /tmp/sandbox1615949582/prog.go:12
+main.aaa(...)
+    /tmp/sandbox1615949582/prog.go:8
+main.main()
+    /tmp/sandbox1615949582/prog.go:4 +0x25
+*/
+```
+
+`panic`が`recover`されなかった場合stderrに上記のフォーマットでstacktraceが表示されてプロセスが終了します。
+
+任意のフォーマットや出力先を選択する、例えば[slog.Logger](https://pkg.go.dev/log/slog@go1.23.4#Logger)に出力したいときなどは`recover`を呼んだ関数の中で前述の[runtime.Callers](https://pkg.go.dev/runtime@go1.23.4#Callers)/[runtime.CallersFrames](https://pkg.go.dev/runtime@go1.23.4#CallersFrames)を用いればよいです。
+この時点では`SP`(Stack Pointer)が巻き戻されていないので、stackを表示するとpanicを呼び出したところからのstackが表示されます。詳しいことはよくわかっていないので`recover`を呼び出したコードをコンパイルして`objdump -d`したり、[実装](https://github.com/golang/go/blob/go1.23.4/src/runtime/panic.go#L722-L806)などを参照してほしいです。`panic`の実装は`runtime.gopanic`の呼び出しに書き換えれるのが見て分かるのでstacktraceの先端が`gopanic`である理由がよくわかると思います。
+
+```go
+func main() {
+    defer func() {
+        rec := recover()
+        if rec == nil {
+            return
+        }
+        pc := make([]uintptr, 100)
+        // skip runtime.Callers, this closure, runtime.gopanic
+        n := runtime.Callers(3, pc)
+        pc = pc[:n]
+
+        fmt.Printf("panicked: %v\n", rec)
+        frames := runtime.CallersFrames(pc)
+        for {
+            f, ok := frames.Next()
+            if !ok {
+                break
+            }
+            fmt.Printf("    %s(%s:%d)\n", f.Function, f.File, f.Line)
+        }
+    }()
+    // work...
+}
+```
+
+別の`goroutine`で起きた`panic`を`recover`してmain goroutineまで伝搬させるのはよくあります。
+`panic`が`recover`されずに`go`キーワードをつけて呼び出された関数を終了させるとプロセス全体が強制終了します。このとき他の`goroutine`の`defer`が実行されないため、穏当にプログラムを終了させるにはそうさせたほうがいいからです。
+
+その`panic`のstacktraceをmain goroutineまで伝搬するには、panic valueにstacktraceをつけて回るとよいでしょう。ということで以下のようにします。
+
+このスニペットの中で使っている`serr`パッケージは[stacktrace/自分でつける](#自分でつける)で載せているスニペットもうちょっと凝ってライブラリとして[実装](https://github.com/ngicks/go-common/blob/serr/v0.6.0/serr/withstack.go)したものです。
+
+[snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/log-stacktrace/main.go)
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/ngicks/go-common/serr"
+)
+
+//go:noinline
+func example() {
+    deep()
+}
+
+func deep() {
+    calling()
+}
+
+func calling() {
+    frames()
+}
+
+func frames() {
+    var (
+        panicVal any
+        done     = make(chan struct{})
+    )
+    go func() {
+        defer func() {
+            rec := recover()
+            if rec == nil {
+                return
+            }
+            panicVal = serr.WithStack(fmt.Errorf("panicked: %v", rec))
+            close(done)
+        }()
+        example2()
+    }()
+    <-done
+    panic(panicVal)
+}
+
+//go:noinline
+func example2() {
+    deep2()
+}
+
+func deep2() {
+    calling2()
+}
+
+func calling2() {
+    frames2()
+}
+
+func frames2() {
+    s := make([]int, 2)
+    _ = s[4]
+}
+
+func main() {
+    defer func() {
+        rec := recover()
+        if rec == nil {
+            return
+        }
+        // skip runtime.Callers, inner func, WithStackOpt, gopanic, this func.
+        err := serr.WithStackOpt(rec.(error), &serr.WrapStackOpt{Override: true, Skip: 3})
+        fmt.Printf("panicked: %v\n", rec)
+        var i int
+        for seq := range serr.DeepFrames(err) {
+            if i > 0 {
+                fmt.Printf("caused by\n")
+            }
+            i++
+            for f := range seq {
+                fmt.Printf("    %s(%s:%d)\n", f.Function, f.File, f.Line)
+            }
+        }
+    }()
+    example()
+    //nolint
+    // panicked: panicked: runtime error: index out of range [4] with length 2
+    //     main.main.func1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:67)
+    //     runtime.gopanic(runtime/panic.go:785)
+    //     main.frames(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:39)
+    //     main.calling(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:19)
+    //     main.deep(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:15)
+    //     main.example(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:11)
+    //     main.main(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:80)
+    //     runtime.main(runtime/proc.go:272)
+    // caused by
+    //     main.frames.func1.1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:33)
+    //     runtime.gopanic(runtime/panic.go:785)
+    //     runtime.goPanicIndex(runtime/panic.go:115)
+    //     main.frames2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:57)
+    //     main.calling2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:52)
+    //     main.deep2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:48)
+    //     main.example2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:44)
+    //     main.frames.func1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:36)
+}
+```
+
+[serr.DeepFrames](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.6.0#DeepFrames)で`iter.Seq[iter.Seq[runtime.Frame]]`を得られます。
+今回の実装では単にstdoutに書き出していますが、これを適当にmapして`slog.Value`に変換できれば`slog.Logger`でログに残せます。
+
 ## 小技集
 
 ### []errorをラップして一つにする(簡易)
 
-正確には`[]any`ですが
+[errors.Join]で複数errorを1つにまとめられます。返ってくる`error`の`Error` methodはそれぞれのerrorの`Error`を呼び出して改行つなぎします。
+
+それが気に入らない場合は[strings.Repeat](https://pkg.go.dev/strings@go1.23.4#Repeat)で`%w`⁺sepを繰り返し、最後の余計なsepを[strings.CutSuffix](https://pkg.go.dev/strings@go1.23.4#CutSuffix)切り落とします。最後に[fmt.Errorf]でerrorをラップします。こうすることで任意のprefix, sepを盛ったフォーマットでerrorでprint可能です。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/wrap-error-dynamic/main.go)
 
@@ -1484,18 +1675,25 @@ var (
     err3 = errors.New("3")
 )
 
+fmt.Printf("errors.Join: %v\n", errors.Join(err1, err2, err3))
+/*
+    errors.Join: 1
+    2
+    3
+*/
+
 errs := []any{err1, err2, err3}
 
 const sep = ", "
 format, _ := strings.CutSuffix(strings.Repeat("%w"+sep, len(errs)), sep)
-wrapped := fmt.Errorf(format, errs...)
+wrapped := fmt.Errorf("foobar error: "+format, errs...)
 
-fmt.Printf("err = %v\n", wrapped) // err = 1, 2, 3
+fmt.Printf("err = %v\n", wrapped) // err = foobar error: 1, 2, 3
 ```
 
 ### []errorをラップして一つにする(型)
 
-基本的には上記の[fmt.Errorf]を使うパターンで事足りるんですがラップされた情報の詳細度がたりなくて困ることがあります。
+基本的には上記の[errors.Join]/[fmt.Errorf]を使うパターンで事足りるんですがラップされた情報の詳細度がたりなくて困ることがあります。
 
 `%w`でエラーをラップした場合は`Unwrap() error`もしくは`Unwrap() []error`を実装した`error`が返されます。
 ただし[このあたり](https://github.com/golang/go/blob/go1.23.4/src/fmt/errors.go#L54-L78)を見るとわかる通り、返されたerrorの`Error` methodが返すstringは`%w` verbを`%v`に置き換えて`fmt.Sprintf`で出力したものをキャッシュしておき、それを返す実装となっています。
@@ -1533,7 +1731,7 @@ func (e *gathered) Format(state fmt.State, verb rune) {
 [Advanced: interface { Format(fmt.State, rune) }を実装する](<#advanced%3A-interface-%7B-format(fmt.state%2C-rune)-%7Dを実装する>)で述べた通り、`interface { Format(fmt.State, rune) }`を実装すると`fmt.*printf`で各verbが何を表示するかをコントロールできます。
 この実装では受け取ったflagとverbでラップされた各errorをprintすることで、flagとverbによるprintされる情報の詳細度のコントロールを受け付けられるようになります。
 
-このerror typeは[github.com/ngicks/go-common/serr](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.4.0)としてパッケージ化してあります。
+このerror typeは[github.com/ngicks/go-common/serr](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.6.0)としてパッケージ化してあります。
 (筆者にはよくあることなんですが、仕事で書いたコードで課題を感じてライブラリとして実装するが、仕事で使うには間に合わなくて結局使っていないというパッケージです。)
 
 [Go]: https://go.dev/
@@ -1549,6 +1747,7 @@ func (e *gathered) Format(state fmt.State, verb rune) {
 [git]: https://git-scm.com/
 [errors.Is]: https://pkg.go.dev/errors@go1.23.4#Is
 [errors.As]: https://pkg.go.dev/errors@go1.23.4#As
+[errors.Join]: https://pkg.go.dev/errors@go1.23.4#Join
 [io.EOF]: https://pkg.go.dev/io@go1.23.4#EOF
 [fs.ErrNotExist]: https://pkg.go.dev/io/fs@go1.23.4#ErrNotExist
 [io.Reader]: https://pkg.go.dev/io@go1.23.4#Reader
