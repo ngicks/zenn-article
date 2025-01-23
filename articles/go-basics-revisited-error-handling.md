@@ -48,6 +48,7 @@ go version go1.23.2 linux/amd64
     - [http.Server]がpanicを勝手にrecoverしてしまうため、panicは勝手にrecoverされるものと思っておいたほうが良い
     - また、呼び出しているライブラリの関数がふいにpanicすることも十分ありうる
 - stacktraceはerrorについて回らないので付けたかったら自分でつける
+  - `recover`した関数内でstacktraceを取得するとpanicのstacktraceを取得できるので、ログしたいときはこれを用いる
 
 ## errorはinterface
 
@@ -240,7 +241,7 @@ https://github.com/golang/go/blob/go1.23.4/src/syscall/zerrors_windows.go#L6-L14
 
 雑に`go doc -all syscall | sed -n '/^const (/,/^)/p'`を`GOOS=linux`, `GOOS=windows`で出し分けてみましたがどちらも133個だったのでwindows向けにも全部*invent*されているっぽいですかね。
 
-これらの`Errno`を利用する場合には自身で`GOOS=windows`でも`go build`してみることで型チェックを通しておくことをお勧めします。(`package main`でないパッケージに対して`go build`をかけると単に型チェックだけがかかる。)
+これらの`Errno`を利用する場合には自身で`GOOS=windows`でも`go build`してみることで型チェックを通しておくことをお勧めします。(`package main`でないパッケージに対して`go build`をかけると単に型チェックだけがかかる。`go vet`でもよいです。)
 
 :::
 
@@ -255,6 +256,7 @@ https://github.com/golang/go/blob/go1.23.4/src/syscall/zerrors_windows.go#L6-L14
 
 format stringで`%w` verbを指定し、引数に`error`型を渡すことでラップを行います。
 `%w`なしだと別のerrorをラップしないerrorを得られます。
+`%w`以外のverbは他の`fmt.*printf`系の関数と同じように使えます。error messageを`fmt.Sprintf`で出力するのと等価です。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/wrap-error/main.go)
 
@@ -346,6 +348,7 @@ func wrapByCustomError() {
 - `Go1.13`以前から利用されていたもの
 
 です。
+
 errorのラッピングの概念は[Go 1.13](https://go.dev/doc/go1.13#error_wrapping)([2019-09-03](https://go.dev/doc/devel/release#go1.13)以降)からstdに追加されています。
 ですから、`Go1.13`以前に利用されるerrorはラッピングを考慮していないことがあります。
 
@@ -360,11 +363,12 @@ https://github.com/golang/go/blob/go1.23.4/src/io/io.go#L444-L456
 https://github.com/search?q=repo%3Agolang%2Fgo+%3D%3D+io.EOF&type=code
 
 このようなsentinel valueとして使われるerrorの値はラップしないようにしてください。
+特に特定の`interface`(e.g. [io.Reader])を実装してそれを使う関数に渡す時、特定のerrorを返すのが`interface`の規約として決まっているとき(e.g. [io.EOF])、そのerrorはラップしないように気を付けてください。
 
 ## errorを実装する型を定義する
 
 [fmt.Errorf]でerrorをラッピングして回れば事足りる場面も多いですが、ライブラリなどを作る際には`error` interfaceを実装する型を定義することで、あとからパラメータを取り出せるようにしたりするためにerror型を定義することがあります。
-その際に気をつけるべき注意点に述べます。
+その際に気をつけるべき注意点を述べます。
 
 すでにサンプルの中で使用していますが、定義自体は以下のように行います。
 
@@ -399,9 +403,11 @@ func (e *customErr) Error()
 これは二つ理由があります。
 
 - (1) non-pointer type `T`がmethod receiverであるとき、`T`、`*T`どちらもinterfaceを満たすこと
+  - ただし、`error`のunderlying typeが`int`, `string`などbuilt-inでcomparableである場合を除く(e.g. [syscall.Errno])
 - (2) interfaceはspec上comparableだが、比較するとき2つのinterfaceの*dynamic types*が同一でcomparableでないときruntime-panicが起きること
 
-(1)に関しては単純に紛らわしいという筆者の主観です。特定の型のerrorを返す場合はドキュメントに明確に書いておくほうが良いので、どちらでもよいといえばいいのですが、method receiverがpointerであればpointerでないとinterfaceを満たせないためどちらなのかを気にする必要すらありません。
+(1)に関しては単純に紛らわしいということです。特定の型のerrorを返す場合はドキュメントに明確に書いておくほうが良いので、どちらでもよいといえばいいのですが、method receiverがpointerであればpointerでないとinterfaceを満たせないためどちらなのかを気にする必要すらありません。
+ただし、`type someErr int`のようなbuilt-inかつcomparableな型をベースとする場合はmethod receiverはnon-pointerであるほうが一般的だと思います。これはある程度のサイズ(昔ググってた頃はdouble型が3つ分以上、などという言説を見ました)がないデータはpointerをderefするより値を渡してしまったほうがより高速であるからという理由があるからなはずです(特に出展を示せません。)
 
 (2)に関しては以下のsnippetをご覧ください。
 
@@ -532,7 +538,7 @@ func failableWork() (any, error)
 
 後者二つはまあそのままなので分かると思います。
 
-問題はtyped-nilで下記のようなことが起きます。
+問題はtyped-nilで、下記のようなことが起きます。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/typed-nil/main.go)
 
@@ -684,7 +690,7 @@ func main() {
 
 型を持つ`nil`に対するmethodの呼び出しは、method receiverがnon-pointerならnil dereferenceでrun-time panicとなりますが、pointer receiverならばnilを渡すことにになります。関数の引数がpointerであるとき、そこにnilを渡すことが何かの意味を持つというのは普通にありうる話であり、これを禁じるのもまた、おかしな話です。
 
-であるため、interfaceへの変換がかかる部分で、型情報のあるnilを渡すと、変換後のinterfaceはnon-nilとなります。nilをreceiverとしたmethodの呼び出しが合法であるのは十分ありえるからでしょう。
+であるため、interfaceへの変換がかかる部分で、型情報のあるnilを渡すと、変換後のinterfaceはnon-nilとなります。nilをreceiverとしたmethodの呼び出しは合法であり、意図的にそれをすることも十分ありえるからでしょう。
 
 この場合、以下のように変更すれば、`nil`がプリントされます。
 
@@ -715,10 +721,11 @@ interfaceに値を渡す時は、typed-nilに注意しましょう。
 > func (m MyError) Is(target error) bool { return target == fs.ErrExist }
 > then Is(MyError{}, fs.ErrExist) returns true. See syscall.Errno.Is for an example in the standard library. An Is method should only shallowly compare err and the target and not call Unwrap on either.
 
-あまりはっきり書かれていない気がしますが、[errors.Is]は単に`err`を順次unwrapながら`err == target`という比較を繰り返す挙動になっています。そのため、`target`(第二引数)のdynamic typeがuncomparableであるとき基本的に何もできません。
-そこで、`err`(第一引数)が`interface { Is(error) bool }`を実装するときにはそちらの実装による比較も行うようになっています。単なる`err1 == err2`を超えた挙動を実現できるため、例えば複数のerror値に対してマッチするようにするなどカスタマイズに幅があります。
+あまりはっきり書かれていない気がしますが、[errors.Is]は単に`err`を順次unwrapながら`unwrapped == target`という比較を繰り返す挙動になっています。そのため、`target`(第二引数)のdynamic typeがuncomparableであるとき基本的に何もできません。(逆に言ってuncomparable同士の比較でpanicを起こすこともありません。)
+そこで、`err`(第一引数)かそれをunwrapして得られたerrorが`interface { Is(error) bool }`を実装するときにはそちらの実装による比較も行うようになっています。単なる`err1 == err2`を超えた挙動を実現できるため、例えば複数のerror値に対してマッチするようにするなどカスタマイズに幅があります。
 
-サンプルを以下に挙げます。
+実装サンプルを以下に挙げます。
+このサンプルでは、bit flagで表現されるerrorを複数bitwise-ORすることで持つことができる`error` typeを定義し、これに対して特定のbit flagを持っているかを[errors.Is]で検査できるようにします。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/implement-is-as-format/main.go)
 
@@ -784,7 +791,7 @@ fmt.Printf("is = %t\n", errors.Is(err2, ErrKind2))                        // is 
 fmt.Printf("is = %t\n", errors.Is(fmt.Errorf("wrapped: %w", err2), err2)) // is = true
 ```
 
-`Is`が実装されていても、`err == target`の比較はそれはそれとして行われるため、`Is`の実装そのものが`receiver == input`を判定する必要はありません。したほうが良いとは思います。
+`Is`が実装されていても、`err == target`の比較はそれはそれとして[errors.Is]が行うため、`Is`の実装そのものが`receiver == input`を判定する必要はありません。したほうが良いとは思います。
 
 (つまりこうしたほうが基本的にはいいはず)
 
@@ -797,6 +804,8 @@ func (e *errIs) Is(err error) bool {
 +    return e == err
 }
 ```
+
+(method receiverがpointerであるとき、必ずcomparableなのでuncomparable同士の比較によるrun-time panicを恐れる必要はない)
 
 ### interface { Is(error) bool }実装の典型: syscall.Errno
 
@@ -818,7 +827,7 @@ https://github.com/golang/go/blob/master/src/internal/oserror/errors.go#L5-L18
 
 https://github.com/golang/go/blob/go1.22.3/src/io/fs/fs.go#L139-L154
 
-osパッケージで使うと書いているのはどういうことかというと
+`os`パッケージで使うと書いているのはどういうことかというと
 
 https://github.com/golang/go/blob/go1.22.3/src/os/error.go#L17-L24
 
@@ -834,10 +843,11 @@ https://github.com/golang/go/blob/go1.22.3/src/os/error.go#L17-L24
 >
 > As panics if target is not a non-nil pointer to either a type that implements error, or to any interface type.
 
-こちらも同じくあまりはっきり書かれていない気がしますが、[errors.As]は単に`err`を順次unwrapながら`target`に対して`err`がassign可能かを判定し、可能ならassignしてtrueを返す挙動になっています。
-こちらも同じく、`err`(第一引数)が`interface { As(any) bool }`を実装するときにはそれ装を使用するようになっています。単なる`*target == err`を超えた挙動を実現できるため、変換しながら代入とかいろいろできるようになっています。
+こちらも同じくあまりはっきり書かれていない気がしますが、[errors.As]は単に`err`を順次unwrapながら`target`に対して`unwrapped`がassign可能かを判定し、可能ならassignしてtrueを返す挙動になっています。
+こちらも同じく、`err`(第一引数)かそれをunwrapして得られたerrorが`interface { As(any) bool }`を実装するときにはそれを使用するようになっています。単なる`*target == err`を超えた挙動を実現できるため、変換しながら代入とかいろいろできるようになっています。
 
 サンプルを以下に挙げます。
+このサンプルでは、`Is`実装用いたのと同じbit flagで表現されるerrorを複数bitwise-ORすることで持つことができる`error` typeを定義し、bit flag部分だけを取り出せるように`As`を実装します。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/implement-is-as-format/main.go)
 
@@ -887,7 +897,7 @@ func (e *errAs) As(tgt any) bool {
 }
 ```
 
-`As`の引数に渡されるのは、[errors.As]の第二引数そのままなので、場合によって`**T`であることもありうるので注意しましょう。
+`As`の引数に渡されるのは、[errors.As]の第二引数そのままなので、場合によって`**T`かもしれませんし, `*T`, `**T`どちらも渡されるというのもありうるので注意しましょう。
 
 当然`As`を実装しない`errBare`に対して[errors.As]を実行してもtrueは帰ってきませんが、
 
@@ -911,7 +921,7 @@ kind = 0
 fmt.Printf("as = %t, kind = %s\n", errors.As(err2, &kind), kind) // as = true, kind = kind 1&2
 ```
 
-### interface { As(any) bool }実装の唯一の実装例: net/http.http2StreamError
+### interface { As(any) bool }の唯一の実装例: net/http.http2StreamError
 
 std内で適当に検索をかけたところ、`interface { As(any) bool }`を実装するのは以下の`http2StreamError`だけのようです。
 
@@ -923,7 +933,7 @@ https://github.com/golang/go/blob/go1.22.3/src/net/http/h2_error.go#L13-L37
 
 [reflect](https://pkg.go.dev/reflect@go1.22.3)を使って、`target`と自身がお互いにstructで、各fieldの名前が同一で型が`Convertible`かどうかを判定し、同じであるときに各fieldに値を`Set`しています。
 
-すべてのfieldが代入可能かまず最初にチェックを行っているのは中途半端に代入を行って失敗を返さないようにするためでしょうね。読者の皆さんも似たような機能を実装する差には似たような考慮を行うとよりよいでしょう。
+すべてのfieldが代入可能かまず最初にチェックを行っているのは中途半端に代入を行って失敗を返さないようにするためでしょうね。読者の皆さんも似たような機能を実装する際には同じように中途半端な値を入れない考慮を行うとよりよいでしょう。
 
 `ConvertibleTo`を使っていることのポイントは、ほぼ同一構造で変換可能な型で構成されるstructに代入できるようにすることでしょう。
 
@@ -1003,7 +1013,7 @@ func (e http2StreamError) As(target any) bool {
 ```
 
 任意の同一構造のstructを受け付る気があるならこういう感じで`*U`/`**U`両対応が必要です。
-対象読者がただちにこういった実装が必要になるかはわかりませんが、こういう気遣いがいるかもしれないことは覚えておくといいかもしれません。
+読者がただちにこういった実装が必要になるかはわかりませんが、考慮事項としてこういうものがあると気に留めておくとよいかもしれません。
 
 ### Advanced: interface { Format(fmt.State, rune) }を実装する
 
@@ -1042,7 +1052,7 @@ func (e *errFormat) Format(state fmt.State, verb rune) {
 
 [fmt.State](https://pkg.go.dev/fmt@go1.23.4#State)自体が[io.Writer]で、結果をここに`Write`するのが`Format` methodの規約となります。
 
-[fmt.FormatString](https://pkg.go.dev/fmt@go1.23.4#FormatString)で`state`と`verb`から`%#v`のようなformat stringを再建できます。
+[fmt.FormatString](https://pkg.go.dev/fmt@go1.23.4#FormatString)で`state`と`verb`から`"%#v"`のようなformat stringを再建できます。
 `%+v`以外のときの挙動を一切変更しないために、それ以外の場合は再建したformat stringで`Fprintf`します。
 `type plain errFormat`とするとこで`Format` methodのないが構造が同じ型を定義します。そうしないと`Format` methodが再帰的に呼びされてstack overflowが起きます。
 この例では`errBase`がembedされていることで`Error` methodは継承されますので都合よく動作します。基本的にはこういったdelegationを全く行わないでこの`Format` methodのなかですべてのパターンをハンドルするか、でなければ`Error`や`String`, `GoString`などは継承するようにしたほうが良いです。
@@ -1073,7 +1083,7 @@ verb %-v, bare = is, format = is
 verb %#v, bare = &main.errBare{Msg:"is", Kind:1}, format = &main.plain{errBare:main.errBare{Msg:"is", Kind:1}}
 ```
 
-`%+v`のみ挙動をが変更できています。
+`%+v`のみ挙動をが変更できています。`%#v`も変わっていますが、これは型を定義した副作用です。
 
 ## panic-recover
 
@@ -1662,7 +1672,7 @@ func main() {
 
 ### []errorをラップして一つにする(簡易)
 
-[errors.Join]で複数errorを1つにまとめられます。返ってくる`error`の`Error` methodはそれぞれのerrorの`Error`を呼び出して改行つなぎします。
+[errors.Join]で複数errorを1つにまとめられます。返ってくる`error`の`Error` methodはそれぞれのerrorの`Error`を呼び出して結果を`"\n"`で結合します。
 
 それが気に入らない場合は[strings.Repeat](https://pkg.go.dev/strings@go1.23.4#Repeat)で`%w`⁺sepを繰り返し、最後の余計なsepを[strings.CutSuffix](https://pkg.go.dev/strings@go1.23.4#CutSuffix)切り落とします。最後に[fmt.Errorf]でerrorをラップします。こうすることで任意のprefix, sepを盛ったフォーマットでerrorでprint可能です。
 
