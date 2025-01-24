@@ -484,7 +484,7 @@ func main() {
 }
 ```
 
-上記の通り、non-pointer typeをmethod receiverとしたときに、`error` typeとして`uncomparableErr1`, `uncomparableErr2`を引数に渡すと、`err == err`でcomparing uncomparable typeでruntime panicをおこします。
+上記の通り、non-pointer typeをmethod receiverとしたときに、`error` typeとして`uncomparableErr1`, `uncomparableErr2`を引数に渡すと、`err == err`でcomparing uncomparable typeでrun-time panicをおこします。
 この挙動はspecのcomparison operatorsの部分で明記されています。
 
 > https://go.dev/ref/spec#Comparison_operators
@@ -494,7 +494,7 @@ func main() {
 つまり別の`error` type, 例えば`io.EOF`との比較はrun-time panicになりませんので、大きな問題にはなりにくいでしょう。
 
 問題になるのは例えば、複数回同じ関数を実行してerrorが比較されるときなどでしょうか？
-こういった比較を行うことがありうるかは筆者には想像がつきませんが、compilation errorにならずにruntime errorになってしまうため、避けられるらならさけたほうがいい問題でしょう。
+こういった比較を行うことがありうるかは筆者には想像がつきませんが、compilation errorにならずにrun-time errorになってしまうため、避けられるらならさけたほうがいい問題でしょう。
 
 `error`のdynamic typeがpointerである場合、当然ですがpointerのアドレス同士の比較となるためrun-time panicとなりません。
 
