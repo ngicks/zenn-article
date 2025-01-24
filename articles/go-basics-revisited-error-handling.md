@@ -83,7 +83,7 @@ type error interface {
     - e.g. `io.Reader`が`n > 0, io.EOF`を返してくることがある
 
 慣習的にポインターを返す関数がそれの返り値のnil checkをさせることはほとんどありません。
-exportされた関数、メソッドでポインターのnil checkが必要なときは、できれば不要になるようにするか、でなかればdoc commentに明確に書いておきましょう。
+exportされた関数、メソッドでポインターのnil checkは不要となるようにしましょう。
 
 ```go
 func failableWork(...any) (ret1 io.Reader, ret2 *UltraBigBigData, err error)
@@ -129,7 +129,7 @@ if err != nil {
 
 ## errorの判別
 
-`err != nil`でerrorなことはわかるけどどういうerrorなのかを判定したときは多くあります。
+`err != nil`でerrorなことはわかるけどどういうerrorなのかを判定したいときは多くあります。
 例えばファイルを開くのがerrorしたとき、`ENOENT`なのか`EPERM`なのかぐらいは最低でも知らないとハンドルできないですよね。
 
 - errorは基本的に、特定の値(pointerなど)で特定できるものと、型で特定できるものがある
@@ -247,8 +247,9 @@ https://github.com/golang/go/blob/go1.23.4/src/syscall/zerrors_windows.go#L6-L14
 
 ## errorのラッピング
 
-前述通り[errors.Is], [errors.As]はerrorがラップされることを想定しています。
-ラップする方法について以下で述べます。
+前述通りGoの`error`は木構造を持つことができ、[errors.Is], [errors.As]を用いることでその木構造をdepth-firstに探索したマッチができます。
+木構造をたどるには`interface { Unwrap() error }`もしくは`interface { Unwrap() []error }`の実装をチェックし、呼び出すわけですが、この語彙を逆にして、`error`を子ノードとしてもつ`error`を作成することを「ラップする」/「ラッピング」などと呼びます。
+その方法について以下で述べます。
 
 ### fmt.Errorf
 
@@ -263,7 +264,9 @@ format stringで`%w` verbを指定し、引数に`error`型を渡すことでラ
 ```go
 err := fmt.Errorf("foo")
 
-wrapped := fmt.Errorf("bar: %w", err)
+wrapped := fmt.Errorf("bar: %w, param1 = %d, param2 = %.2f", err, 10, 0.1234)
+
+fmt.Printf("err = %v\n\n", wrapped) // err = bar: foo, param1 = 10, param2 = 0.12
 
 fmt.Printf("not same = %t\n", err == wrapped)                // not same = false
 fmt.Printf("but is wrapped = %t\n", errors.Is(wrapped, err)) // but is wrapped = true
@@ -285,6 +288,8 @@ fmt.Printf(
     errors.Is(wrapped, err3),
 ) // wraps all = true, true, true
 ```
+
+複数errorを持つためここで木構造が生じます。
 
 当然[errors.As]も機能します。
 
@@ -344,7 +349,7 @@ func wrapByCustomError() {
 
 それは[io.EOF]のような、
 
-- sentinel valueとして用いられるerrorかつ
+- sentinel valueとして用いられるerror
 - `Go1.13`以前から利用されていたもの
 
 です。
@@ -403,11 +408,10 @@ func (e *customErr) Error()
 これは二つ理由があります。
 
 - (1) non-pointer type `T`がmethod receiverであるとき、`T`、`*T`どちらもinterfaceを満たすこと
-  - ただし、`error`のunderlying typeが`int`, `string`などbuilt-inでcomparableである場合を除く(e.g. [syscall.Errno])
 - (2) interfaceはspec上comparableだが、比較するとき2つのinterfaceの*dynamic types*が同一でcomparableでないときruntime-panicが起きること
 
 (1)に関しては単純に紛らわしいということです。特定の型のerrorを返す場合はドキュメントに明確に書いておくほうが良いので、どちらでもよいといえばいいのですが、method receiverがpointerであればpointerでないとinterfaceを満たせないためどちらなのかを気にする必要すらありません。
-ただし、`type someErr int`のようなbuilt-inかつcomparableな型をベースとする場合はmethod receiverはnon-pointerであるほうが一般的だと思います。これはある程度のサイズ(昔ググってた頃はdouble型が3つ分以上、などという言説を見ました)がないデータはpointerをderefするより値を渡してしまったほうがより高速であるからという理由があるからなはずです(特に出展を示せません。)
+ただし、`type someErr int`のようなbuilt-inかつcomparableな型をベースとする場合はmethod receiverはnon-pointerであるほうが一般的だと思います。これはある程度のサイズ(昔ググった時はdouble型が3つ分以上、という風に言われてました)がないデータはpointerをderefするより値を渡してしまったほうがより高速であるからという理由があるからなはずです(特に出展を示せません。)
 
 (2)に関しては以下のsnippetをご覧ください。
 
@@ -505,7 +509,7 @@ type uncomparableErr1 []error
 }
 ```
 
-`compareErr(ue1, ue2)`の部分でcompilation errorとなります。
+`compareErr(ue1, ue2)`の部分でcompilation errorとなります。pointerではないので、`error` interfaceを満たせなくなるためです。
 
 ```
 cannot use ue1 (variable of type uncomparableErr1) as error value
@@ -708,7 +712,7 @@ func someTask() (string, error) {
 ```
 
 interfaceに値を渡す時は、typed-nilに注意しましょう。
-できれば独自errorを返す関数は一切作らないほうが良いです。(`newMyErr() *MyErr`のような初期化を行うためだけの関数は除く)
+できれば独自errorを返す関数は一切作らないほうが良いです。
 
 ### Advanced: interface { Is(error) bool }を実装する
 
@@ -721,7 +725,7 @@ interfaceに値を渡す時は、typed-nilに注意しましょう。
 > func (m MyError) Is(target error) bool { return target == fs.ErrExist }
 > then Is(MyError{}, fs.ErrExist) returns true. See syscall.Errno.Is for an example in the standard library. An Is method should only shallowly compare err and the target and not call Unwrap on either.
 
-あまりはっきり書かれていない気がしますが、[errors.Is]は単に`err`を順次unwrapながら`unwrapped == target`という比較を繰り返す挙動になっています。そのため、`target`(第二引数)のdynamic typeがuncomparableであるとき基本的に何もできません。(逆に言ってuncomparable同士の比較でpanicを起こすこともありません。)
+あまりはっきり書かれていない気がしますが、[errors.Is]は単に`err`を順次unwrapしながら`unwrapped == target`という比較を繰り返す挙動になっています。そのため、`target`(第二引数)のdynamic typeがuncomparableであるとき基本的に何もできません。(逆に言ってuncomparable同士の比較でpanicを起こすこともありません。)
 そこで、`err`(第一引数)かそれをunwrapして得られたerrorが`interface { Is(error) bool }`を実装するときにはそちらの実装による比較も行うようになっています。単なる`err1 == err2`を超えた挙動を実現できるため、例えば複数のerror値に対してマッチするようにするなどカスタマイズに幅があります。
 
 実装サンプルを以下に挙げます。
