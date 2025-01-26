@@ -83,7 +83,7 @@ type error interface {
     - e.g. `io.Reader`が`n > 0, io.EOF`を返してくることがある
 
 慣習的にポインターを返す関数がそれの返り値のnil checkをさせることはほとんどありません。
-exportされた関数、メソッドでポインターのnil checkは不要となるようにしましょう。
+かわりに最後の返り値のerrorのnil check, もしくは`ok bool`をチェックさせます。
 
 ```go
 func failableWork(...any) (ret1 io.Reader, ret2 *UltraBigBigData, err error)
@@ -1108,7 +1108,7 @@ verb %#v, bare = &main.errBare{Msg:"is", Kind:1}, format = &main.plain{errBare:m
 > Two built-in functions, panic and recover, assist in reporting and handling run-time panics and program-defined error conditions.
 
 [panic](https://pkg.go.dev/builtin@go1.22.3#panic)が起きるとその行から通常のプログラム実行が止まり、
-スタックを巻き戻しながら`defer`に登録された関数があれば登録されたのと逆順で実行していきます。
+`defer`に登録された関数があれば登録されたのと逆順で実行していきます。
 
 ある関数`F`のなかで`defer`された関数が`recover`を呼ぶと、`F`を呼び出す`G`から通常の関数実行の順序に戻ります。
 
@@ -1196,7 +1196,8 @@ https://go.dev/doc/effective_go#recover
 
 errorによる中断をサポートしないiteratorのcollectorを中断するのにpanic-recoverは便利です
 
-[Go 1.23]からiteratorという、`for-range`が特定のシグネチャを満たす関数を処理する仕様が追加されました。これによってerror発生時の処理終了をサポートしないが長くかかる関数というのが現れやすくなったと筆者は予測しており、それに伴ってpanic-recoverも使いどころが増えたのではないかと思います。
+[Go 1.23]から`for-range-func`などと呼ばれる、`for-range`が特定のシグネチャを満たす関数を処理する仕様が追加されました。その関数のことをカジュアルに`iterator`と呼びます。
+これによってerror発生時の処理終了をサポートしないが長くかかる関数というのが現れやすくなったと筆者は予測しており、panic-recoverも使いどころが増えたのではないかと思います。
 
 例えば、下記の`reduce`があるとします
 
@@ -1310,6 +1311,8 @@ fmt.Println(
     0 sample
 */
 ```
+
+他にもやりようはいくらでもあるのでpanic-recoverでこれをクリするとは限らないですが、覚えておいて損はないはずですよ。
 
 #### std
 
@@ -1483,10 +1486,18 @@ func main() {
 
 `runtime.Frame.File`がpackage pathになっていますがこれは`go run -trimpath ./with-stack/`で実行しているためです。`-trimpath`オプションがなければソースコードの表示はローカルストレージ上のフルパスになりますので注意してください。
 
-### ログする
+### panicのstacktraceをログに残す
 
 `panic`のstacktraceをprintしてログに残したいことはあると思います。
-というのが、nil pointer derefernceがふいに起きたとき、どこでどう起きたのかログにだせないと見当がつかなくて困ったことがあります(1敗)。
+というのが、nil pointer derefernceがふいに起きたとき、どこでどう起きたのかログにだせないと見当がつかなくて困ります(1敗)。
+
+- 1. panicを拾わず(=`recover`せず)プロセスを落とすことでGoにstacktraceを吐かせる
+- 2. `recover`することで、panic時のstacktraceを任意の出力先に出す
+- 3. 別`goroutine`で起きたpanicのstacktraceを順次main goroutineに伝搬する工夫
+
+についてそれぞれ述べます。
+
+#### 1. panicを拾わず(=`recover`せず)プロセスを落とすことでGoにstacktraceを吐かせる
 
 単に`panic`のstacktraceを表示するだけなら以下のようにします。
 
@@ -1528,6 +1539,8 @@ main.main()
 
 `panic`が`recover`されなかった場合stderrに上記のフォーマットでstacktraceが表示されてプロセスが終了します。
 
+#### 2. `recover`することで、panic時のstacktraceを任意の出力先に出す
+
 任意のフォーマットや出力先を選択する、例えば[slog.Logger](https://pkg.go.dev/log/slog@go1.23.4#Logger)に出力したいときなどは`recover`を呼んだ関数の中で前述の[runtime.Callers](https://pkg.go.dev/runtime@go1.23.4#Callers)/[runtime.CallersFrames](https://pkg.go.dev/runtime@go1.23.4#CallersFrames)を用いればよいです。
 この時点では`SP`(Stack Pointer)が巻き戻されていないので、stackを表示するとpanicを呼び出したところからのstackが表示されます。詳しいことはよくわかっていないので`recover`を呼び出したコードをコンパイルして`objdump -d`したり、[実装](https://github.com/golang/go/blob/go1.23.4/src/runtime/panic.go#L722-L806)などを参照してほしいです。`panic`の実装は`runtime.gopanic`の呼び出しに書き換えれるのが見て分かるのでstacktraceの先端が`gopanic`である理由がよくわかると思います。
 
@@ -1556,6 +1569,8 @@ func main() {
     // work...
 }
 ```
+
+#### 3. 別`goroutine`で起きたpanicのstacktraceを順次main goroutineに伝搬する
 
 別の`goroutine`で起きた`panic`を`recover`してmain goroutineまで伝搬させるのはよくあります。
 `panic`が`recover`されずに`go`キーワードをつけて呼び出された関数を終了させるとプロセス全体が強制終了します。このとき他の`goroutine`の`defer`が実行されないため、穏当にプログラムを終了させるにはそうさせたほうがいいからです。
@@ -1678,7 +1693,7 @@ func main() {
 
 [errors.Join]で複数errorを1つにまとめられます。返ってくる`error`の`Error` methodはそれぞれのerrorの`Error`を呼び出して結果を`"\n"`で結合します。
 
-それが気に入らない場合は[strings.Repeat](https://pkg.go.dev/strings@go1.23.4#Repeat)で`%w`⁺sepを繰り返し、最後の余計なsepを[strings.CutSuffix](https://pkg.go.dev/strings@go1.23.4#CutSuffix)切り落とします。最後に[fmt.Errorf]でerrorをラップします。こうすることで任意のprefix, sepを盛ったフォーマットでerrorでprint可能です。
+それが気に入らない場合は[strings.Repeat](https://pkg.go.dev/strings@go1.23.4#Repeat)で`%w`⁺sepを繰り返し、最後の余計なsepを[strings.CutSuffix](https://pkg.go.dev/strings@go1.23.4#CutSuffix)切り落とします。最後に[fmt.Errorf]でerrorをラップします。こうすることで任意のprefix, sepを持ったフォーマットでerrorでprint可能です。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/wrap-error-dynamic/main.go)
 
