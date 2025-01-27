@@ -14,6 +14,7 @@ published: false
 
 ## Index
 
+- (まだ)~~[今はこうやる集](https://zenn.dev/ngicks/articles/go-basics-revisited-updated-practices)~~
 - (まだ)~~[プロジェクトを始める](https://zenn.dev/ngicks/articles/go-basics-revisited-starting-project)~~
 - (まだ)~~[dockerによるビルド](https://zenn.dev/ngicks/articles/go-basics-revisited-bulding-with-docker)~~
 - [error handling](https://zenn.dev/ngicks/articles/go-basics-revisited-error-handling)

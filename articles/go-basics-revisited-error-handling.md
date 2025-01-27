@@ -1138,7 +1138,7 @@ go func() { panic("die!") }()
 
 と、こう書くと`panic`は基本的に`recover`されない究極的なエラー終了手段かのように聞こえるかもしれません、実際上は`*http.Server`が`recover`してしまうので逆に**基本的に`recover`されるものと思ったほうが良い**です。もちろん100%挙動をコントロールできるシチュエーションでは別ですが、例えば[*http.Server]を使わずにhttp serverを実装することは少ないと思いますし、`Go`を書いていてhttp serverを実装しないことも結構珍しいと思います。
 
-> https://pkg.go.dev/net/http@go1.22.3#Handler
+> https://pkg.go.dev/net/http@go1.22.4#Handler
 >
 > If ServeHTTP panics, the server (the caller of ServeHTTP) assumes that the effect of the panic was isolated to the active request. It recovers the panic, logs a stack trace to the server error log...
 
@@ -1151,7 +1151,7 @@ https://github.com/golang/go/blob/go1.23.4/src/net/http/server.go#L1937-L1950
 - `panic`を意図的にする場合は
   - 意図的にrecoverし、意図しないpanicはre-panicする
   - もしくは、プロセスは異常終了すべき
-- 一方で`panic`はコントロールしていないエリアで勝手に拾われるのは当然起こる
+- 一方で`panic`はコントロールしていないエリアで勝手に`recover`されるのは当然起こる
 
 と思っているといいという感じです。
 
