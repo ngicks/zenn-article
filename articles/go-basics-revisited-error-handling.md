@@ -3,14 +3,31 @@ title: "Goのプラクティスまとめ: error handling"
 emoji: "💪"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## Goのプラクティスまとめ: error handling
 
 筆者が`Go`を使い始めた時に分からなくて困ったこととか最初から知りたかったようなことを色々まとめる一連の記事です。
 
-[他の記事へのリンク集](https://zenn.dev/ngicks/articles/go-basics-revisited-index)
+他の記事へのリンク集
+
+- (まだ)~~[今はこうやる集](https://zenn.dev/ngicks/articles/go-basics-revisited-updated-practices)~~
+- (まだ)~~[プロジェクトを始める](https://zenn.dev/ngicks/articles/go-basics-revisited-starting-project)~~
+- (まだ)~~[dockerによるビルド](https://zenn.dev/ngicks/articles/go-basics-revisited-bulding-with-docker)~~
+- `error handling`: ここ
+- (まだ)~~[fileとio](https://zenn.dev/ngicks/articles/go-basics-revisited-file-and-io)~~
+- (まだ)~~[jsonやxmlを読み書きする](https://zenn.dev/ngicks/articles/go-basics-revisited-data-encoding)~~
+- (まだ)~~[cli](https://zenn.dev/ngicks/articles/go-basics-revisited-cli)~~
+- (まだ)~~[environment variable](https://zenn.dev/ngicks/articles/go-basics-revisited-environment-variable)~~
+- (まだ)~~[concurrent Go](https://zenn.dev/ngicks/articles/go-basics-revisited-concurrent-go)~~
+- (まだ)~~[context.Context: long running taskとcancellation](https://zenn.dev/ngicks/articles/go-basics-revisited-context)~~
+- (まだ)~~[http client / server](https://zenn.dev/ngicks/articles/go-basics-revisited-http-client-and-server)~~
+- (まだ)~~[structured logging](https://zenn.dev/ngicks/articles/go-basics-revisited-structured-logging)~~
+- (まだ)~~[test](https://zenn.dev/ngicks/articles/go-basics-revisited-test)~~
+- (まだ)~~[filesystem abstraction](https://zenn.dev/ngicks/articles/go-basics-revisited-filesystem-abstraction)~~
+
+(リンク集で1つの記事で出そうかと思ったんですが、そういえばzennだとそういうの見たことないので怒られるかもなあ・・・とちょっと不安になったので一連の記事に相互リンクを張る形にします。)
 
 ## error handling
 
@@ -652,29 +669,29 @@ func main() {
 
 ```
 000000000048f1e0 <main.main>:
-  48f1e0:	49 3b 66 10          	cmp    0x10(%r14),%rsp
-  48f1e4:	76 2b                	jbe    48f211 <main.main+0x31>
-  48f1e6:	55                   	push   %rbp
-  48f1e7:	48 89 e5             	mov    %rsp,%rbp
-  48f1ea:	48 83 ec 10          	sub    $0x10,%rsp
-  48f1ee:	48 8d 05 eb 94 00 00 	lea    0x94eb(%rip),%rax        # 4986e0 <type:*+0x86e0>
-  48f1f5:	e8 86 d6 f7 ff       	call   40c880 <runtime.newobject>
-  48f1fa:	48 c7 00 55 00 00 00 	movq   $0x55,(%rax)
-  48f201:	bb 23 01 00 00       	mov    $0x123,%ebx
-  48f206:	e8 35 ff ff ff       	call   48f140 <main.(*foo).Bar>
-  48f20b:	48 83 c4 10          	add    $0x10,%rsp
-  48f20f:	5d                   	pop    %rbp
-  48f210:	c3                   	ret
-  48f211:	e8 ca a9 fd ff       	call   469be0 <runtime.morestack_noctxt.abi0>
-  48f216:	eb c8                	jmp    48f1e0 <main.main>
+  48f1e0:    49 3b 66 10              cmp    0x10(%r14),%rsp
+  48f1e4:    76 2b                    jbe    48f211 <main.main+0x31>
+  48f1e6:    55                       push   %rbp
+  48f1e7:    48 89 e5                 mov    %rsp,%rbp
+  48f1ea:    48 83 ec 10              sub    $0x10,%rsp
+  48f1ee:    48 8d 05 eb 94 00 00     lea    0x94eb(%rip),%rax        # 4986e0 <type:*+0x86e0>
+  48f1f5:    e8 86 d6 f7 ff           call   40c880 <runtime.newobject>
+  48f1fa:    48 c7 00 55 00 00 00     movq   $0x55,(%rax)
+  48f201:    bb 23 01 00 00           mov    $0x123,%ebx
+  48f206:    e8 35 ff ff ff           call   48f140 <main.(*foo).Bar>
+  48f20b:    48 83 c4 10              add    $0x10,%rsp
+  48f20f:    5d                       pop    %rbp
+  48f210:    c3                       ret
+  48f211:    e8 ca a9 fd ff           call   469be0 <runtime.morestack_noctxt.abi0>
+  48f216:    eb c8                    jmp    48f1e0 <main.main>
 ```
 
 ```
-  48f1e0:	49 3b 66 10          	cmp    0x10(%r14),%rsp
-  48f1e4:	76 2b                	jbe    48f211 <main.main+0x31>
+  48f1e0:    49 3b 66 10              cmp    0x10(%r14),%rsp
+  48f1e4:    76 2b                    jbe    48f211 <main.main+0x31>
 ...
-  48f211:	e8 ca a9 fd ff       	call   469be0 <runtime.morestack_noctxt.abi0>
-  48f216:	eb c8                	jmp    48f1e0 <main.main>
+  48f211:    e8 ca a9 fd ff           call   469be0 <runtime.morestack_noctxt.abi0>
+  48f216:    eb c8                    jmp    48f1e0 <main.main>
 ```
 
 まではstack growth preambleとかと呼ばれていて、(多分)すべての関数の先頭についています。`Go`は、というか`goroutine`はstackが固定サイズでなく成長することがあるので、まず成長が必要かのチェックが走るらしいです。さらにこの`morestack`の呼び出しの中でcooperativeな`goroutine`の切り替えが起こることがあります。つまり特定のタイミングで、stack growthが不要でも必要であるかのようにふるまうことがあります。
@@ -682,17 +699,17 @@ func main() {
 method receiverがpointerであるが、値はnon-pointerであるので自動的にobjectに変換されています。
 
 ```
-  48f1ee:	48 8d 05 eb 94 00 00 	lea    0x94eb(%rip),%rax        # 4986e0 <type:*+0x86e0>
-  48f1f5:	e8 86 d6 f7 ff       	call   40c880 <runtime.newobject>
+  48f1ee:    48 8d 05 eb 94 00 00     lea    0x94eb(%rip),%rax        # 4986e0 <type:*+0x86e0>
+  48f1f5:    e8 86 d6 f7 ff           call   40c880 <runtime.newobject>
 ```
 
 この直後に`%rax`(=`runtime.newobject`の返り値である`unsafe.Pointer`)の指し示すアドレスにimmediate valueの`0x55`をコピーしています。
 methodの引数である`0x123`は値渡しなので`bx`にコピーしています。
 
 ```
-  48f1fa:	48 c7 00 55 00 00 00 	movq   $0x55,(%rax)
-  48f201:	bb 23 01 00 00       	mov    $0x123,%ebx
-  48f206:	e8 35 ff ff ff       	call   48f140 <main.(*foo).Bar>
+  48f1fa:    48 c7 00 55 00 00 00     movq   $0x55,(%rax)
+  48f201:    bb 23 01 00 00           mov    $0x123,%ebx
+  48f206:    e8 35 ff ff ff           call   48f140 <main.(*foo).Bar>
 ```
 
 という感じで、レジスタにmethod receiver,methodの引数が置かれていますね。
@@ -1349,7 +1366,7 @@ https://github.com/golang/go/blob/go1.23.4/src/crypto/hmac/hmac.go#L141-L149
 
 `Go`のstd libraryはstacktraceの付いたerrorを返してくることがないため、慣習的にerrorにはstacktraceがついていないのが普通です。
 
-### errorにstacktraceがついていない理由
+### stacktraceはついていない
 
 stdのerrorが全般的にstacktrace情報を含んでくれればと思うのですが、
 
@@ -1509,7 +1526,7 @@ func main() {
 
 - 1. panicを拾わず(=`recover`せず)プロセスを落とすことでGoにstacktraceを吐かせる
 - 2. `recover`することで、panic時のstacktraceを任意の出力先に出す
-- 3. 別`goroutine`で起きたpanicのstacktraceを順次main goroutineに伝搬する工夫
+- 3. 別`goroutine`で起きたpanicのstacktraceを順次main goroutineに伝搬する
 
 についてそれぞれ述べます。
 
@@ -1588,10 +1605,17 @@ func main() {
 
 #### 3. 別`goroutine`で起きたpanicのstacktraceを順次main goroutineに伝搬する
 
-別の`goroutine`で起きた`panic`を`recover`してmain goroutineまで伝搬させるのはよくあります。
-`panic`が`recover`されずに`go`キーワードをつけて呼び出された関数を終了させるとプロセス全体が強制終了します。このとき他の`goroutine`の`defer`が実行されないため、穏当にプログラムを終了させるにはそうさせたほうがいいからです。
+ある`goroutine`で起きた`panic`を`recover`して他の`goroutine`に伝搬させるのはよくあります。(e.g. [singleflight.(\*Group).Do](https://pkg.go.dev/golang.org/x/sync/singleflight#Group.Do)・・・特にdoc commentでは触れられていないがpanicが伝搬される)
 
-その`panic`のstacktraceをmain goroutineまで伝搬するには、panic valueにstacktraceをつけて回るとよいでしょう。ということで以下のようにします。
+`panic`が`recover`されずに`go`キーワードをつけて呼び出された関数を終了させるとプロセス全体が強制終了します。このとき他の`goroutine`の`defer`が実行されません。
+ライブラリのつくりのよっては新しく`goroutine`を作って関数を動作させるかもしれませんし、複数の`goroutine`から同じ関数の呼び出し結果を用いるかもしれません(前述の`singleflight`がまさにこれです)。これらの処理をまたぐときに`panic`が問答無用の強制終了にしかならないとなると、例えば前述したような`panic-recover`で一気に脱出をする手法が不可能になったり、`main goroutine`で`panic`のログをとっている場合などと相性が非常に悪くなってしまいます。
+呼び出し側に`panic`の取り扱いをゆだねるには、`panic`の`recover`と伝搬は必須となります。
+
+以下ではある`goroutine`で起きた`panic`を順次伝搬し、`main goroutine`でログに書き出すexampleを示します。
+exampleでは省略されていますが、`main goroutine`で`panic`が起きたらすべての処理がキャンセルされる(i.e. `context.Context`をcancelする、など)ようにすれば、穏当な終了処理を適切なerrorログとともに行うことができます。
+
+前述通り、`panic`時のstacktraceは`recover`した関数内で取得できます。
+こうして各`goroutine`で取得したstacktraceを`panic()`の引数に渡す変数に収めれば、すべてのstacktraceを`main goroutine`まで伝搬することができます。
 
 このスニペットの中で使っている`serr`パッケージは[stacktrace/自分でつける](#自分でつける)で載せているスニペットもうちょっと凝ってライブラリとして[実装](https://github.com/ngicks/go-common/blob/serr/v0.6.0/serr/withstack.go)したものです。
 
@@ -1601,58 +1625,71 @@ func main() {
 package main
 
 import (
+    "context"
     "fmt"
+    "sync"
 
     "github.com/ngicks/go-common/serr"
 )
 
 //go:noinline
-func example() {
-    deep()
+func example(ctx context.Context) {
+    deep(ctx)
 }
 
-func deep() {
-    calling()
+func deep(ctx context.Context) {
+    calling(ctx)
 }
 
-func calling() {
-    frames()
+func calling(ctx context.Context) {
+    frames(ctx)
 }
 
-func frames() {
+func frames(ctx context.Context) {
     var (
-        panicVal any
-        done     = make(chan struct{})
+        panicVal  any
+        panicOnce sync.Once
+        wg        sync.WaitGroup
     )
+    ctx, cancel := context.WithCancelCause(ctx)
+    defer cancel(nil)
+    wg.Add(1)
     go func() {
+        defer wg.Done()
         defer func() {
             rec := recover()
             if rec == nil {
                 return
             }
-            panicVal = serr.WithStack(fmt.Errorf("panicked: %v", rec))
-            close(done)
+            panicOnce.Do(func() {
+                // In case there's many goroutines running and
+                // you are going to capture only first panic value recovered.
+                panicVal = serr.WithStack(fmt.Errorf("panicked: %v", rec))
+            })
+            cancel(panicVal.(error))
         }()
-        example2()
+        example2(ctx)
     }()
-    <-done
-    panic(panicVal)
+    wg.Wait()
+    if panicVal != nil {
+        panic(panicVal)
+    }
 }
 
 //go:noinline
-func example2() {
-    deep2()
+func example2(ctx context.Context) {
+    deep2(ctx)
 }
 
-func deep2() {
-    calling2()
+func deep2(ctx context.Context) {
+    calling2(ctx)
 }
 
-func calling2() {
-    frames2()
+func calling2(ctx context.Context) {
+    frames2(ctx)
 }
 
-func frames2() {
+func frames2(_ context.Context) {
     s := make([]int, 2)
     _ = s[4]
 }
@@ -1663,7 +1700,7 @@ func main() {
         if rec == nil {
             return
         }
-        // skip runtime.Callers, inner func, WithStackOpt, gopanic, this func.
+        // skip runtime.Callers, inner func, WithStackOpt.
         err := serr.WithStackOpt(rec.(error), &serr.WrapStackOpt{Override: true, Skip: 3})
         fmt.Printf("panicked: %v\n", rec)
         var i int
@@ -1677,28 +1714,36 @@ func main() {
             }
         }
     }()
-    example()
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel() // canaled after occurrence of panic
+    example(ctx)
     //nolint
     // panicked: panicked: runtime error: index out of range [4] with length 2
-    //     main.main.func1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:67)
+    //     main.main.func1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:80)
     //     runtime.gopanic(runtime/panic.go:785)
-    //     main.frames(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:39)
-    //     main.calling(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:19)
-    //     main.deep(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:15)
-    //     main.example(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:11)
-    //     main.main(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:80)
+    //     main.frames(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:51)
+    //     main.calling(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:21)
+    //     main.deep(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:17)
+    //     main.example(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:13)
+    //     main.main(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:93)
     //     runtime.main(runtime/proc.go:272)
     // caused by
-    //     main.frames.func1.1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:33)
+    //     main.frames.func1.1.1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:43)
+    //     sync.(*Once).doSlow(sync/once.go:76)
+    //     sync.(*Once).Do(sync/once.go:67)
+    //     main.frames.func1.1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:40)
     //     runtime.gopanic(runtime/panic.go:785)
     //     runtime.goPanicIndex(runtime/panic.go:115)
-    //     main.frames2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:57)
-    //     main.calling2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:52)
-    //     main.deep2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:48)
-    //     main.example2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:44)
-    //     main.frames.func1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:36)
+    //     main.frames2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:70)
+    //     main.calling2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:65)
+    //     main.deep2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:61)
+    //     main.example2(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:57)
+    //     main.frames.func1(github.com/ngicks/go-example-basics-revisited/error-handling/log-stacktrace/main.go:47)
 }
 ```
+
+`runtime.gopanic`や`sync.(*Once).doSlow`など表示の必要がなさそうな冗長な情報が載っているので実際は必要に合わせて`Skip`の数値は増加させたほうがよいでしょう。
+慣れていない人には混乱する情報になるかもしれません。
 
 [serr.DeepFrames](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.6.0#DeepFrames)で`iter.Seq[iter.Seq[runtime.Frame]]`を得られます。
 今回の実装では単にstdoutに書き出していますが、これを適当にmapして`slog.Value`に変換できれば`slog.Logger`でログに残せます。
@@ -1777,7 +1822,11 @@ func (e *gathered) Format(state fmt.State, verb rune) {
 この実装では受け取ったflagとverbでラップされた各errorをprintすることで、flagとverbによるprintされる情報の詳細度のコントロールを受け付けられるようになります。
 
 このerror typeは[github.com/ngicks/go-common/serr](https://pkg.go.dev/github.com/ngicks/go-common/serr@v0.6.0)としてパッケージ化してあります。
-(筆者にはよくあることなんですが、仕事で書いたコードで課題を感じてライブラリとして実装するが、仕事で使うには間に合わなくて結局使っていないというパッケージです。)
+実装サンプルとしてまとめてあるだけで筆者自身は使っていません。
+
+## おわりに
+
+現状筆者が知らなくて困ったerror周りの話は全部入れれたと思いますがまたなんかあったら追記します。
 
 [Go]: https://go.dev/
 [Go 1.23]: https://tip.golang.org/doc/go1.23
