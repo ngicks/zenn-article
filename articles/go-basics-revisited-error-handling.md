@@ -401,6 +401,7 @@ func someFailableWork() (..., error) {
 [fmt.Errorf]でerrorをラッピングして回れば事足りる場面も多いですが、例えば下記のようなとき`error` interfaceを実装する型を定義することがあります。
 
 - あとからパラメータをとり出したい
+- あとからパラメータを変更したい
 - ほぼ共通だが複雑なerror messageの構築処理がある
 - 複数のcategoryに複数のkindがるため、categoryを型として表現したい
   - e.g. jsonにおけるio error, syntax error, semantic error
