@@ -343,7 +343,7 @@ func wrapByCustomError() {
 }
 ```
 
-### 例外1: io.EOFはラップしない
+### 例外: io.EOFはラップしない
 
 基本的にはerrorはラップすることでメッセージを付け足せるのでしたほうがよいのですが、例外的にラップしてはいけないerrorもあります。
 
@@ -370,10 +370,42 @@ https://github.com/search?q=repo%3Agolang%2Fgo+%3D%3D+io.EOF&type=code
 このようなsentinel valueとして使われるerrorの値はラップしないようにしてください。
 特に特定の`interface`(e.g. [io.Reader])を実装してそれを使う関数に渡す時、特定のerrorを返すのが`interface`の規約として決まっているとき(e.g. [io.EOF])、そのerrorはラップしないように気を付けてください。
 
-## errorを実装する型を定義する
+## error valueを定義する
 
-[fmt.Errorf]でerrorをラッピングして回れば事足りる場面も多いですが、ライブラリなどを作る際には`error` interfaceを実装する型を定義することで、あとからパラメータを取り出せるようにしたりするためにerror型を定義することがあります。
-その際に気をつけるべき注意点を述べます。
+パッケージとして判別可能なerrorを返す時はexportされた変数を[errors.New]か[fmt.Errorf]で定義し、失敗しうる関数はこれを直接返すか、ラップして返します。
+
+```go
+var (
+    ErrCauseCause = errors.New("root cause..")
+    ErrFooFoo     = fmt.Errorf("foo foo")
+)
+
+// someFailableWork does ...
+// When ... someFailableWork returns [ErrCauseCause]
+func someFailableWork() (..., error) {
+    return ..., fmt.Errorf("cause of failures...: %w", ErrCauseCause)
+}
+```
+
+- 慣習的に`Err`から始まる変数名を使います
+- 慣習的にerror messageはすべて小文字にします。
+  - `fmt.Errrof("foo bar: %w",  fmt.Errorf("baz qux: %w", err))`みたいな感じでメッセージをつなげていくことが多いため、先頭大文字だと変に見えるからです。
+- errorを返す関数はどのようなときに、どのerrorをラップして返すかをdoc commentで明確に説明します
+  - `doc comment`上で`[SymbolName]`とするとリンクとして機能する挙動がgo docにはあるため、これを積極的に用います。
+- error messageはわかりやすければ何でもいいですが、root causeのみを説明するとよいです
+  - errorをラップして上位のコンテクストを徐々に追加形式になりがちなため、冗長なerror messageは重複を生みかねないためです。
+  - i.e. `ErrNotEligible = errors.New("not eligible")`, `uid = 10 : unprivileged user: not eligible`
+
+## error typeを定義する
+
+[fmt.Errorf]でerrorをラッピングして回れば事足りる場面も多いですが、例えば下記のようなとき`error` interfaceを実装する型を定義することがあります。
+
+- あとからパラメータをとり出したい
+- ほぼ共通だが複雑なerror messageの構築処理がある
+- 複数のcategoryに複数のkindがるため、categoryを型として表現したい
+  - e.g. jsonにおけるio error, syntax error, semantic error
+
+型を定義する際に気をつけるべき注意点を述べます。
 
 すでにサンプルの中で使用していますが、定義自体は以下のように行います。
 
@@ -534,6 +566,19 @@ func failableWork() (any, error)
 // たとえ、実際には`&MyError{}`を返しているときでも。
 ```
 
+:::details 自らが定義したerror typeの値を後から変更するにはどうするか
+
+決まり切った型のerrorしか返さないunexport functionの返り値のerrorがnon-nilなときに、中身を変更したいときはstdは下記のようにしています。
+
+https://github.com/golang/go/blob/go1.23.4/src/net/http/client.go#L716-L718
+
+`type assertion`で特定の型として取り出し、そのうえで中身を変更します。
+
+こうやって中身を変えるという観点からも`error` typeのmethod receiverはpointerであるべきだといえます。
+non-pointerとして取り出して変更する場合、変更した変数を元の`err`に代入しなおす必要がありますが、interfaceに変換される際にbox化でallocationが起きるため避けたほうが良いです。
+
+:::
+
 それはなぜなのかというと
 
 - `error` typeに変換するときのtyped nilの可能性
@@ -580,9 +625,9 @@ func main() {
 
 `Go`のmethodは暗黙的にreceiverを第一引数とする関数のように取り扱われます。
 
-:::details method呼び出しをobjdumpすると
+:::details method呼び出しをobjdumpしてmethod receiverの扱いを確かめる
 
-下記のソースを`go build -o ah ./main.go`で適当にバイナリ出力し、
+下記のソースを用意します。`*foo.Bar`の内容には今回関心がないので、`//go:noinline`をつけて、`main`にこの関数がinlineされないようにします。
 
 ```go
 package main
@@ -592,7 +637,7 @@ import "fmt"
 type foo int
 
 //go:noinline
-func (f foo) Bar(baz int) {
+func (f *foo) Bar(baz int) {
     fmt.Println(f, baz)
 }
 
@@ -602,97 +647,61 @@ func main() {
 }
 ```
 
-`objdump -d ./ah`とすると以下のように出力されます。(かなり端折ってます)
+`go build -o main ./`で適当にバイナリ出力し、`objdump -d ./main > main.exec.txt`とすると以下のように出力されます。(かなり端折ってます)
 
 ```
-000000000048f140 <main.foo.Bar>:
-  48f140:    49 3b 66 10              cmp    0x10(%r14),%rsp
-  48f144:    76 76                    jbe    48f1bc <main.foo.Bar+0x7c>
-  48f146:    55                       push   %rbp
-  48f147:    48 89 e5                 mov    %rsp,%rbp
-  48f14a:    48 83 ec 48              sub    $0x48,%rsp
-  48f14e:    48 89 5c 24 60           mov    %rbx,0x60(%rsp)
-  48f153:    44 0f 11 7c 24 28        movups %xmm15,0x28(%rsp)
-  48f159:    44 0f 11 7c 24 38        movups %xmm15,0x38(%rsp)
-  48f15f:    90                       nop
-  48f160:    e8 7b 19 fd ff           call   460ae0 <runtime.convT64>
-  48f165:    48 8d 0d 14 c2 00 00     lea    0xc214(%rip),%rcx        # 49b380 <type:*+0xb380>
-  48f16c:    48 89 4c 24 28           mov    %rcx,0x28(%rsp)
-  48f171:    48 89 44 24 30           mov    %rax,0x30(%rsp)
-  48f176:    48 8b 44 24 60           mov    0x60(%rsp),%rax
-  48f17b:    0f 1f 44 00 00           nopl   0x0(%rax,%rax,1)
-  48f180:    e8 5b 19 fd ff           call   460ae0 <runtime.convT64>
-  48f185:    48 8d 0d d4 97 00 00     lea    0x97d4(%rip),%rcx        # 498960 <type:*+0x8960>
-  48f18c:    48 89 4c 24 38           mov    %rcx,0x38(%rsp)
-  48f191:    48 89 44 24 40           mov    %rax,0x40(%rsp)
-  48f196:    48 8b 1d 0b 34 0c 00     mov    0xc340b(%rip),%rbx        # 5525a8 <os.Stdout>
-  48f19d:    48 8d 05 74 55 04 00     lea    0x45574(%rip),%rax        # 4d4718 <go:itab.*os.File,io.Writer>
-  48f1a4:    48 8d 4c 24 28           lea    0x28(%rsp),%rcx
-  48f1a9:    bf 02 00 00 00           mov    $0x2,%edi
-  48f1ae:    48 89 fe                 mov    %rdi,%rsi
-  48f1b1:    e8 8a af ff ff           call   48a140 <fmt.Fprintln>
-  48f1b6:    48 83 c4 48              add    $0x48,%rsp
-  48f1ba:    5d                       pop    %rbp
-  48f1bb:    c3                       ret
-  48f1bc:    48 89 44 24 08           mov    %rax,0x8(%rsp)
-  48f1c1:    48 89 5c 24 10           mov    %rbx,0x10(%rsp)
-  48f1c6:    e8 15 aa fd ff           call   469be0 <runtime.morestack_noctxt.abi0>
-  48f1cb:    48 8b 44 24 08           mov    0x8(%rsp),%rax
-  48f1d0:    48 8b 5c 24 10           mov    0x10(%rsp),%rbx
-  48f1d5:    e9 66 ff ff ff           jmp    48f140 <main.foo.Bar>
-  48f1da:    cc                       int3
-  48f1db:    cc                       int3
-  48f1dc:    cc                       int3
-  48f1dd:    cc                       int3
-  48f1de:    cc                       int3
-  48f1df:    cc                       int3
-
 000000000048f1e0 <main.main>:
-  48f1e0:    49 3b 66 10              cmp    0x10(%r14),%rsp
-  48f1e4:    76 1d                    jbe    48f203 <main.main+0x23>
-  48f1e6:    55                       push   %rbp
-  48f1e7:    48 89 e5                 mov    %rsp,%rbp
-  48f1ea:    48 83 ec 10              sub    $0x10,%rsp
-  48f1ee:    b8 55 00 00 00           mov    $0x55,%eax
-  48f1f3:    bb 23 01 00 00           mov    $0x123,%ebx
-  48f1f8:    e8 43 ff ff ff           call   48f140 <main.foo.Bar>
-  48f1fd:    48 83 c4 10              add    $0x10,%rsp
-  48f201:    5d                       pop    %rbp
-  48f202:    c3                       ret
-  48f203:    e8 d8 a9 fd ff           call   469be0 <runtime.morestack_noctxt.abi0>
-  48f208:    eb d6                    jmp    48f1e0 <main.main>
+  48f1e0:	49 3b 66 10          	cmp    0x10(%r14),%rsp
+  48f1e4:	76 2b                	jbe    48f211 <main.main+0x31>
+  48f1e6:	55                   	push   %rbp
+  48f1e7:	48 89 e5             	mov    %rsp,%rbp
+  48f1ea:	48 83 ec 10          	sub    $0x10,%rsp
+  48f1ee:	48 8d 05 eb 94 00 00 	lea    0x94eb(%rip),%rax        # 4986e0 <type:*+0x86e0>
+  48f1f5:	e8 86 d6 f7 ff       	call   40c880 <runtime.newobject>
+  48f1fa:	48 c7 00 55 00 00 00 	movq   $0x55,(%rax)
+  48f201:	bb 23 01 00 00       	mov    $0x123,%ebx
+  48f206:	e8 35 ff ff ff       	call   48f140 <main.(*foo).Bar>
+  48f20b:	48 83 c4 10          	add    $0x10,%rsp
+  48f20f:	5d                   	pop    %rbp
+  48f210:	c3                   	ret
+  48f211:	e8 ca a9 fd ff       	call   469be0 <runtime.morestack_noctxt.abi0>
+  48f216:	eb c8                	jmp    48f1e0 <main.main>
 ```
 
-`//go:noinline`をmethodなりfunctionなりにつけるのがミソです。付けないとinline化されるため出力されるアセンブリが読みにくくなることがあります。
-
-`main.main`に着目します。
-
 ```
-  48f1e0:    49 3b 66 10              cmp    0x10(%r14),%rsp
-  48f1e4:    76 1d                    jbe    48f203 <main.main+0x23>
+  48f1e0:	49 3b 66 10          	cmp    0x10(%r14),%rsp
+  48f1e4:	76 2b                	jbe    48f211 <main.main+0x31>
 ...
-  48f203:    e8 d8 a9 fd ff           call   469be0 <runtime.morestack_noctxt.abi0>
-  48f208:    eb d6                    jmp    48f1e0 <main.main>
+  48f211:	e8 ca a9 fd ff       	call   469be0 <runtime.morestack_noctxt.abi0>
+  48f216:	eb c8                	jmp    48f1e0 <main.main>
 ```
 
 まではstack growth preambleとかと呼ばれていて、(多分)すべての関数の先頭についています。`Go`は、というか`goroutine`はstackが固定サイズでなく成長することがあるので、まず成長が必要かのチェックが走るらしいです。さらにこの`morestack`の呼び出しの中でcooperativeな`goroutine`の切り替えが起こることがあります。つまり特定のタイミングで、stack growthが不要でも必要であるかのようにふるまうことがあります。
 
-まあそこは置いといて、見てのとおり、
+method receiverがpointerであるが、値はnon-pointerであるので自動的にobjectに変換されています。
 
 ```
-  48f1ee:    b8 55 00 00 00           mov    $0x55,%eax
-  48f1f3:    bb 23 01 00 00           mov    $0x123,%ebx
-  48f1f8:    e8 43 ff ff ff           call   48f140 <main.foo.Bar>
+  48f1ee:	48 8d 05 eb 94 00 00 	lea    0x94eb(%rip),%rax        # 4986e0 <type:*+0x86e0>
+  48f1f5:	e8 86 d6 f7 ff       	call   40c880 <runtime.newobject>
+```
+
+この直後に`%rax`(=`runtime.newobject`の返り値である`unsafe.Pointer`)の指し示すアドレスにimmediate valueの`0x55`をコピーしています。
+methodの引数である`0x123`は値渡しなので`bx`にコピーしています。
+
+```
+  48f1fa:	48 c7 00 55 00 00 00 	movq   $0x55,(%rax)
+  48f201:	bb 23 01 00 00       	mov    $0x123,%ebx
+  48f206:	e8 35 ff ff ff       	call   48f140 <main.(*foo).Bar>
 ```
 
 という感じで、レジスタにmethod receiver,methodの引数が置かれていますね。
-`Go`は筆者がdeassembleしている限りにおいては関数のcalling conventionとして引数と返り値はレジスタに直接置く形をとるようです。ですので、`%eax`が第一引数、`%ebx`が第二引数となっています。
+`Go`は筆者がdeassembleしている限りにおいては関数のcalling conventionとして引数と返り値はレジスタに直接置く形をとっています。ですので、`ax`が第一引数、`bx`が第二引数となっています。
 
 筆者はアセンブリにもamd64にも全く詳しくないのでこれ以上はよくわかりません。
 
 :::
 
-型を持つ`nil`に対するmethodの呼び出しは、method receiverがnon-pointerならnil dereferenceでrun-time panicとなりますが、pointer receiverならばnilを渡すことにになります。関数の引数がpointerであるとき、そこにnilを渡すことが何かの意味を持つというのは普通にありうる話であり、これを禁じるのもまた、おかしな話です。
+型を持つ`nil`に対するmethodの呼び出しは、method receiverがnon-pointerならnil pointer dereferenceでrun-time panicとなりますが、pointer receiverならばnilを渡すことにになります。関数の引数がpointerであるとき、そこにnilを渡すことが何かの意味を持つというのは普通にありうる話であり、これを禁じるのもまた、おかしな話です。
 
 であるため、interfaceへの変換がかかる部分で、型情報のあるnilを渡すと、変換後のinterfaceはnon-nilとなります。nilをreceiverとしたmethodの呼び出しは合法であり、意図的にそれをすることも十分ありえるからでしょう。
 
@@ -716,6 +725,8 @@ interfaceに値を渡す時は、typed-nilに注意しましょう。
 
 ### Advanced: interface { Is(error) bool }を実装する
 
+必要になることはめったにないと思いますが、`interface { Is(error) bool }`を`error` typeに実装すると[errors.Is]とともに用いられるときに挙動がカスタマイズできるため、便利な場面があります。
+
 [errors.Is]はそのdoc commentより第一引数が`interface { Is(error) bool }`を実装するとき、そちらの実装も使います。
 
 > An error is considered to match a target if it is equal to that target or if > it implements a method Is(error) bool such that Is(target) returns true.
@@ -725,7 +736,7 @@ interfaceに値を渡す時は、typed-nilに注意しましょう。
 > func (m MyError) Is(target error) bool { return target == fs.ErrExist }
 > then Is(MyError{}, fs.ErrExist) returns true. See syscall.Errno.Is for an example in the standard library. An Is method should only shallowly compare err and the target and not call Unwrap on either.
 
-あまりはっきり書かれていない気がしますが、[errors.Is]は単に`err`を順次unwrapしながら`unwrapped == target`という比較を繰り返す挙動になっています。そのため、`target`(第二引数)のdynamic typeがuncomparableであるとき基本的に何もできません。(逆に言ってuncomparable同士の比較でpanicを起こすこともありません。)
+あまりはっきり書かれていない気がしますが、[errors.Is]は`err`を順次unwrapしながら`unwrapped == target`という比較を繰り返す挙動になっています。そのため、`target`(第二引数)のdynamic typeがuncomparableであるとき基本的に何もしません。(逆に言ってuncomparable同士の比較でpanicを起こすこともありません。)
 そこで、`err`(第一引数)かそれをunwrapして得られたerrorが`interface { Is(error) bool }`を実装するときにはそちらの実装による比較も行うようになっています。単なる`err1 == err2`を超えた挙動を実現できるため、例えば複数のerror値に対してマッチするようにするなどカスタマイズに幅があります。
 
 実装サンプルを以下に挙げます。
@@ -831,6 +842,8 @@ https://github.com/golang/go/blob/master/src/internal/oserror/errors.go#L5-L18
 
 https://github.com/golang/go/blob/go1.22.3/src/io/fs/fs.go#L139-L154
 
+わざわざ一旦関数を経由して値を定義しているのは`oserror`という文字列をgo docに乗せたくないからなのかなあと思います。[io/fsのvariable section](https://pkg.go.dev/io/fs@go1.23.4#pkg-variables)を見るとわかる通り、constやvariableセクションはソースコードがそのまま乗ってしまうのです。
+
 `os`パッケージで使うと書いているのはどういうことかというと
 
 https://github.com/golang/go/blob/go1.22.3/src/os/error.go#L17-L24
@@ -838,6 +851,8 @@ https://github.com/golang/go/blob/go1.22.3/src/os/error.go#L17-L24
 という感じでプラットフォーム間/API間でerrorを同一扱いするためにこういうことをしているようです。
 
 ### Advanced: interface { As(any) bool }を実装する
+
+`Is`に更に輪をかけて必要になる場面が少ないと思いますが、`interface { As(any) bool }`を`error` typeに実装すると[errors.As]とともに用いられるときに挙動がカスタマイズできるため、便利な場面があります。
 
 [errors.As]はそのdoc commentより第一引数が`interface { As(any) bool }`を実装するとき、そちらの実装も使います。
 
@@ -1489,7 +1504,7 @@ func main() {
 ### panicのstacktraceをログに残す
 
 `panic`のstacktraceをprintしてログに残したいことはあると思います。
-というのが、nil pointer derefernceがふいに起きたとき、どこでどう起きたのかログにだせないと見当がつかなくて困ります(1敗)。
+というのが、nil pointer dereferenceがふいに起きたとき、どこでどう起きたのかログにだせないと見当がつかなくて困ります(1敗)。
 
 - 1. panicを拾わず(=`recover`せず)プロセスを落とすことでGoにstacktraceを吐かせる
 - 2. `recover`することで、panic時のstacktraceを任意の出力先に出す
@@ -1774,6 +1789,7 @@ func (e *gathered) Format(state fmt.State, verb rune) {
 [Visual Studio Code]: https://code.visualstudio.com/
 [vscode]: https://code.visualstudio.com/
 [git]: https://git-scm.com/
+[errors.New]: https://pkg.go.dev/errors@go1.23.4#New
 [errors.Is]: https://pkg.go.dev/errors@go1.23.4#Is
 [errors.As]: https://pkg.go.dev/errors@go1.23.4#As
 [errors.Join]: https://pkg.go.dev/errors@go1.23.4#Join
