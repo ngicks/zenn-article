@@ -10,6 +10,8 @@ published: true
 
 筆者が`Go`を使い始めた時に分からなくて困ったこととか最初から知りたかったようなことを色々まとめる一連の記事です。
 
+以前書いた記事のrevisited版です。話の粒度を細かくしてあとから記事を差し込みやすくします。
+
 他の記事へのリンク集
 
 - (まだ)~~[今はこうやる集](https://zenn.dev/ngicks/articles/go-basics-revisited-updated-practices)~~
@@ -27,7 +29,7 @@ published: true
 - (まだ)~~[test](https://zenn.dev/ngicks/articles/go-basics-revisited-test)~~
 - (まだ)~~[filesystem abstraction](https://zenn.dev/ngicks/articles/go-basics-revisited-filesystem-abstraction)~~
 
-(リンク集で1つの記事で出そうかと思ったんですが、そういえばzennだとそういうの見たことないので怒られるかもなあ・・・とちょっと不安になったので一連の記事に相互リンクを張る形にします。)
+(リンク集は別の記事で出そうかと思ったんですが、そういえばzennだとリンク集とか見たことがない、本使えと怒られるかもなあ・・・とちょっと不安になったので一連の記事に相互リンクを張る形にします。)
 
 ## error handling
 
@@ -739,7 +741,9 @@ func someTask() (string, error) {
 ```
 
 interfaceに値を渡す時は、typed-nilに注意しましょう。
-できれば独自errorを返す関数は一切作らないほうが良いです。
+
+関数呼び出しの引数や返り値には`error` interfaceのみを使うようにし、自ら定義したerror typeはそのsurfaceに一切出現させないほうが良いです。
+(ただし型そのものをexportするのはよい)
 
 ### Advanced: interface { Is(error) bool }を実装する
 
@@ -1754,7 +1758,7 @@ func main() {
 
 [errors.Join]で複数errorを1つにまとめられます。返ってくる`error`の`Error` methodはそれぞれのerrorの`Error`を呼び出して結果を`"\n"`で結合します。
 
-それが気に入らない場合は[strings.Repeat](https://pkg.go.dev/strings@go1.23.4#Repeat)で`%w`⁺sepを繰り返し、最後の余計なsepを[strings.CutSuffix](https://pkg.go.dev/strings@go1.23.4#CutSuffix)切り落とします。最後に[fmt.Errorf]でerrorをラップします。こうすることで任意のprefix, sepを持ったフォーマットでerrorでprint可能です。
+それが気に入らない場合は[strings.Repeat](https://pkg.go.dev/strings@go1.23.4#Repeat)で`%w`⁺sepを繰り返し、最後の余計なsepを[strings.TrimSuffix](https://pkg.go.dev/strings@go1.23.4#TrimSuffix)切り落とします。最後に[fmt.Errorf]でerrorをラップします。こうすることで任意のprefix, sepを持ったフォーマットでerrorでprint可能です。
 
 [snippet](https://github.com/ngicks/go-example-basics-revisited/blob/main/error-handling/wrap-error-dynamic/main.go)
 
@@ -1775,7 +1779,7 @@ fmt.Printf("errors.Join: %v\n", errors.Join(err1, err2, err3))
 errs := []any{err1, err2, err3}
 
 const sep = ", "
-format, _ := strings.CutSuffix(strings.Repeat("%w"+sep, len(errs)), sep)
+format := strings.TrimSuffix(strings.Repeat("%w"+sep, len(errs)), sep)
 wrapped := fmt.Errorf("foobar error: "+format, errs...)
 
 fmt.Printf("err = %v\n", wrapped) // err = foobar error: 1, 2, 3
