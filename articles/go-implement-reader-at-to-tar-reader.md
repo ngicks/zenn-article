@@ -32,6 +32,7 @@ https://github.com/ngicks/go-fsys-helper/tree/main/tarfs
   - これは`tar`を受けとって[fs.FS]を返すもの
 - 上記に倣うと、`tar.NewReader`に渡す`io.Reader`実装を、`Read`で読んだbyte数を記録できるものにしておくことで、`tar header`のオフセットを所得できます。
 - 実際のファイルコンテンツの`tar`ファイル内でのオフセットは、headerの終わりと[\*tar.Header]の`Size`フィールドから取得できます
+- 元のファイル内のfile content bodyの位置さえわかれば[\*io.SectionReader]で[io.ReaderAt]を実装した形で読み込み可能です。
 - ただし、sparse file(疎)の取り扱いだけがこれだけでは済みません。
 - なぜならば、[\*tar.Reader]がtar headerに存在するsparse情報を捨ててしまうため
 - そこでsparse情報を取得する必要があります。
@@ -44,7 +45,8 @@ https://github.com/ngicks/go-fsys-helper/tree/main/tarfs
 - (1)は大きなファイルで時間がかかりすぎて使い物にならない可能性が高いため却下
   - そもそもファイルを疎にしたいのはコアダンプなど容量はデカいけど実際に何かが書かれている領域は小さい時であるため。
 - (2)はsparse情報を取り出すだけなら今後も追従しなきゃいけない変更もなさそうだしこちらに決定。
-- 実装したらできた。
+- sparse holeの情報さえあれば以前作ったライブラリで仮想的に[io.ReaderAt]を結合して1つの[io.ReaderAt]のように見せることができます。
+- ということでできた
 
 ～完～
 
@@ -179,13 +181,13 @@ https://www.ibm.com/docs/en/aix/7.1?topic=files-tarh-file
 `tape archive`をとったものであり、`tarball`となぞらえて`tar`と呼ばれると各リンク先で説明されています。
 磁気テープのようなファイルシステムのないところにファイルを保存するために必要であった、とあります。
 
-磁気テープは文字通り、テープ状の紙/プラスティックフィルムに磁性のある粉とか液とかを封入するなり塗布するなりしたものををリール(ボビン)に巻き付け、これを送って磁気を読み取る/磁化することで情報の読み取り/書き込みを行います。([参考](https://www.tdk.com/ja/tech-mag/ninja/029))
+磁気テープは文字通り、テープ状の紙/プラスティックフィルムに磁性のある粉とか液とかを封入するなり塗布するなりしたものををリール(ボビン)に巻き付け、テープを送って磁気を読み取る/磁化することで情報の読み取り/書き込みを行います。([参考](https://www.tdk.com/ja/tech-mag/ninja/029))
 
 これに書き込むことを意図されたデータフォーマットであるならばいくつかのことが示唆されることになります。
 
 - シーケンシャルアクセスのみを前提とする
   - テープの送りがデータアクセス位置となります。
-  - HDDやCD/BDのようなディスク媒体のように周方向にデータセグメントを分けながら半径方向にヘッドを動かすようなことはできません。ランダムアクセス性は低いです。
+  - HDDやCD/BDのようなディスク媒体のように周方向にデータセグメントを分けながら半径方向に読み取り機を動かすようなことはできません。ランダムアクセス性は低いです。
 - ジャンクデータが残っていることがありうる
   - 磁化することで情報を書き込みますので繰り返しの書き込みができます。
   - 送りのスピードが遅いならわざわざジャンクデータを消そうとしないこともあるでしょう。
@@ -198,6 +200,8 @@ https://www.ibm.com/docs/en/aix/7.1?topic=files-tarh-file
 - ヘッダー、ファイル、ヘッダー、ファイルの繰り返しで表現されます。
   - いくつかはファイル部がないものがあるかもしれません。
 - いくつかの拡張ヘッダーは次のヘッダー/ファイルに拡張情報を与えるものがあります。
+- ヘッダーから開始さえできていれば、どこかでちょん切ったり、逆に末尾に新しいエントリを追加してかまいません。
+  - 実際インクリメンタルアップデートを行った`tar`がテストデータとして`Go`のstd内にありました。
 - `0x00`のみで構成されるブロックが二つ連続して並んでいるとアーカイブ末尾となります。
 - `GNU`, `old GNU`, `PAX`, `UStar`などいくつかの仕様/拡張仕様があります。
 
@@ -282,7 +286,7 @@ https://github.com/nlepage/go-tarfs/blob/v1.2.1/entry.go#L58-L75
 
 - `r.Count()-blockSize`は正しくない
   - `Go`の[archive/tar]が一部の拡張ヘッダーの、次のヘッダーにメタデータを与える系のヘッダーを読み込んだ際、それはユーザーに返さずに次のヘッダーを読み込んでメタデータをマージしてから返します
-  - つまり1度の`Next`呼び出しは複数ヘッダーを読み込んでいる可能性があります。
+  - つまり1度の`Next`呼び出しは複数ヘッダーを読み込んでいることもありうるため、単に`-blockSize`では足りず、もしかしたら`-blockSize*2`かもしれないし、それ以上かもしれないということです。
   - `PAX extended header`で`GNU.sparse.`が指定されていた場合、これが無視されることになります。
 
 ## 実装
@@ -296,15 +300,20 @@ https://github.com/nlepage/go-tarfs/blob/v1.2.1/entry.go#L58-L75
 
 - 各エントリのheader start/end offset, file content start/end offsetをとることで、[\*io.SectionReader]と組み合わせることでファイルを読めるようにします。
 - `tar`のheader自体の解析は[archive/tar]に任せます。
+  - それに何かの修正があるたびに追従するのはできると思いますが、気づいてから取り込むまでにラグができるのは望ましくありません。
+  - `Go`のモジュールシステムでは`go.mod`に書かれたバージョンにかかわらず、コンパイルするときのtoolchainのstd libが使われます。つまり、新しいコンパイラとstdライブラリのセットでコンパイルされれば[archive/tar]を使っている部分は何もしなくても修正を受けることができます。
 - [github.com/nlepage/go-tarfs]と違い、元から[io.ReaderAt]を引数とします。
   - [github.com/nlepage/go-tarfs]は[io.Reader]を受けとり、[io.ReaderAt]の実装をチェックしてそれがなかったら[\*bytes.Buffer]に一旦内容をバッファします。暗黙的な挙動は怖いです。
 - 上記実装に倣い、[tar.NewReader]に読み込まれたバイト数をカウントできる[io.Reader]を渡します。
 - [\*tar.Reader]の`Next`を呼び、この時点での読み込まれたバイト数が、エントリのheader end offset兼file content start offsetとなりますのでこれを記録します。
 - 上記実装とは違い、header start offsetは、1つ前のエントリのfile content end offsetを512バイトのブロック単位になるようにパディングしたものを得ます。
 - `file conent end offset = (file content start offset) + tar.Header.Size`で取得します。
-  - ただし、これはsparse fileおよび各種LinkName系のエントリに対しては正しくありまえん。
+  - ただし、これはsparse fileおよび各種LinkName系のエントリに対しては正しくありません。
 - sparseのhole情報を何とかして得ます。
-- 得たsparse holeの情報から、[\*io.SectionReader]で切り取った実際に`tar`に格納されたデータと、(これのために作った)[ByteRepeater](https://pkg.go.dev/github.com/ngicks/go-fsys-helper/stream@v0.2.0#ByteRepeater)を、以前作った[NewMultiReadAtSeekCloser](https://pkg.go.dev/github.com/ngicks/go-fsys-helper/stream@v0.2.0#NewMultiReadAtSeekCloser)で仮想的に結合します。
+- 得たsparse holeの情報から、
+  - `tar`の実際に格納されたデータを[\*io.SectionReader]でsparse holeがある場所で切り取り
+  - (これのために作った)[ByteRepeater](https://pkg.go.dev/github.com/ngicks/go-fsys-helper/stream@v0.2.0#ByteRepeater)を使って`0x00`を繰り返す[io.ReaderAt]を作り
+  - (これは以前に作った)[NewMultiReadAtSeekCloser](https://pkg.go.dev/github.com/ngicks/go-fsys-helper/stream@v0.2.0#NewMultiReadAtSeekCloser)で仮想的に結合します。
 
 [Go]: https://go.dev/
 [archive/zip]: https://pkg.go.dev/archive/tar
