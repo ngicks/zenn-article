@@ -38,8 +38,7 @@ https://github.com/ngicks/go-fsys-helper/tree/main/tarfs
 - 実装方針に以下の2案がありました。
   - 前提として`tar`の解析処理はなるだけ`Go`のstdに任せる
     - 何かの修正があるたびに追従するのは個人では現実的ではありません。
-    - `Go`のモジュールシステムでは`go.mod`に書かれたバージョンにかかわらず、コンパイルするときのtoolchainのstd
-      libが使われます。つまり、新しいコンパイラとstdライブラリのセットでコンパイルされれば[archive/tar]を使っている部分は何もしなくても修正を受けることができます。
+    - `Go`のモジュールシステムでは`go.mod`に書かれたバージョンにかかわらず、コンパイルするときのtoolchainのstd libが使われます。つまり、新しいコンパイラとstdライブラリのセットでコンパイルされれば[archive/tar]を使っている部分は何もしなくても修正を受けることができます。
   - (1) [\*tar.Reader]をすべて読み切って、`tar`ファイル内の実データと突き合わせることでholeを再建する
   - (2) [archive/tar]のソースの一部をコピーし、sparse情報を取り出せるようにする。
 - (1)は大きなファイルで時間がかかりすぎて使い物にならない可能性が高いため却下
@@ -139,8 +138,8 @@ name = "./aaa/foo", regular file, size = 4, content = "foo\n"
 ```
 
 - [tar.NewReader]で[\*tar.Reader]を作成
-- `Reader`の`Next` methodを呼び出すと次の[\*tar.Header]まで読み込み,
-- `Reader`の`Read` methodで返されたheaderの中身を読み込めます。
+- `Reader`の`Next` methodを呼び出すと次の[\*tar.Header]まで読み込んでそれを返し,
+- `Reader`の`Read` methodで`Next`が返したheaderが示すファイルエントリの中身を読み込めます。
 
 `Next`を呼び出すと[\*tar.Reader]の中身が次のエントリの内容にセットされるような感じです。
 
@@ -191,7 +190,7 @@ https://www.ibm.com/docs/en/aix/7.1?topic=files-tarh-file
   - 磁化することで情報を書き込みますので繰り返しの書き込みができます。
   - 送りのスピードが遅いならわざわざジャンクデータを消そうとしないこともあるでしょう。
 
-うーんまだなんかありそうだけどこの程度しか言えないなあ。
+うーんまだなんかありそうだけど筆者はこの程度しか言えないなあ。
 
 完全な説明はリンク先や、[archive/tarのソースコード](https://github.com/golang/go/tree/go1.24.1/src/archive/tar)に当たってもらうとして、いくつかの特徴を説明します。
 
@@ -210,7 +209,7 @@ https://www.ibm.com/docs/en/aix/7.1?topic=files-tarh-file
 
 例えば以下のように`ssh`でディレクトリを送る時に`tar`してun-`tar`するというものがあります
 
-```
+```shell
 tar -cf - -C /path/to/src . | ssh ${target} "tar -xf - -C /path/to/dst"
 ```
 
@@ -235,7 +234,7 @@ TODO
   - 無圧縮、もしくは
   - `zstd`([Zstandard Seekable Format](https://github.com/facebook/zstd/blob/dev/contrib/seekable_format/zstd_seekable_compression_format.md)), `xz`(["limited random-access reading"](https://tukaani.org/xz/format.html#_features))などのような、ランダムアクセス可能オプションのある圧縮方式で圧縮されているとき
 - `tar`内部のファイルがランダムアクセスを必要とし
-  - e.g. `PDF`(参考:[PDF 1.7 spec](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf), 7.5.5 File Trailerより、`PDF`はファイル末尾から読み込むい。更に別のFile Tailerに向けてseek backする必要があるときがある。)
+  - e.g. `PDF`(参考:[PDF 1.7 spec](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf), 7.5.5 File Trailerより、`PDF`はファイル末尾から読み込む。更に別のFile Tailerに向けてseek backする必要があるときがある。)
 - `tar`ファイルを展開したくないとき
   - e.g. `tar`が非常に大きく、ファイルは一時的に利用されるのみ、もしくはファイルシステム経由でアクセスすされることはないので展開したファイルの配置が不要である
   - e.g. アプリが`container`内で動作しており、`container fs`がread-only modeにされているとき、やらんでいいなら書き込めるディレクトリをマウントしたくない。
@@ -288,6 +287,25 @@ https://github.com/nlepage/go-tarfs/blob/v1.2.1/entry.go#L58-L75
 
 ## 実装
 
+[github.com/nlepage/go-tarfs]は便利で利用していました。作者に感謝です。
+
+ただやっぱり[io.ReaderAt]が欲しい。あると他のライブラリにそのまま渡せて便利なのに・・・
+なので作ることにします。
+
+### 実装方針
+
+- 各エントリのheader start/end offset, file content start/end offsetをとることで、[\*io.SectionReader]と組み合わせることでファイルを読めるようにします。
+- `tar`のheader自体の解析は[archive/tar]に任せます。
+- [github.com/nlepage/go-tarfs]と違い、元から[io.ReaderAt]を引数とします。
+  - [github.com/nlepage/go-tarfs]は[io.Reader]を受けとり、[io.ReaderAt]の実装をチェックしてそれがなかったら[\*bytes.Buffer]に一旦内容をバッファします。暗黙的な挙動は怖いです。
+- 上記実装に倣い、[tar.NewReader]に読み込まれたバイト数をカウントできる[io.Reader]を渡します。
+- [\*tar.Reader]の`Next`を呼び、この時点での読み込まれたバイト数が、エントリのheader end offset兼file content start offsetとなりますのでこれを記録します。
+- 上記実装とは違い、header start offsetは、1つ前のエントリのfile content end offsetを512バイトのブロック単位になるようにパディングしたものを得ます。
+- `file conent end offset = (file content start offset) + tar.Header.Size`で取得します。
+  - ただし、これはsparse fileおよび各種LinkName系のエントリに対しては正しくありまえん。
+- sparseのhole情報を何とかして得ます。
+- 得たsparse holeの情報から、[\*io.SectionReader]で切り取った実際に`tar`に格納されたデータと、(これのために作った)[ByteRepeater](https://pkg.go.dev/github.com/ngicks/go-fsys-helper/stream@v0.2.0#ByteRepeater)を、以前作った[NewMultiReadAtSeekCloser](https://pkg.go.dev/github.com/ngicks/go-fsys-helper/stream@v0.2.0#NewMultiReadAtSeekCloser)で仮想的に結合します。
+
 [Go]: https://go.dev/
 [archive/zip]: https://pkg.go.dev/archive/tar
 [archive/tar]: https://pkg.go.dev/archive/zip
@@ -301,28 +319,6 @@ https://github.com/nlepage/go-tarfs/blob/v1.2.1/entry.go#L58-L75
 [\*http.Request]: https://pkg.go.dev/net/http@go1.24.1#Request
 [github.com/nlepage/go-tarfs]: https://github.com/nlepage/go-tarfs
 [fs.FS]: https://pkg.go.dev/io/fs@go1.24.1#FS
-[Go 1.23]: https://tip.golang.org/doc/go1.23
-[C++]: https://en.wikipedia.org/wiki/C%2B%2B
-[Node.js]: https://nodejs.org/en
-[TypeScript]: https://www.typescriptlang.org/
-[python]: https://www.python.org/
-[Rust]: https://www.rust-lang.org
-[The Rust Programming Language 日本語]: https://doc.rust-jp.rs/book-ja/
-[Visual Studio Code]: https://code.visualstudio.com/
-[vscode]: https://code.visualstudio.com/
-[git]: https://git-scm.com/
-[errors.New]: https://pkg.go.dev/errors@go1.23.4#New
-[errors.Is]: https://pkg.go.dev/errors@go1.23.4#s
-[errors.As]: https://pkg.go.dev/errors@go1.23.4#As
-[errors.Join]: https://pkg.go.dev/errors@go1.23.4#Join
-[io.EOF]: https://pkg.go.dev/io@go1.23.4#EOF
-[fs.ErrNotExist]: https://pkg.go.dev/io/fs@go1.23.4#ErrNotExist
-[io.Reader]: https://pkg.go.dev/io@go1.23.4#Reader
-[io.Writer]: https://pkg.go.dev/io@go1.23.4#Writer
-[fmt.Errorf]: https://pkg.go.dev/fmt@go1.23.4#Errorf
-[type assertion]: https://go.dev/ref/spec#Type_assertions
-[type switch]: https://go.dev/ref/spec#Type_switches
-[syscall.Errno]: https://pkg.go.dev/syscall@go1.23.4#Errno
-[http.Server]: https://pkg.go.dev/net/http@go1.23.4#Server
-[*http.Server]: https://pkg.go.dev/net/http@go1.23.4#Server
-[panic]: https://pkg.go.dev/builtin@go1.22.3#panic
+[io.Reader]: https://pkg.go.dev/io@go1.24.1#Reader
+[io.Writer]: https://pkg.go.dev/io@go1.24.1#Writer
+[\*bytes.Buffer]: https://pkg.go.dev/bytes@go1.24.1#Buffer
