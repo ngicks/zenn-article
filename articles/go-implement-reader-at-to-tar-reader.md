@@ -444,7 +444,7 @@ func makeReader(ra io.ReaderAt, h *header) seekReadReaderAt {
 ただしこれだけではsparse fileを取り扱うことができません。
 
 [GNU Tarマニュアル: Storing Sparse Files](https://www.gnu.org/software/tar/manual/html_node/Sparse-Formats.html#Sparse-Formats)によると、
-`tar`は3通りの記法でsparse(疎) fileの格納が可能であるとあります。実際にはほかの拡張によって別な気泡もあるかもしれませんが少なくとも`Go`の[archive/tar]がこの3つをサポートします。
+`tar`は3通りの記法でsparse(疎) fileの格納が可能であるとあります。実際にはほかの拡張によって別な記法があるかもしれませんが少なくとも`Go`の[archive/tar]がこの3つをサポートします。
 
 https://github.com/golang/go/blob/go1.24.1/src/archive/tar/reader.go#L192-L213
 
