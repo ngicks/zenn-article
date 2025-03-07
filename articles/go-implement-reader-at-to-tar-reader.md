@@ -44,7 +44,7 @@ https://github.com/ngicks/go-fsys-helper/tree/main/tarfs
   - (2) [archive/tar]のソースの一部をコピーし、sparse情報を取り出せるようにする。
 - (1)は大きなファイルで時間がかかりすぎて使い物にならない可能性が高いため却下
   - そもそもファイルを疎にしたいのはコアダンプなど容量はデカいけど実際に何かが書かれている領域は小さい時であるため。
-- (2)はsparse情報を取り出すだけなら今後も追従しなきゃいけない変更もなさそうだしこちらに決定。
+- (2)はsparse情報を取り出すだけなら今後も追従しなきゃいけない変更も少なさそうだしこちらに決定。
 - sparse holeの情報さえあれば以前作ったライブラリで仮想的に[io.ReaderAt]を結合して1つの[io.ReaderAt]のように見せることができます。
 - ということでできた
 
@@ -74,56 +74,56 @@ go version go1.24.0 linux/amd64
 package main
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
-	"encoding/base64"
-	"fmt"
-	"io"
+    "archive/tar"
+    "bytes"
+    "compress/gzip"
+    "encoding/base64"
+    "fmt"
+    "io"
 )
 
 var treeTarGzBase64 = `H4sIAAAAAAAAA+2YTW7DIBBGWecUPoENZAbOg622yyg/VquevkNRlLRSf1gMScT3Nkg2EkjPD1mM` +
-	`k1HHCpE5jy6yvR7PGEcxeLcN7OS5s+y9GVh/a8asx1M6DIN5Taf08vTzvL/ePyjjNM+z8jdQ5Z+9` +
-	`+HdepsN/A4r/ZVkUv4Eq/zH3762F/yZc/O/X9U1njSw4EP3in7/7j178W53tfKVz/9n65tabADfj` +
-	`un+l/P/RP136D5z7Z9qi/xbskX/XlP7ndFBco6p/Cvn/P5JD/y0Q8+i/Y879vyuuUdN/DO6zf3mN` +
-	`/hsg5tF/x4xTSume7v+Iy/0f4f6nBcX/826nuEbd/x+X859w/rdAzOP8BwAAAAAAAIAO+ABC8URH` +
-	`ACgAAA==`
+    `k1HHCpE5jy6yvR7PGEcxeLcN7OS5s+y9GVh/a8asx1M6DIN5Taf08vTzvL/ePyjjNM+z8jdQ5Z+9` +
+    `+HdepsN/A4r/ZVkUv4Eq/zH3762F/yZc/O/X9U1njSw4EP3in7/7j178W53tfKVz/9n65tabADfj` +
+    `un+l/P/RP136D5z7Z9qi/xbskX/XlP7ndFBco6p/Cvn/P5JD/y0Q8+i/Y879vyuuUdN/DO6zf3mN` +
+    `/hsg5tF/x4xTSume7v+Iy/0f4f6nBcX/826nuEbd/x+X859w/rdAzOP8BwAAAAAAAIAO+ABC8URH` +
+    `ACgAAA==`
 
 func main() {
-	treeTarGz, err := base64.StdEncoding.DecodeString(treeTarGzBase64)
-	if err != nil {
-		panic(err)
-	}
-	gr, err := gzip.NewReader(bytes.NewReader(treeTarGz))
-	if err != nil {
-		panic(err)
-	}
-	defer gr.Close()
+    treeTarGz, err := base64.StdEncoding.DecodeString(treeTarGzBase64)
+    if err != nil {
+        panic(err)
+    }
+    gr, err := gzip.NewReader(bytes.NewReader(treeTarGz))
+    if err != nil {
+        panic(err)
+    }
+    defer gr.Close()
 
-	tr := tar.NewReader(gr)
-	for {
-		hdr, err := tr.Next()
-		if err != nil {
-			if err == io.EOF {
-				break
-			} else {
-				panic(err)
-			}
-		}
-		fmt.Printf("name = %q", hdr.Name)
-		switch hdr.Typeflag {
-		case tar.TypeReg, tar.TypeRegA:
-			content, err := io.ReadAll(tr)
-			if err != nil {
-				panic(err)
-			}
-			fmt.Printf(", regular file, size = %d, content = %q\n", hdr.Size, string(content))
-		case tar.TypeDir:
-			fmt.Printf(", dir\n")
-		default:
-			fmt.Printf(", unknown(%d)\n", hdr.Typeflag)
-		}
-	}
+    tr := tar.NewReader(gr)
+    for {
+        hdr, err := tr.Next()
+        if err != nil {
+            if err == io.EOF {
+                break
+            } else {
+                panic(err)
+            }
+        }
+        fmt.Printf("name = %q", hdr.Name)
+        switch hdr.Typeflag {
+        case tar.TypeReg, tar.TypeRegA:
+            content, err := io.ReadAll(tr)
+            if err != nil {
+                panic(err)
+            }
+            fmt.Printf(", regular file, size = %d, content = %q\n", hdr.Size, string(content))
+        case tar.TypeDir:
+            fmt.Printf(", dir\n")
+        default:
+            fmt.Printf(", unknown(%d)\n", hdr.Typeflag)
+        }
+    }
 }
 
 /*
@@ -378,48 +378,48 @@ offsetの収集は以下のようにできます。[github.com/nlepage/go-tarfs]
 
 ```go
 func collectHeaders(r io.ReaderAt) (map[string]*header, error) {
-	// first collect entries in the map
-	// Tar archives may have duplicate entry for same name for incremental update, etc.
-	headers := make(map[string]*header)
+    // first collect entries in the map
+    // Tar archives may have duplicate entry for same name for incremental update, etc.
+    headers := make(map[string]*header)
 
-	countingR := &countingReader{R: io.NewSectionReader(r, 0, math.MaxInt64-1)}
-	tr := tar.NewReader(countingR)
+    countingR := &countingReader{R: io.NewSectionReader(r, 0, math.MaxInt64-1)}
+    tr := tar.NewReader(countingR)
 
-	var prev *header
-	for {
-		h, err := tr.Next()
-		if err != nil {
-			if err == io.EOF {
-				break
-			} else {
-				return nil, fmt.Errorf("read tar archive: %w", err)
-			}
-		}
+    var prev *header
+    for {
+        h, err := tr.Next()
+        if err != nil {
+            if err == io.EOF {
+                break
+            } else {
+                return nil, fmt.Errorf("read tar archive: %w", err)
+            }
+        }
 
-		headerEnd := countingR.Count
+        headerEnd := countingR.Count
 
-		hh := &header{h: h, headerEnd: headerEnd, bodyStart: headerEnd}
-		if prev != nil {
-			// bodyEnd padded to 512 bytes block boundary
-			const blockSize = 512
-			hh.headerStart = prev.bodyEnd + (-prev.bodyEnd)&(blockSize-1)
-		}
+        hh := &header{h: h, headerEnd: headerEnd, bodyStart: headerEnd}
+        if prev != nil {
+            // bodyEnd padded to 512 bytes block boundary
+            const blockSize = 512
+            hh.headerStart = prev.bodyEnd + (-prev.bodyEnd)&(blockSize-1)
+        }
 
-		switch hh.h.Typeflag {
-		case tar.TypeLink, tar.TypeSymlink, tar.TypeChar, tar.TypeBlock, tar.TypeDir, tar.TypeFifo,
-			tar.TypeCont, tar.TypeXHeader, tar.TypeXGlobalHeader,
-			tar.TypeGNULongName, tar.TypeGNULongLink:
-			// They may have size for name.
-			hh.bodyEnd = hh.bodyStart
-		default:
-			hh.bodyEnd = hh.bodyStart + int(hh.h.Size)
-		}
+        switch hh.h.Typeflag {
+        case tar.TypeLink, tar.TypeSymlink, tar.TypeChar, tar.TypeBlock, tar.TypeDir, tar.TypeFifo,
+            tar.TypeCont, tar.TypeXHeader, tar.TypeXGlobalHeader,
+            tar.TypeGNULongName, tar.TypeGNULongLink:
+            // They may have size for name.
+            hh.bodyEnd = hh.bodyStart
+        default:
+            hh.bodyEnd = hh.bodyStart + int(hh.h.Size)
+        }
 
-		headers[path.Clean(h.Name)] = hh
-		prev = hh
-	}
+        headers[path.Clean(h.Name)] = hh
+        prev = hh
+    }
 
-	return headers, nil
+    return headers, nil
 }
 ```
 
@@ -429,13 +429,13 @@ func collectHeaders(r io.ReaderAt) (map[string]*header, error) {
 
 ```go
 type seekReadReaderAt interface {
-	io.Reader
-	io.ReaderAt
-	io.Seeker
+    io.Reader
+    io.ReaderAt
+    io.Seeker
 }
 
 func makeReader(ra io.ReaderAt, h *header) seekReadReaderAt {
-	return io.NewSectionReader(ra, int64(h.bodyStart), int64(h.bodyEnd)-int64(h.bodyStart))
+    return io.NewSectionReader(ra, int64(h.bodyStart), int64(h.bodyEnd)-int64(h.bodyStart))
 }
 ```
 
