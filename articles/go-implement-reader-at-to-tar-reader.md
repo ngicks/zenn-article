@@ -444,7 +444,7 @@ func makeReader(ra io.ReaderAt, h *header) seekReadReaderAt {
 ただしこれだけではsparse fileを取り扱うことができません。
 
 [GNU Tarマニュアル: Storing Sparse Files](https://www.gnu.org/software/tar/manual/html_node/Sparse-Formats.html#Sparse-Formats)によると、
-`tar`は3通りの記法でsparse(疎) fileの格納が可能であるとあります。実際にはほかの拡張によって別な記法があるかもしれませんが少なくとも`Go`の[archive/tar]がこの3つをサポートします。
+`tar`は3通りの記法でsparse(疎) fileの格納が可能であるとあります。実際にはほかの拡張によって別な記法があるかもしれませんが少なくとも`Go`の[archive/tar]はこの3つをサポートします。
 
 https://github.com/golang/go/blob/go1.24.1/src/archive/tar/reader.go#L192-L213
 
@@ -502,7 +502,7 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
 
 `$(go env GOROOT)/src/archive/tar/testdata/`以下に[archive/tar]がテストに用いている`tar`ファイル群があるのでこれをコピーしてこれを[\*tar.Reader]で読みこんだ内容と、`collectHeaders`と`makeReader`で作った[io.Reader]から読み込んだ内容が同じであるかをチェックします。
 
-...今考えると別にファイルをコピーしておく必要はないですね。まあいいでしょう。
+...今考えると別にファイルをコピーしておく必要はないですね。まあいいでしょう。(多分`go:embed`するつもりでこうしていたんでしょう)
 
 実際には以下のステップを踏みます
 
@@ -512,7 +512,7 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
   - `go install golang.org/dl/go1.24.0@latest`
   - `go1.24.0 download`でsdkをダウンロード
   - `go1.24.0 env GOROOT`でstd libraryが格納されたディレクトリパスを取得
-  - `cp ${GOROOT}/src/archive/tar/testdata ./testdata/go1.24.0`
+  - `cp ${GOROOT}/src/archive/tar/testdata/* ./testdata/go1.24.0/`
 - [headers_test.go](https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/headers_test.go):
   - [\*tar.Reader]で読みこんだファイル内容を収集
   - `collectHeaders`と`makeReader`で作った[io.Reader]から読み込んだ内容を収集
@@ -577,8 +577,8 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
 
 - readerに[io.WriterTo]を実装させる
   - 今の実装ではsparse fileのholeが単なる`0x00`として読み込まれるためコピー時に非効率です
-  - linuxや他のunix系のシステムでは[lseek(2)](https://man7.org/linux/man-pages/man2/lseek.2.html)でファイルの終端を超えてseekを行うとholeが作られますが、windowsでは違うというのを聞いたことがあるため調査が大変そうなので辞めておきました
-  - そもそもsparseのあるファイルを取り扱あわないかも
+  - linuxや他のunix系のシステムでは[lseek(2)](https://man7.org/linux/man-pages/man2/lseek.2.html)でファイルの終端を超えてseekを行うとholeが作られますが、windowsでは違うというのを聞いたことがあるため調査が大変そうなのでやめておきました
+  - そもそもsparseのあるファイルを取り扱わないかも
   - 現状[archive/tar]自身もsparse fileの書き込みでholeを作る実装になっていません([#22735](https://github.com/golang/go/issues/22735))ので問題ないといえばないです。
 - symlink supportを加える
   - [#49580](https://github.com/golang/go/issues/49580)より(おそらく)`Go1.25`から`fs.ReadLinkFS`が追加され、さらに
