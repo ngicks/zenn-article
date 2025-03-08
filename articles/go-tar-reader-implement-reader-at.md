@@ -606,7 +606,7 @@ https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454
 
 なので`New`はrootとなる`dir`に`direntry`を`addChild`するだけになります。
 
-https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/fs.go#L13-L63
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/fs.go#L13-L82
 
 再帰呼び出しだとstackが深くなるためfor-loopで処理できたほうが計算効率はいいと思いますがシンプルにしたかったのでこんなもんで良しとします。
 
