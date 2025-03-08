@@ -169,6 +169,17 @@ name = "./aaa/foo", regular file, size = 4, content = "foo\n"
 
 色々考えることが減るのでいいわけですね。
 
+## 前提3: sparse file
+
+この先sparse fileとかsparse holeとか単にholeというワードが出てきますが意味は以下です
+
+- sparseは疎という意味で、ファイルサイズに対して、実際のストレージの割り当てが少ないファイルのことを言います
+- holeというのはこの「実際にはストレージが割り当てられていない」場所のことを言います。
+- holeを読み込むとき、linuxでは単に`0x00`として読み込まれます
+- データベースや、コアダンプ(プログラムがクラッシュしたときにそのプログラムのメモリをそのまま書き出すやつ)は、実際のデータ容量に対してなにも書き込んでいない領域がたくさんあるのが普通です。こういったものを素直に`0x00`部分にもストレージを割り当ててしまうと容量があっという間に枯渇してしまう(こともあるため)、割り当てないでおくということができます。
+- [Advanced Programming in the UNIX Environment](https://www.amazon.co.jp/-/jp/W-Stevens/dp/0321637739)とか読んでおいてください
+- `du -h`と`du -b`で表示される容量が違うとき、つまりsparse fileが含まれています。
+
 ## \*tar.Readerはio.ReaderAtを実装しない
 
 [\*tar.Reader]のAPI docを見ればわかる通り、これは[io.ReaderAt]を実装しません。
