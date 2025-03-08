@@ -3,7 +3,7 @@ title: "[Go]tarのReaderにReadAtを実装する(ついでにfs.FSにもする)"
 emoji: "📂"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## \[Go\]tarのReaderにReadAtを実装する(ついでにfs.FSにもする)
@@ -62,7 +62,9 @@ $ go version
 go version go1.24.0 linux/amd64
 ```
 
-## 前提1: Goでtarを扱うにはarchive/tarを使う
+## 前提
+
+### Goでtarを扱うにはarchive/tarを使う
 
 [Go]のstdの範疇で`tar`を扱うには[archive/tar]を用います。
 
@@ -152,7 +154,7 @@ name = "./aaa/foo", regular file, size = 4, content = "foo\n"
 
 ちなみにソースに埋め込まれた`tar`の内容は`GNU tar(1.35)`で作成しています。
 
-## 前提2: io.ReaderAtはとっても便利
+### io.ReaderAtはとっても便利
 
 まずどうして[io.ReaderAt]が実装されているのかうれしいのかという話を前提としてします。
 
@@ -169,7 +171,7 @@ name = "./aaa/foo", regular file, size = 4, content = "foo\n"
 
 色々考えることが減るのでいいわけですね。
 
-## 前提3: sparse file
+### sparse file
 
 この先sparse fileとかsparse holeとか単にholeというワードが出てきますが意味は以下です
 
@@ -178,9 +180,8 @@ name = "./aaa/foo", regular file, size = 4, content = "foo\n"
 - holeを読み込むとき、linuxでは単に`0x00`として読み込まれます
 - データベースや、コアダンプ(プログラムがクラッシュしたときにそのプログラムのメモリをそのまま書き出すやつ)は、実際のデータ容量に対してなにも書き込んでいない領域がたくさんあるのが普通です。こういったものを素直に`0x00`部分にもストレージを割り当ててしまうと容量があっという間に枯渇してしまう(こともあるため)、割り当てないでおくということができます。
 - [Advanced Programming in the UNIX Environment](https://www.amazon.co.jp/-/jp/W-Stevens/dp/0321637739)とか読んでおいてください
-- `du -h`と`du -b`で表示される容量が違うとき、つまりsparse fileが含まれています。
 
-## \*tar.Readerはio.ReaderAtを実装しない
+### \*tar.Readerはio.ReaderAtを実装しない
 
 [\*tar.Reader]のAPI docを見ればわかる通り、これは[io.ReaderAt]を実装しません。
 前述通りstreamとして処理できることを念頭にされているため当然ではあります。
@@ -287,7 +288,7 @@ block size = 512 bytes
     - e.g. Symlink, Char dev, size 0のregular fileなど
 - いくつかの拡張ヘッダーは次のファイルに拡張情報を与えるものがあります。
 - いくつかの拡張ヘッダーは通常のヘッダーの後に現れて補足的な情報を与えます。
-  - [GNU tar: an archiver tool/GNU tar: an archiver tool/Basic Tar Format](https://www.gnu.org/software/tar/manual/html_node/Standard.html#Standard)参照。`old GNU`のsparse fileの情報は拡張ヘッダーとして通常のヘッダーのあとに現れます。
+  - [GNU tar: an archiver tool/Basic Tar Format](https://www.gnu.org/software/tar/manual/html_node/Standard.html#Standard)参照。`old GNU`のsparse fileの情報は拡張ヘッダーとして通常のヘッダーのあとに現れます。
 - ヘッダーから開始さえできていれば、どこかでちょん切ったり、逆に末尾に新しいエントリを追加してかまいません。
   - 実際インクリメンタルアップデートを行った`tar`がテストデータとして`Go`のstd内にありました。
 - EOFか、`0x00`のみで構成されるブロックが二つ連続して並んでいるとアーカイブ末尾となります。
