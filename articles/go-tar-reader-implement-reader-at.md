@@ -160,7 +160,7 @@ name = "./aaa/foo", regular file, size = 4, content = "foo\n"
   - [\*http.Request]の`GetBody`フィールドの実装
   - `PDF`などランダムアクセスによって効率的に処理できるフォーマット
   - これらに対してランダムアクセス性がないともう一度開きなおす、事前にバッファして置くなどが必要
-    - それらの処理がどの程度高価なのか事前にわからないことがある。ものすごく大きなPDFをバッファに乗せたらメモリが足りなくて[OOM](https://docs.kernel.org/admin-guide/cgroup-v1/memory.html)でkillされることもあり得ます。
+    - それらの処理がどの程度高価なのか事前にわからないことがある。ものすごく大きなPDFをバッファに乗せたらメモリが足りなくて[Out Of Memory](https://docs.kernel.org/admin-guide/cgroup-v1/memory.html)でkillされることもあり得ます。
 - [io.Seeker]に比べて[io.ReaderAt]は規約が厳しく、使う側が楽
   - seekは[io.Reader]などが内部的に持つ現在のオフセット値を変更するという処理であるので、concurrentに呼び出すと一種のrace conditionとなる
   - その点`ReadAt`はconcurrentに複数回呼び出されてもよいという規約になっている
@@ -294,7 +294,7 @@ streamの利点を生かした手技には、例えば以下のように`ssh`で
 tar -cf - -C /path/to/src . | ssh ${target} "tar -xf - -C /path/to/dst"
 ```
 
-(出展はどっかにいってしまったので書けないのですが、`scp`のプロトコルを調べている時に見つけた記事の末尾に)`scp`を使ってディレクトリをコピーするとファイルチェックを毎度するためパフォーマンスが悪い、ローカルで`tar`して結果をパイプしリモートで`untar`するほうが速いと聞いたことがあります。
+(出展はどっかにいってしまったので書けないのですが、`scp`のプロトコルを調べている時に見つけた記事の末尾に)`scp`を使ってディレクトリをコピーするとファイルチェックを毎度するためパフォーマンスが悪い、ローカルで`tar`して結果をパイプしリモートでun-`tar`するほうが速いと聞いたことがあります。
 (ただし今でもそうなのかはわかりません。[scp(1)#HISTORY](https://man.openbsd.org/scp.1#HISTORY)にある通り`OpenSSH 9.0`より`scp`は`sftp`を使用して送信するのがデフォルトになったためです。)
 
 ### c.f. zip
@@ -306,8 +306,8 @@ https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
 記載のとおり、_4.3.16 End of central directory record_、_4.3.15 Zip64 end of central directory locator_, _4.3.14 Zip64 end of central directory record_ などをファイル末尾から読み込み、そこから _4.3.12 Central directory structure_ にseek back、central directory structureに各file headerへのオフセットが入っています。
 つまり、**基本的には**読み込みにランダムアクセス性を必要とします。
 
-zipはフォーマットとしてincremental updateが可能が意識されています。その中でも「ファイルを消した」をcentral directoryの追記によって表現可能なようです。
-specを見る限りstream-decodeは可能です。この「消した」の表現を尊重する面で余計なファイルを書き出してしまうという微妙さはありますが。
+zipはフォーマットとしてincremental updateが可能なようです。その中でも「ファイルを消した」をcentral directoryの追記によって表現可能なようです。
+specを見る限りstream-decodeは特定の条件において可能です。この「消した」の表現を尊重する面で余計なファイルを書き出してしまうという微妙さはありますが。
 (実際「すべてではないが大概のzipには可能」というstackoverflowでの回答があります: [参考](https://stackoverflow.com/a/67716044))
 
 ## tarの内容にランダムアクセス性が欲しくなる時
@@ -366,7 +366,7 @@ https://github.com/nlepage/go-tarfs/blob/v1.2.1/entry.go#L58-L75
 
 - `r.Count()-blockSize`は正しくない
   - `Go`の[archive/tar]が一部の拡張ヘッダーの、次のヘッダーにメタデータを与える系のヘッダーを読み込んだ際、それはユーザーに返さずに次のヘッダーを読み込んでメタデータをマージしてから返します
-  - つまり1度の`Next`呼び出しは複数ヘッダーを読み込んでいることもありうるため、単に`-blockSize`では足りず、もしかしたら`-blockSize*2`かもしれないし、それ以上かもしれないということです。
+  - つまり1度の`Next`呼び出しは複数ヘッダー(とデータ)を読み込んでいることもありうるため、単に`-blockSize`では足りず、もしかしたら`-blockSize*2`かもしれないし、それ以上かもしれないということです。
   - `PAX extended header`で`GNU.sparse.`が指定されていた場合、これが無視されることになります。
     - それに関するissueが上がっていないところを見ると実用上sparse fileは使われていないのかもしれないですね。
 
@@ -400,64 +400,78 @@ https://github.com/nlepage/go-tarfs/blob/v1.2.1/entry.go#L58-L75
 
 前述通りあるファイルエントリへのheader, file contentの開始/終了オフセットを集めますので以下の型を定義します。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/headers.go#L11-L16
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/headers.go#L27-L32
 
 `headerEnd - headerStart`は常に512となるとは限りません。[archive/tar]は`PAX extended header`などを読み込むと、それをユーザーに返さずに次のヘッダーを読み込んで情報をマージしてからユーザーに返すためです。
 
 [github.com/nlepage/go-tarfs]に倣い、`Read`されたバイト数を記録するReaderを定義します。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/headers.go#L78-L101
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/headers.go#L93-L116
 
-`Seek`は実装しておいたほうが良いです。[archive/tar]は以下の方法で`Read`されなかったdata部を読み捨てますが、ここで`Seek`が実装されていたら使いますのでそのほうが効率的です。
+`Seek`が実装されていますが、これは[archive/tar]が[データを読み捨てる際に`Seek`が実装されていれば使うから](https://github.com/golang/go/blob/go1.24.1/src/archive/tar/reader.go#L852-L880)です。
 
-https://github.com/golang/go/blob/go1.24.1/src/archive/tar/reader.go#L852-L880
-
-offsetの収集は以下のようにできます。[github.com/nlepage/go-tarfs]とほぼ同じです。
+offsetの収集は以下のようにできます。[github.com/nlepage/go-tarfs]とほぼ同じです。(ただし[Go 1.23]で追加されたiteratorの形でですが。)
 
 ```go
-func collectHeaders(r io.ReaderAt) (map[string]*header, error) {
-    // first collect entries in the map
-    // Tar archives may have duplicate entry for same name for incremental update, etc.
-    headers := make(map[string]*header)
-
-    countingR := &countingReader{R: io.NewSectionReader(r, 0, math.MaxInt64-1)}
-    tr := tar.NewReader(countingR)
-
-    var prev *header
-    for {
-        h, err := tr.Next()
+func tryMapsCollect[K comparable, V any](keyMapper func(V) K, seq iter.Seq2[V, error]) (map[K]V, error) {
+    collected := make(map[K]V)
+    for v, err := range seq {
         if err != nil {
-            if err == io.EOF {
-                break
-            } else {
-                return nil, fmt.Errorf("read tar archive: %w", err)
-            }
+            return collected, err
         }
-
-        headerEnd := countingR.Count
-
-        hh := &header{h: h, headerEnd: headerEnd, bodyStart: headerEnd}
-        if prev != nil {
-            // bodyEnd padded to 512 bytes block boundary
-            const blockSize = 512
-            hh.headerStart = prev.bodyEnd + (-prev.bodyEnd)&(blockSize-1)
-        }
-
-        switch hh.h.Typeflag {
-        case tar.TypeLink, tar.TypeSymlink, tar.TypeChar, tar.TypeBlock, tar.TypeDir, tar.TypeFifo,
-            tar.TypeCont, tar.TypeXHeader, tar.TypeXGlobalHeader,
-            tar.TypeGNULongName, tar.TypeGNULongLink:
-            // They may have size for name.
-            hh.bodyEnd = hh.bodyStart
-        default:
-            hh.bodyEnd = hh.bodyStart + int(hh.h.Size)
-        }
-
-        headers[path.Clean(h.Name)] = hh
-        prev = hh
+        collected[keyMapper(v)] = v
     }
+    return collected, nil
+}
 
-    return headers, nil
+func tryCollectHeaderOffsets(seq iter.Seq2[*headerOffset, error]) (map[string]*headerOffset, error) {
+    return tryMapsCollect(func(ho *headerOffset) string { return path.Clean(ho.h.Name) }, seq)
+}
+
+func iterHeaders(r io.ReaderAt) iter.Seq2[*headerOffset, error] {
+    return func(yield func(*headerOffset, error) bool) {
+        countingR := &countingReader{R: io.NewSectionReader(r, 0, math.MaxInt64-1)}
+        tr := tar.NewReader(countingR)
+
+        var (
+            prev *headerOffset
+            blk  block
+        )
+        for {
+            h, err := tr.Next()
+            if err != nil {
+                if err == io.EOF {
+                    break
+                } else {
+                    yield(nil, fmt.Errorf("read tar archive: %w", err))
+                    return
+                }
+            }
+
+            headerEnd := countingR.Count
+
+            hh := &headerOffset{h: h, headerEnd: headerEnd, bodyStart: headerEnd}
+            if prev != nil {
+                // bodyEnd padded to 512 bytes block boundary
+                hh.headerStart = prev.bodyEnd + (-prev.bodyEnd)&(blockSize-1)
+            }
+
+            switch hh.h.Typeflag {
+            case tar.TypeLink, tar.TypeSymlink, tar.TypeChar, tar.TypeBlock, tar.TypeDir, tar.TypeFifo,
+                tar.TypeCont, tar.TypeXHeader, tar.TypeXGlobalHeader,
+                tar.TypeGNULongName, tar.TypeGNULongLink:
+                // They may have size for name.
+                hh.bodyEnd = hh.bodyStart
+            default:
+                hh.bodyEnd = hh.bodyStart + int(hh.h.Size)
+            }
+
+            if !yield(hh, nil) {
+                return
+            }
+            prev = hh
+        }
+    }
 }
 ```
 
@@ -481,8 +495,8 @@ func makeReader(ra io.ReaderAt, h *header) seekReadReaderAt {
 
 ただしこれだけではsparse fileを取り扱うことができません。
 
-[GNU Tarマニュアル: Storing Sparse Files](https://www.gnu.org/software/tar/manual/html_node/Sparse-Formats.html#Sparse-Formats)によると、
-`tar`は3通りの記法でsparse(疎) fileの格納が可能であるとあります。実際にはほかの拡張によって別な記法があるかもしれませんが少なくとも`Go`の[archive/tar]はこの3つをサポートします。
+[GNU Tar Manual: Storing Sparse Files](https://www.gnu.org/software/tar/manual/html_node/Sparse-Formats.html#Sparse-Formats)によると、
+`GNU tar`は3通りの記法でsparse(疎) fileの格納が可能であるとあります。実際にはほかの拡張によって別な記法があるかもしれませんが少なくとも`Go`の[archive/tar]はこの3つのみをサポートします。
 
 https://github.com/golang/go/blob/go1.24.1/src/archive/tar/reader.go#L192-L213
 
@@ -506,22 +520,22 @@ https://github.com/golang/go/blob/go1.24.1/src/archive/tar/reader.go#L69-L173
 
 必要最小限だけをまねると以下のようになります
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/headers.go#L103-L131
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/headers.go#L118-L146
 
 headerの`Typeflag`が`tar.TypeXHeader`や、`tar.TypeGNULongName`のとき、[archive/tar]の`next`では情報を解析したりしています。
 すでに解析済みであるので要するにこれらの時はdata sectionを読み飛ばせばいいので上記の通りになります。
 
 `handleSparseFile`, `readOldGNUSparseMap`, `readGNUSparsePAXHeaders`は[archive/tar]では[\*tar.Reader]のmethodでしたがこれらを単なる関数になるように若干改変します。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/headers.go#L133-L201
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/headers.go#L148-L216
 
-以下が[archive/tar]から未改変のままコピーされたコード群です。コメントアウトされたものを含んでも400行以下でかなり最小限にとどめることができました。
+以下が[archive/tar]から未改変のままコピーされたコード群です。コメントアウトされたものを含んでも400行以下で少量にとどめることができました。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/copied_go_std.go
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/copied_go_std.go
 
-これをoffsetの収集部分に盛り込むと以下のようになります。
+このsparse情報の再建部分ををoffsetの収集部分に盛り込むと以下のようになります。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/headers.go#L18-L76
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/headers.go#L34-L91
 
 ### sparse file readerの作成
 
@@ -532,28 +546,28 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
 
 を定義しておいたので、これらを組み合わせてsparse hole部分を`0x00`で読み込む[io.ReaderAt]が完成します。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/reader.go#L9-L47
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/reader.go#L9-L47
 
 ### test
 
 で、この考え方は正しいの？というのが気になるので、テストを行います
 
-`$(go env GOROOT)/src/archive/tar/testdata/`以下に[archive/tar]がテストに用いている`tar`ファイル群があるのでこれをコピーしてこれを[\*tar.Reader]で読みこんだ内容と、`collectHeaders`と`makeReader`で作った[io.Reader]から読み込んだ内容が同じであるかをチェックします。
+`$(go env GOROOT)/src/archive/tar/testdata/`以下に[archive/tar]がテストに用いている`tar`ファイル群があるのでこれをコピーしてこれを[\*tar.Reader]で読みこんだ内容と、`iterHeaders`と`makeReader`で作った[io.Reader]から読み込んだ内容が同じであるかをチェックします。
 
 ...今考えると別にファイルをコピーしておく必要はないですね。まあいいでしょう。(多分`go:embed`するつもりでこうしていたんでしょう)
 
 実際には以下のステップを踏みます
 
-- [setup_test.go](https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/setup_test.go):
+- [setup_test.go](https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/setup_test.go):
   - `go mod edit -json`でこのモジュールの`go.mod`に書かれた内容をJSONで取得します。
   - 内容から`go.mod`の`go version`を取得します(現在`go 1.24.0`ですので以後`1.24.0`と書きます。)
   - `go install golang.org/dl/go1.24.0@latest`
   - `go1.24.0 download`でsdkをダウンロード
   - `go1.24.0 env GOROOT`でstd libraryが格納されたディレクトリパスを取得
   - `cp ${GOROOT}/src/archive/tar/testdata/* ./testdata/go1.24.0/`
-- [headers_test.go](https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/headers_test.go):
+- [headers_test.go](https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/headers_test.go):
   - [\*tar.Reader]で読みこんだファイル内容を収集
-  - `collectHeaders`と`makeReader`で作った[io.Reader]から読み込んだ内容を収集
+  - `iterHeaders`と`makeReader`で作った[io.Reader]から読み込んだ内容を収集
   - `bytes.Equal`で比較
 
 `gnu-sparse-big.tar`, `pax-sparse-big.tar`はテストから除外しました。内容が大きいせいかテストがタイムアウトするためです。
@@ -566,33 +580,33 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
 [fs.FS]として利用したいのでそうなるようにinterfaceを整えます。
 
 とは言え特段ここに関しては述べることはありません。
-前述の`collectHeaders`で収集した情報をもとにfile system風の[trie](https://en.wikipedia.org/wiki/Trie)を構築し、ファイルをopenする際には前述の`makeReader`を呼び出すようにします。
+前述の`iterHeaders`で収集した情報をもとにfile system風の[trie](https://en.wikipedia.org/wiki/Trie)を構築し、ファイルをopenする際には前述の`makeReader`を呼び出すようにします。
 
-staticな`direntry` interfaceと`Open`で開かれたstatefulな`openDirentry` interfaceを定義します。開かれたファイルには`Read`で読み込んだカーソル位置などのstateがありますが、保存されているデータそのものは`tar`なのでstaticです。
+staticな`direntry` interfaceと`Open`で開かれたstatefulな`openDirentry` interfaceを定義します。開かれたファイルには`Read`で読み込んだカーソル位置などのstateがありますが、保存されているデータそのものはダイナミックに変化しないことを期待します。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/ent.go#L9-L20
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/ent.go#L9-L20
 
 これらは`file`と`dir`によって実装されます。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/entfile.go
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/entfile.go
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/entdir.go
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/entdir.go
 
 `file`はopen時に前述の`makeReader`を呼びます。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/entfile.go#L17-L23
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/entfile.go#L17-L23
 
 `dir`は`addChild`でdirentryの追加、
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/entdir.go#L26-L56
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/entdir.go#L26-L56
 
 `openChild`で子要素の読み込みを行います。これらでtrieの構築と探索を行うわけですね。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/entdir.go#L58-L78
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/entdir.go#L58-L78
 
 なので`New`はrootとなる`dir`に`direntry`を`addChild`するだけになります。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/fs.go#L13-L63
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/fs.go#L13-L63
 
 再帰呼び出しだとstackが深くなるためfor-loopで処理できたほうが計算効率はいいと思いますがシンプルにしたかったのでこんなもんで良しとします。
 
@@ -601,7 +615,7 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
 
 regular fileとdirectory以外は無視する実装なので適当にそれらしかない`tar`を用意して実行します。
 
-https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb645b52/tarfs/fs_test.go
+https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454839e0d/tarfs/fs_test.go
 
 パスしました。
 
@@ -623,6 +637,7 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
   - [#67002](https://github.com/golang/go/issues/67002)より`Go1.25`から[\*os.Root]に`MkdirAll`や`Symlink`など`Go1.24`では実装が見送られたmethod群が実装されますので、これと組み合わせて使えるようにする意図もあります。
 
 [Go]: https://go.dev/
+[Go 1.23]: https://tip.golang.org/doc/go1.23
 [archive/zip]: https://pkg.go.dev/archive/tar
 [archive/tar]: https://pkg.go.dev/archive/zip
 [tar.NewReader]: https://pkg.go.dev/archive/tar@go1.24.1#NewReader
