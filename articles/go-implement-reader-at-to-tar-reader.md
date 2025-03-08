@@ -33,7 +33,7 @@ https://github.com/ngicks/go-fsys-helper/tree/main/tarfs
 - 上記に倣うと、`tar.NewReader`に渡す`io.Reader`実装を、`Read`で読んだbyte数を記録できるものにしておくことで、`tar header`のオフセットを所得できます。
 - 実際のファイルコンテンツの`tar`ファイル内でのオフセットは、headerの終わりと[\*tar.Header]の`Size`フィールドから取得できます
 - 元のファイル内のfile content bodyの位置さえわかれば[\*io.SectionReader]で[io.ReaderAt]を実装した形で読み込み可能です。
-- ただし、sparse file(疎)の取り扱いだけがこれだけでは済みません。
+- ただし、sparse(疎) fileの取り扱いだけがこれだけでは済みません。
 - なぜならば、[\*tar.Reader]がtar headerに存在するsparse情報を捨ててしまうため
 - そこでsparse情報を取得する必要があります。
 - 実装方針に以下の2案がありました。
@@ -62,7 +62,7 @@ $ go version
 go version go1.24.0 linux/amd64
 ```
 
-## 前提: Goでtarを扱うにはarchive/tarを使う
+## 前提1: Goでtarを扱うにはarchive/tarを使う
 
 [Go]のstdの範疇で`tar`を扱うには[archive/tar]を用います。
 
@@ -152,6 +152,23 @@ name = "./aaa/foo", regular file, size = 4, content = "foo\n"
 
 ちなみにソースに埋め込まれた`tar`の内容は`GNU tar(1.35)`で作成しています。
 
+## 前提2: io.ReaderAtはとっても便利
+
+まずどうして[io.ReaderAt]が実装されているのかうれしいのかという話を前提としてします。
+
+- いくつかの処理はランダムアクセスができたほうが楽
+  - [\*http.Request]の`GetBody`フィールドの実装
+  - `PDF`などランダムアクセスによって効率的に処理できるフォーマット
+  - これらに対してランダムアクセス性がないともう一度開きなおす、事前にバッファして置くなどが必要
+    - それらの処理がどの程度高価なのか事前にわからないことがある。ものすごく大きなPDFをバッファに乗せたらメモリが足りなくて[OOM](https://docs.kernel.org/admin-guide/cgroup-v1/memory.html)でkillされることもあり得ます。
+- [io.Seeker]に比べて[io.ReaderAt]は規約が厳しく、使う側が楽
+  - seekは[io.Reader]などが内部的に持つ現在のオフセット値を変更するという処理であるので、concurrentに呼び出すと一種のrace conditionとなる
+  - その点`ReadAt`はconcurrentに複数回呼び出されてもよいという規約になっている
+- [\*io.SectionReader]との組み合わせによって楽に扱える
+  - [io.NewSectionReader]は[io.ReaderAt]を受けとって一定のオフセット内(=section)だけを読み込める[io.Reader]/[io.Seeker]/[io.ReaderAt]の実装を返します。
+
+色々考えることが減るのでいいわけですね。
+
 ## \*tar.Readerはio.ReaderAtを実装しない
 
 [\*tar.Reader]のAPI docを見ればわかる通り、これは[io.ReaderAt]を実装しません。
@@ -168,42 +185,60 @@ name = "./aaa/foo", regular file, size = 4, content = "foo\n"
 
 以下の各リンクで説明されています。
 
-https://en.wikipedia.org/wiki/Tar_(computing)
+`FreeBSD`と`GNU(linux)`のtarコマンドのマニュアルです
 
 https://man.freebsd.org/cgi/man.cgi?tar(1)
 
 https://man7.org/linux/man-pages/man1/tar.1.html
 
+お互い微妙に違うのがわかりますね。
+
+フォーマットや来歴の話はWikipedia(英語版)の`tar(computing)`の項目で説明されています。
+
+https://en.wikipedia.org/wiki/Tar_(computing)
+
+`GNU`のtar manualにヘッダーフォーマットやsparse file, dumpdirやsnapshot周りの話が説明されています。
+
 https://www.gnu.org/software/tar/manual/html_node/Tar-Internals.html#Tar-Internals
+
+`IBM`の`tar`のフォーマットの説明があります。`GNU tar`とは微妙に異なるフォーマットとして説明されています。
 
 https://www.ibm.com/docs/en/aix/7.1?topic=files-tarh-file
 
-`tape archive`をとったものであり、`tarball`となぞらえて`tar`と呼ばれると各リンク先で説明されています。
-磁気テープのようなファイルシステムのないところにファイルを保存するために必要であった、とあります。
+上記各リンクで述べられているところによると、
+
+- `tar`は`Tape ARchive`をとったもの
+- `tarball`となぞらえた呼称(`tarball`はなんでもくっつけてひとまとめにしてしまうから)
+- 磁気テープのようなファイルシステムのないところにファイルを保存するために必要であった
+
+とあります。今日でも多用されていますがオリジナルの開発時期はversion 7 Unixと同時期、とあります。(≒初期リリースは1979年)
+`Go`の[archive/tar]内部の実装でも`v7`という呼称が出現します。
+
+[Punched card(wikipedia)](https://en.wikipedia.org/wiki/Punched_card)によると1980年代あたりに磁気テープが紙のパンチカードを置き換えだしたらしいです。
 
 磁気テープは文字通り、テープ状の紙/プラスティックフィルムに磁性のある粉とか液とかを封入するなり塗布するなりしたものををリール(ボビン)に巻き付け、テープを送って磁気を読み取る/磁化することで情報の読み取り/書き込みを行います。([参考](https://www.tdk.com/ja/tech-mag/ninja/029))
 
 これに書き込むことを意図されたデータフォーマットであるならばいくつかのことが示唆されることになります。
 
 - シーケンシャルアクセスのみを前提とする
-  - テープの送りがデータアクセス位置となります。
+  - テープの送り量がデータアクセス位置となります。
   - HDDやCD/BDのようなディスク媒体のように周方向にデータセグメントを分けながら半径方向に読み取り機を動かすようなことはできません。ランダムアクセス性は低いです。
-- ジャンクデータが残っていることがありうる
-  - 磁化することで情報を書き込みますので繰り返しの書き込みができます。
+- 末尾にジャンクデータが残っていることがありうる
+  - 磁気テープは磁化することで情報を書き込みますので繰り返しの書き込みができます。
   - 送りのスピードが遅いならわざわざジャンクデータを消そうとしないこともあるでしょう。
 
 うーんまだなんかありそうだけど筆者はこの程度しか言えないなあ。
 
-完全な説明はリンク先や、[archive/tarのソースコード](https://github.com/golang/go/tree/go1.24.1/src/archive/tar)に当たってもらうとして、いくつかの特徴を説明します。
+フォーマットはPOSIXに載ったりドロップしたりをしている・・・とあります。
+どちらにせよ`POSIX`は買わないと読めないはずなのでここでリンクを張ることができません。そのためフォーマットの完全な説明はリンク先や、[archive/tarのソースコード](https://github.com/golang/go/tree/go1.24.1/src/archive/tar)に当たってもらうとします。
+ここではいくつかの特徴を説明します。
 
 ```
 block size = 512 bytes
 +--------------+
-| header block |
+| header block | 1 to many
 +--------------+
 |  data block  | 1 to many
-+--------------+
-|  data block  |
 +--------------+
 |  data block  |
 +--------------+
@@ -213,11 +248,9 @@ block size = 512 bytes
 +--------------+
 | header block | extended header
 +--------------+
-|  data block  | extension data only relavant to next header/file
+|  data block  | extension data only relavant to next file
 +--------------+
 | header block |
-+--------------+
-|  data block  |
 +--------------+
 |  data block  |
 +--------------+
@@ -229,11 +262,11 @@ block size = 512 bytes
 +--------------+
 |  empty block |
 +--------------+
-|  junk data   |
+|  junk data   | EOF or junk
 |              |
-          .
-          .
-          .
+       .
+       .
+       .
 ```
 
 - データは512バイトのブロック単位で書き込まれます。
@@ -241,10 +274,12 @@ block size = 512 bytes
   - データの部分がファイルの中身です。
   - いくつかはデータ部がないものがあります
     - e.g. Symlink, Char dev, size 0のregular fileなど
-- いくつかの拡張ヘッダーは次のヘッダー/ファイルに拡張情報を与えるものがあります。
+- いくつかの拡張ヘッダーは次のファイルに拡張情報を与えるものがあります。
+- いくつかの拡張ヘッダーは通常のヘッダーの後に現れて補足的な情報を与えます。
+  - [GNU tar: an archiver tool/GNU tar: an archiver tool/Basic Tar Format](https://www.gnu.org/software/tar/manual/html_node/Standard.html#Standard)参照。`old GNU`のsparse fileの情報は拡張ヘッダーとして通常のヘッダーのあとに現れます。
 - ヘッダーから開始さえできていれば、どこかでちょん切ったり、逆に末尾に新しいエントリを追加してかまいません。
   - 実際インクリメンタルアップデートを行った`tar`がテストデータとして`Go`のstd内にありました。
-- `0x00`のみで構成されるブロックが二つ連続して並んでいるとアーカイブ末尾となります。
+- EOFか、`0x00`のみで構成されるブロックが二つ連続して並んでいるとアーカイブ末尾となります。
 - `GNU`, `old GNU`, `PAX`, `UStar`などいくつかの仕様/拡張仕様があります。
 
 ### streamが有利な場面
@@ -253,14 +288,13 @@ block size = 512 bytes
 `zip`などのファイルへのランダムアクセスが必要となるフォーマットであればファイルのダウンロードが終わってからようやく展開の処理ができるようになります。
 `tar`ではダウンロード中に展開処理ができるため、サイズが大きければこちらのほうが速いということもあるでしょうね。
 
-例えば以下のように`ssh`でディレクトリを送る時に`tar`してun-`tar`するというものがあります
+streamの利点を生かした手技には、例えば以下のように`ssh`でディレクトリを送る時に`tar`してun-`tar`するというものがあります
 
 ```shell
 tar -cf - -C /path/to/src . | ssh ${target} "tar -xf - -C /path/to/dst"
 ```
 
-(出展はどっかに言ってしまったので書けないのですが、)`scp`のプロトコルを調べていると`scp`を使ってディレクトリをコピーするとファイルチェックを毎度するためパフォーマンスが悪い、`tar`して`untar`するほうが速いと聞いたことがあります。
-
+(出展はどっかにいってしまったので書けないのですが、`scp`のプロトコルを調べている時に見つけた記事の末尾に)`scp`を使ってディレクトリをコピーするとファイルチェックを毎度するためパフォーマンスが悪い、ローカルで`tar`して結果をパイプしリモートで`untar`するほうが速いと聞いたことがあります。
 (ただし今でもそうなのかはわかりません。[scp(1)#HISTORY](https://man.openbsd.org/scp.1#HISTORY)にある通り`OpenSSH 9.0`より`scp`は`sftp`を使用して送信するのがデフォルトになったためです。)
 
 ### c.f. zip
@@ -269,8 +303,12 @@ tar -cf - -C /path/to/src . | ssh ${target} "tar -xf - -C /path/to/dst"
 
 https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT
 
-TODO
-に記載のとおり、末尾のを参照するためランダムアクセスが必要となります。
+記載のとおり、_4.3.16 End of central directory record_、_4.3.15 Zip64 end of central directory locator_, _4.3.14 Zip64 end of central directory record_ などをファイル末尾から読み込み、そこから _4.3.12 Central directory structure_ にseek back、central directory structureに各file headerへのオフセットが入っています。
+つまり、**基本的には**読み込みにランダムアクセス性を必要とします。
+
+zipはフォーマットとしてincremental updateが可能が意識されています。その中でも「ファイルを消した」をcentral directoryの追記によって表現可能なようです。
+specを見る限りstream-decodeは可能です。この「消した」の表現を尊重する面で余計なファイルを書き出してしまうという微妙さはありますが。
+(実際「すべてではないが大概のzipには可能」というstackoverflowでの回答があります: [参考](https://stackoverflow.com/a/67716044))
 
 ## tarの内容にランダムアクセス性が欲しくなる時
 
@@ -593,7 +631,9 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
 [\*bufio.Scanner]: https://pkg.go.dev/bufio@go1.24.1#Scanner
 [\*sql.Rows]: https://pkg.go.dev/database/sql@go1.24.1#Rows
 [io.ReaderAt]: https://pkg.go.dev/io@go1.24.1#ReaderAt
+[io.Seeker]: https://pkg.go.dev/io@go1.24.1#Seeker
 [\*io.SectionReader]: https://pkg.go.dev/io@go1.24.1#SectionReader
+[io.NewSectionReader]: https://pkg.go.dev/io@go1.24.1#NewSectionReader
 [\*http.Request]: https://pkg.go.dev/net/http@go1.24.1#Request
 [github.com/nlepage/go-tarfs]: https://github.com/nlepage/go-tarfs
 [fs.FS]: https://pkg.go.dev/io/fs@go1.24.1#FS
@@ -603,3 +643,4 @@ https://github.com/ngicks/go-fsys-helper/blob/45f1a10be66588d255064194b41de163bb
 [\*bytes.Buffer]: https://pkg.go.dev/bytes@go1.24.1#Buffer
 [fstest.TestFS]: https://pkg.go.dev/testing/fstest@go1.24.1#TestFS
 [\*os.Root]: https://pkg.go.dev/os@go1.24.1#Root
+[\*http.Request]: https://pkg.go.dev/net/http@go1.24.1#Request
