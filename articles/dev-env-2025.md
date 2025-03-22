@@ -1,8 +1,8 @@
 ---
-title: '最近の開発環境(neovim/tmux/ssh)'
+title: "最近の開発環境(neovim/tmux/ssh)"
 emoji: "💻"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: ["neovim","tmux"]
+topics: ["neovim", "tmux"]
 published: false
 ---
 
@@ -10,6 +10,12 @@ published: false
 
 なんか設定をまとめるのに苦労したので記事にして供養します。
 (書いてリンクとかまとめないと忘れちゃいそうだし。)
+
+## 概要
+
+- `wsl`で開発してます
+- `tmux`でsession/window管理してます
+- `neovim`で文章読み書きしてます
 
 ## wsl
 
@@ -22,7 +28,7 @@ published: false
 
 どこのバージョンからかは忘れちゃいましたが管理者権限で開いたpowershellなりで`wsl --install`を実行するだけでインストールできるようになりました。
 
-###  install Ubuntu 24.04.05 LTS
+### install Ubuntu 24.04.01 LTS
 
 特にこだわりはないですがUbuntu 24.04.01を入れて使っています。
 Microsoft storeから入れたんだったかなあ、
@@ -93,7 +99,7 @@ https://learn.microsoft.com/ja-jp/powershell/module/microsoft.powershell.core/ab
 Windows Terminalの設定>Ubuntu 24.04.1 LTS(ディストロ)>外観の順番でナビゲート、
 
 - テキスト>フォントフェイスを先ほどインストールしたNerd Fontにします。
-- ウィンドウ>パディングを適当に下げておきます。さげないとneovimを開いたときに余白ができて少しぶさいく。 
+- ウィンドウ>パディングを適当に下げておきます。さげないとneovimを開いたときに余白ができて少しぶさいく。
 
 ## Ubuntuの設定
 
@@ -101,7 +107,7 @@ Windows Terminalの設定>Ubuntu 24.04.1 LTS(ディストロ)>外観の順番で
 
 適当なスクリプトで`export COLORTERM=truecolor`を設定しておきます。これさえあればtruecolorで表示できるようだ。
 
-[#11057](https://github.com/microsoft/terminal/issues/11057)
+[microsoft/termina#11057](https://github.com/microsoft/terminal/issues/11057)
 
 何か副作用でうまく動かなくなったら消す予定。
 
@@ -170,7 +176,7 @@ neovimも同様にクラサバモデルをとるため、ほぼ同じような�
 - neovimの`:terminal`では、画面上の折り返しがそのまま改行としてコピーされています
 - tmuxでは折り返しは改行されずにコピーされます
 
-neovimだけで成立させる方法はあると思いますが、tmuxで行うほうが素直という判断に基づいて
+neovimだけで成立させる方法はあると思いますが、tmuxで行うほうが素直という判断に基づいてこうしています。ssh先にtmuxは入ってるけどneovimがないこともよくあるので。
 
 ### installation
 
@@ -216,10 +222,10 @@ READMEに書かれている通り,`~/.config/tmux`にrepositoryをcloneすれば
 - prefix+`c`で新しいwindowを作成
 - prefix+`w`でwindow選択画面に移動
 - prefix+`s`でsession選択画面に移動
-- `pane`を終了させるのは普通にterminalを終了させる(=Ctrl+DでEOFを送るなど)するとよいです
+- `pane`を終了させるのは普通にterminalを終了させる(=Ctrl+dでEOFを送るなど)するとよいです
 - そのほかにもprefix+`>`で開くメニューから選ぶとか、prefix+`:`でcommand promptに入り、`kill-pane`でも消せます。
 - prefix+`d`でsessionを終了せずにdetach
-  - `tmux`を実行しているのがリモートサーバーの場合はこのままローカルのPCは落としてもSSHを切ってもコマンドの実行は続きます。これでかえれますね。
+  - `tmux`を実行しているのがリモートサーバーの場合はSSH接続を切ってもコマンドの実行は続きます。これでかえれますね。
 - `tmux attach`で既存のsessionにattachできます
   - `tmux attach -t ${session_name}`で特定のsessinoにattachできます
   - デフォルトでsession nameは数字です
@@ -235,7 +241,7 @@ set -g default-terminal 'xterm-256color'
 tmuxで開いたterminalの`$TERM`にセットされる値です。
 
 Ubuntu 24にしてからaptで入るtmuxのバージョンが上がり、設定しなければ`tmux-256color`が設定されるようになりました。
-**`tmux-256color`は古い環境のvimなどに認識されず、表示が崩れます。**
+**`tmux-256color`は(ssh先の)古い環境のvimなどに認識されず、表示が崩れます。**
 回避策はほかにもある気がしますが、その古いvimでも`xterm-256color`は認識してくれたためこのようにしておきます。
 
 #### prefix
@@ -252,6 +258,7 @@ unbind C-b
 #### status bar
 
 参考:
+
 - https://qiita.com/nojima/items/9bc576c922da3604a72b
 - https://yiskw713.hatenablog.com/entry/2022/05/17/230443
 
@@ -261,15 +268,14 @@ status barは以下のようになるように設定します。
 
 prefixが有効時に左から二つ目のcolが明るい色になるようにします。
 
-![tmux-status-bar-prefix-on](/images/dev-ent-2025/tmux-status-bar-prefix-on.png )
+![tmux-status-bar-prefix-on](/images/dev-ent-2025/tmux-status-bar-prefix-on.png)
 
 一番左のcolはmodeによって文字列が変わるようにしてあります。
 
 ![tmux-status-bar-mode-copy](/images/dev-ent-2025/tmux-status-bar-mode-copy.png)
 
 時と場合には寄りますが、neovimを起動するwindowではpaneの分割を行わないため、モードやprefx状態を表示しないと分かりにくいのでこうしてあります。
-デフォルトの設定ではtmuxがコピーモードに入ったのはpaneの境界の色がオレンジになり、pane左上にカーソル位置を示す表示が出ることでわかるるのですが、paneを分割しないとすごくわかりづらいわけですね。
-
+デフォルトの設定ではtmuxがコピーモードに入ったのはpaneの境界の色がオレンジになり、pane右上にカーソル位置を示す表示が出ることでわかるのですが、paneを分割しないとすごくわかりづらいわけですね。
 この設定でも存外色の変化が視界の端でもわかるため結構気に入ってます。
 
 具体的な設定は下記のようになります
@@ -286,6 +292,7 @@ status bar全体の色を白灰色に変更。これは参考先そのままパ�
 set-option -g status-bg "colour238"
 set-option -g status-fg "colour255"
 ```
+
 status-leftの最大長を伸ばしておきます。参考リンクでの説明のとおりですがtmuxのstatus barはleft, right, そのほかで別れています。
 
 ```
@@ -297,9 +304,9 @@ status barの設定は下記のようになります。
 基本的に`#[fg=${color},bg=${color}]`で色を指定、それ以外の文字列リテラルはリテラルとして表示、`strftime`互換のトークンと`#H`, `#S`, `#I`などtmux固有のトークンは置き換えが発生します。
 `#{?cond,if_true,if_false}`で3項演算子のような振る舞いがありますが、この場合では中に入る文字列の`,`は`#`でのエスケープが必要なようです。
 
-ここではその他に`if`を使っています。これはconditionのmatchするとき次のコマンドを実行、そうでないときさらに次のコマンドを事項というものです。condition部分にtmux固有の表現を用いることができます。
+ここではその他に`if`を使っています。これはconditionのmatchするとき次のコマンドを実行、そうでないときさらに次のコマンドを実行というものです。condition部分にtmux固有と思しきの表現を用いることができます。
 `m`で`fnmatch(3)`を用いるマッチ、`m/r`で正規表現でマッチという意味になるようです。
-`if-shell`というコマンドを用いるcondition部分がshellコマンドでよくなるのでこちらを用いたほうが分かりやすいかもしれません。
+`if-shell`というコマンドを用いるcondition部分がshellコマンドでよくなるのでこちらを用いたほうが慣れてる分、分かりやすいかもしれません。
 
 ```
 # display mode
@@ -326,6 +333,8 @@ set-option -g status-right "#[fg=colour254,bg=colour241] #H | %Y-%m-%dT%H:%M:%S 
 setw -g window-status-format "| #I: #W |"
 setw -g window-status-current-format "#[fg=colour254,bg=colour67]| #I: #W |"
 ```
+
+もっと簡潔な方法があればそっちに乗り換えたいんですが、man pageを検索で行ったり来たりした限りではこうしかなさそうです。
 
 マウスをonにし、copy-mode時にviみたいな挙動になるように設定します。
 デフォルトではemacsスタイルらしいです。
@@ -364,3 +373,4 @@ bind-key -T prefix R source-file ~/.config/tmux/tmux.conf
 
 ## neovimの設定
 
+[vim](https://www.vim.org/)
