@@ -411,6 +411,7 @@ $ pushd ~/.local/jdtls/vscode-pde-0.8.0
 $ curl -LO https://github.com/testforstephen/vscode-pde/releases/download/0.8.0/vscode-pde-0.8.0.vsix
 $ unzip vscode-pde-0.8.0.vsix
 $ rm vscode-pde-0.8.0.vsix
+$ popd
 ```
 
 ### lombokのダウンロード
