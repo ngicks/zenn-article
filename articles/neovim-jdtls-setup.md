@@ -452,7 +452,8 @@ https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/v1.46.1/org.eclipse.jdt.ls.
 
 ### 最終的なconfig
 
-下記は`AstroVim`のjava configをもとに変更されています。
+下記は`AstroVim`のjava configやネットで見かけた様々な設定をもとに変更されています。
+(パクろうといっといてなんですが基本的にjdtlsの公式からたどって設定できるものを全部設定した感じになってます)
 `dap`周りはとりあえず無効化してあります(当面不要なので)
 `defaults.on_attach`は`require("nvchad.configs.lspconfig").on_attach`です。
 
