@@ -662,7 +662,7 @@ return M
 
 ### 変更点
 
-`AstroVim`のjava configから変わっている部分について述べます。
+ネットでよく見つかる設定ではあまりやられない設定について述べます。
 
 #### find_root
 
@@ -738,7 +738,7 @@ end
 ```
 
 `_ss_`がついたconfigはsyntax-only modeで起動を意味するようです。
-[Running the lightweight syntax language server](https://github.com/eclipse-jdtls/eclipse.jdt.ls/wiki/Running-the-lightweight-syntax-language-server)の項目で説明されていますが、フルセットのconfigだと初回起動時の処理がものすごく長いのでsyntax-only modeのconfigが用意されているようです。
+[Running the lightweight syntax language server](https://github.com/eclipse-jdtls/eclipse.jdt.ls/wiki/Running-the-lightweight-syntax-language-server)の項目で説明されていますが、フルセットのconfigだと初回起動時の処理が長いのでsyntax-only modeのconfigが用意されているようです。
 現状TODOでとどめ置かれていますが何かしらの設定を読んで`config_ss_linux`に切り替わるように作ってあげると便利かもしれないですね。
 
 #### heapの拡張
@@ -826,7 +826,7 @@ $ cd ~/.local/share/nvim/site/java/workspace-root/${PROJECT_DIR}/.metadata
 $ tail -f .log
 ```
 
-ログがrotateされるのを`tail -f`だと多分検知できないからもうちょい工夫がいるかもですが、とりあえずこれを見ればjdtlsが出すログが見えます。
+ログがrotateされるのを`tail -f`だと多分検知できないからもうちょい工夫がいるかもですが、とりあえずこれを見れば`jdtls`が出すログが見えます。
 
 ### Updated ... in ... msとstatuline下部に出続ける
 
@@ -836,18 +836,18 @@ $ tail -f .log
 
 https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/v1.46.1/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/managers/ProjectsManager.java#L498
 
-筆者がElasticsearchプロジェクトを開いてみたところ眺めてる限り3時間ぐらい全部終わるまでかかりました。
+筆者が`Elasticsearch`プロジェクトを開いてみたところ眺めてる限り3時間ぐらい全部終わるまでかかりました。
 正常なことなのかはわかりませんがsyntax-only modeのモチベーションが生じていることから時間がかかる処理なのは間違いないようです。
 
 ## おわりに
 
 - `jdtls`のソースコードは大概うまいこと表示できています
   - `.jar`からのデコンパイル時にあるはずのクラスがなくなっていたりするのでうまく動いていない側面もありそうです
+- mavenのprojectは大概うまく動くように思います。
+  - 試しに1つ小さなprojectを作ってみましたがうまく動いてます。
 - `Elasticserach 8.17.4`ではdiagnoseに「reolveできない」とでるが定義ジャンプ、実装検索など動くようになった
   - 実態と会わないdiagnoseが表示されるのはneovim 0.11であることと各種プラグインが整合していないのかもしれません。
   - もしくはjdltsの不具合か
-
-ためしにmavenのプロジェクトを作って書いた見た感じうまく動いてます。苦労するのはgradleですね。
 
 今後は
 
@@ -857,3 +857,6 @@ https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/v1.46.1/org.eclipse.jdt.ls.
   - find_rootの実装はフィードバックしたほうが良い気がします。
 - jdtls自体のソースを読み、どうしてうまく動くか/動かないかを確かめる
   - もしかしたらアップストリームに何かしらのPRを送って修正が必要なところがあるのかもしれません。
+
+余談ですが検証のためにキャッシュ消してビルドしなおしてたらダウンロードなどの大量のwriteが発生してSSDが死んでブルスク吐きまくってビビりました。
+wslのvhdxはデフォルトのシステムディスクから別の場所に移動させたほうがいいですね。
