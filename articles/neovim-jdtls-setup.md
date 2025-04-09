@@ -115,6 +115,9 @@ export PATH=$JAVA_HOME/bin:$PATH
 export GRADLE_USER_HOME=$HOME/.cache/gradle
 ```
 
+時と場合によって[Eclipse TemurinのJDK](https://adoptium.net/temurin/releases/)のほうがおすすめされていることがありますがどっちがどう違うのか理解していません。
+今後の課題です。
+
 ## Elasticsearchを./gradlewでビルドできるのを確認する
 
 いきなり`jdtls`で動作させてトラブルが起きたとき切り分けられないので`./gradlew`で正常にビルドできることをまず確認します。
