@@ -15,7 +15,7 @@ published: true
 他の記事へのリンク集
 
 - (まだ)~~[今はこうやる集](https://zenn.dev/ngicks/articles/go-basics-revisited-updated-practices)~~
-- (まだ)~~[プロジェクトを始める](https://zenn.dev/ngicks/articles/go-basics-revisited-starting-project)~~
+- (まだ)~~[プロジェクトを始める](https://zenn.dev/ngicks/articles/go-basics-revisited-starting-projects)~~
 - (まだ)~~[dockerによるビルド](https://zenn.dev/ngicks/articles/go-basics-revisited-bulding-with-docker)~~
 - `error handling`: ここ
 - (まだ)~~[fileとio](https://zenn.dev/ngicks/articles/go-basics-revisited-file-and-io)~~
@@ -190,7 +190,7 @@ if errors.As(err, &syntaxErr) {
 }
 ```
 
-[errors.As]は第二引数で取り出したいerrorの具体的な型の変数の**参照を**を渡します。
+[errors.As]は第二引数で取り出したいerrorの具体的な型の**変数へのpointerを**を渡します。
 pointer渡しするのは、`As`が第一引数の`err`を探索しながら、第二引数に渡された値の型に代入可能なものを探し、可能ならば代入するからです。
 ですので、`As`がtrueを返す時、上記の`syntaxErr`は取り出されたerrorの値となっています(Offset: 19のように、zero valueでなくなっている。)
 
