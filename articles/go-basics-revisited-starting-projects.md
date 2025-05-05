@@ -50,7 +50,13 @@ $ go version
 go version go1.24.2 linux/amd64
 ```
 
-`Go`は後方互換性をかなり気にするためサンプルコードや述べられていることは以降のバージョンでも（何ならこれよりの前のバージョンでも）基本敵に一緒ですが、細かいところで改善が入ったりするのでそれを踏まえて読んでください。
+`Go`は後方互換性をかなり気にするためサンプルコードや述べられていることは以降のバージョンでも（何ならこれよりの前のバージョンでも）基本的に一緒ですが、細かいところで改善が入ったりするのでそれを踏まえて読んでください。
+
+## snipetのconvention
+
+- shellコマンドの羅列の場合コピペしやすさを優先して特になにもprefixをつけずにコマンドを羅列します。
+- ただし、コマンド実行結果をsnipet内の併記したい場合は、コマンドは`$ `でprefixされます。
+- `# `から始まる行はコメントです。
 
 ## 筆者のバックグラウンド
 
@@ -67,10 +73,11 @@ go version go1.24.2 linux/amd64
 
 - [Node.js]\([TypeScript]\)
 - ちょっとだけ[python]
-- [Rust]
+- [Rust]\: C/C++で書かれたライブラリのbindingを書いて使ってた程度であんまりメインで使ってるわけではないです。
 - [Go]
 
 を扱っています。
+
 少し特殊な環境で動くソフトウェアを書くためデータベース周りの話にあまり明るくなかったりします。
 手元でスクリプティングを行う場合はもっぱら[neovim]の[Lua]、[deno], [Go]のいずれかで行っています。
 
@@ -91,19 +98,19 @@ go version go1.24.2 linux/amd64
   - 暗黙的な型変換は起きません。筆者の知る限り最近の言語はそれを行わないので意外でもないでしょうか。
 - GC(Garbage Collector)があり、手動でのメモリ確保・解放はほぼやることはありません。
 - 言語仕様が簡潔で、言語としてサポートされた構文は多くありません。
-  - [spec#Keywords](https://go.dev/ref/spec#Keywords)より、keywordは24個とほかの言語と比べて少ないです。
+  - [spec#Keywords](https://go.dev/ref/spec#Keywords)より、keywordは25個とほかの言語と比べて少ないです。
 - 任意の型をベースとする型を定義できます。
   - 型にはmethod(型に関連した関数)を定義できます。
-    さらに、特定のmethod setを実装する型なら何でも代入できる`interface`をもち、これによってdynamic dispatchを実現します。
+- 特定のmethod setを実装する型なら何でも代入できる`interface`をもち、これによってdynamic dispatchを実現します。
   - 例えば`type IOPort { Read(p []byte) (int, error); Write(b []byte) (int, error) }`を引数の型として指定するとすることで、`Read`と`Write`を実装するあらゆる型を代入可能な関数を定義できます。
-  - `interface{}`(なんのmethodも指定しない`interface`)にはあらゆる型の変数を代入可能です。上記の*feels like a dynamically typed*の部分はこのこともさしているのだと思います。
+  - `interface{}`(なんのmethodも指定しない`interface`)にはあらゆる型の変数を代入可能です。上記の*feels like a dynamically typed, interpreted language*の部分はこのこともさしているのだと思います。
 - closure(無名の関数)を定義できます。
   - closureはスコープ内の変数をキャプチャできます。
   - 関数、method、closureはいずれも区別なく引数として渡すことができます。
 - `goroutine`という言語に組み込まれたconcurrency mechanismが存在します。
   - `goroutine`は[spec#Go_statement](https://go.dev/ref/spec#Go_statements)で述べられている通り*an independent concurrent thread of control*です。いわゆる[Green Thread](https://en.wikipedia.org/wiki/Green_thread)です。
   - メモリ、スケジューリング双方で軽量であるため、OS threadと違い大量に生成するのが普通です。
-    - `goroutine`ごとにstackを持っていますが、(linux/amd64では)`2KiB`から始まって必要に応じて成長します。
+    - `goroutine`ごとにstackを持っていますが、2～6KiB(プラットフォームによる)から始まって必要に応じて成長します。
   - `go`キーワードを前につけて関数やmethodを実行するだけです。とっても簡単。
   - 言語に組み込まれているため、エコシステム内でどのランタイムを使うかなどの分断が起きません。
   - async/awaitのような構文を持ち込まずに非同期性を実現します。
@@ -138,12 +145,6 @@ https://gobyexample.com/
 項目数が多く、知らないstdモジュールを使う部分をきちんと理解しようとすると時間がかかると思います。
 手が空いたら少しずつ読むのがいいのではないでしょうか。
 
-### The Go Programming Language Specification
-
-https://go.dev/ref/spec
-
-言語仕様ですが割と短めなのでそのうち読んでおいたほうがよいでしょう。
-
 ### 公式読み物系
 
 公式が出している読み物集。全部英語です。
@@ -160,6 +161,12 @@ https://go.dev/ref/spec
 そのほかにもいろいろなトピックが以下に掲載されています。
 
 https://go.dev/doc/
+
+### The Go Programming Language Specification
+
+https://go.dev/ref/spec
+
+言語仕様ですが割と短めなのでそのうち読んでおいたほうがよいでしょう。
 
 ### Std library
 
@@ -294,7 +301,7 @@ goのsurveyはself-selection, `vscode`の`Go extension`からの誘導, `GoLand`
 ## Go moduleの作成
 
 - [Go]ではプログラムは1つまたは複数の`Go module`で構成されます。
-  - `Go module`は[Go 1.11]で導入されましたが、`Go module`を用いず開発することはほぼあり得ません。
+  - `Go module`は[Go 1.11]で導入されましたが、今日において`Go module`を用いず`Go`で開発することはほぼあり得ません。
 - `go mod init <<module-name>>`でmoduleを初期化します。
   - `go.mod`が生成されます。これがあることで`go tool`に`go module`として認識されます。
   - `<<module-name>>`はVCS repositoryのURIからprotocol schemeを抜いたものにするとよいです。
@@ -339,7 +346,7 @@ clone先はどこでもいいですが、個人的なおすすめは`<<uri>>`か
 
 ```
 uri=<<uri>>
-dest=$HOME/gitrepo/$(echo $uri | sed 's/^https\:\/\///' | sed 's/^git@//')
+dest=$HOME/gitrepo/$(echo $uri | sed 's/\.git$//' | sed 's/^git@//' | sed 's/^https\:\/\///')
 mkdir -p $dest
 git clone $uri $dest
 # clone先に移動しておきます
@@ -355,7 +362,7 @@ go mod init <<module-name>>
 `<<module-name>>`は基本的に上記`<<uri>>`からプロトコルスキームを抜いたものにするとよいです。
 そうすると`go get <<module-name>>`でこのmoduleを別の`Go module`へ導入できるためです。
 
-例えば、`VCS`の`URI`が`https://github.com/ngicks/go-example-basics-revisited`である場合、
+例えば、`VCS`のuriが`https://github.com/ngicks/go-example-basics-revisited`である場合、
 
 ```
 go mod init github.com/ngicks/go-example-basics-revisited
@@ -383,10 +390,9 @@ go mod init whatever-whatever
 
 :::
 
-#### セルフホストのVCSかつサブグループを使用する場合`.git`などでmodule名をsuffixしておく
+#### private VCSかつサブグループを使用する場合`.git`などでmodule nameをsuffixしておく
 
-ただし、セルフホストの`VCS`(=URIが`go tool`に対して既知でない)でサブグループを作成し、サブグループの中でソースを管理する場合、
-`<<module-name>>`はvcsのsuffixを加えておかないと`go get`時に失敗するかもしれません。
+ただし、private `VCS`(=URIが`go tool`に対して既知でない)でサブグループを作成し、サブグループの中でソースを管理する場合、`<<module-name>>`はvcsのsuffixを加えておかないと`go get`時に失敗するかもしれません。
 
 つまり上記と同じ例で行くと
 
@@ -401,37 +407,396 @@ go mod init example.com/ngicks/subgroup/go-example-basics-revisited.git
 
 - private repositoryを参照できるgo module proxyサーバーが存在しないとき、`go tool`は`git ls-remote`などのvcsコマンドを直接実行します。
   - これは`direct` modeと呼ばれます。
-- `go tool`にとって既知のホストではなく、vcs suffixがない時、`<<host>>/<<user>>/<<repository>>`がcloneに使うuriだと思われます。
-  - 既知のホストとはリンク先にリストされるものです: https://github.com/golang/go/blob/go1.24.2/src/cmd/go/internal/vcs/vcs.go#L1523-L1585
-  - `go tool`に渡されるのがmodule nameだとは限らないし、module nameがvcs repositoryのroot pathとも限りません
-    - sub packageのパスが渡されることがあります。
-      - `go install`など: module rootがmain packageでないことは多々あります。
-    - 1つのvcs repositoryに対して複数のgo moduleを持つことができます。
-  - サブグループへの考慮がおそらく基本的にありません。
-  - `// General syntax for ...`のところからわかる通り、vcs suffix(e.g. `.git`, `.hg`,`.svn`)がついている場合はそこにマッチします。
-  - ここだけ見るとuriに`.git`をつければいいだけで、module nameには不要そうに見えますが、名前不一致エラーで落ちますのでmodule nameにsuffixが必要です。
-- `go tool`は、`?go-get=1` query parameterを加えたuriにアクセスしてメタデータを得ます。
-  - https://go.dev/ref/mod#vcs
-- `gitlab`はgroupに対して`?go-get=1`をつけたHTTP GETをしてもエラーなくresponseが返ってきます。
-  - アクセスしてみてください: https://gitlab.com/gitlab-org/api?go-get=1
-  - これはサブグループであってgit repositoryではなく、ましてやgo moduleではないですがエラーなく`<html><head><meta name="go-import" content="gitlab.com/gitlab-org/api git https://gitlab.com/gitlab-org/api.git"></head><body>go get gitlab.com/gitlab-org/api</body></html>`が返ってきます。
+- https://pkg.go.dev/cmd/go#hdr-Remote_import_paths より、
+  - module nameに`VCS` suffix(e.g. `.git`, `.hg`, `.svn`) がついていると、このsuffixまでをmodule root pathとする
+  - ない場合、`go tool`に渡されたパスに対して`?go-get=1`付きでHTTP GETを行い、responseからmodule root pathを得ます。
+  - (余談ですがログを見る限り`VCS` suffixがついていても`?go-get=1`付きのHTTP GET自体はされます)
+- `go tool`に渡されるパスはmodule root pathとは限らないため、たとえ`go get module/root/path`をしたとしても、subgroupが含まれているとパスの探索が起こります。
+  - e.g.
+    - `go install`: `<<module-name>>/cmd/command-name`のようにsub-packageにmain packageを作ることが多い。
+    - mono-repo: 1つの`VCS` repositoryに対して複数のgo moduleをホストすることができますのでmodule root = gitなどでcloneする対象とも限りません。
+- (少なくとも)`gitlab`では(おそらく)あらゆるパスに対して`?go-get=1` query paramをつけたHTTP GETが成功します
+  - 返ってくる内容は`go tool`の期待に反してmodule root pathではなく、渡されたパスをオウム返しするだけです。
+  - おそらくセキュリティーのためです(後述)。そのためおそらくどのVCSでもこうなっているんじゃないでしょうか
 
-おそらく現在でもこうだと思われます。
+というのが理由です。
 
-好ましい解決方法は
+[Go 1.24]まで、`.netrc`を用いる以外に`go tool`にcredentialを渡す方法がなく、そのため`?go-get=1`は認証情報なしでリクエストされることがほとんどだったと思われます。
+少なくとも筆者の環境では`.netrc`を作成していませんがprivate repositoryから`go get`が成功していました。ということは認証なしで`?go-get=1`付きのリクエストはとりあえず成功するようにできていたんだと思います。セキュリティー的な懸念から"正しい"内容を認証していない状態で返すわけにはいきませんので、こういう挙動になっていたのでしょう。
+`direct` modeで`git`コマンドを直接用いる際には`git`コマンドのcredentialがそのまま利用されますから、ここは広く用いられる方法でcredentialを渡すことができます。
+後方互換性のことを考えるとこの挙動が変わることはまずない気がします。
+
+https://gitlab.com/gitlab-org/api?go-get=1 はPublicですが、これも与えられたパスをオウム返しする挙動であるのでPublicであってもうまく動かないと思われます。このURLが指し示す先はサブグループなので500番台とか404とかを返すのが正しい挙動に思えますね。
+
+もし仮にmodule nameに`VCS` suffixをつけたくないとしたら、好ましい解決方法は
 
 - サブグループを使わない
+- vanity import pathを返すサーバーを運用する
 - private repositoryを参照できるgo module proxyを運用する
 
 だと思います。
+筆者は`VCS` suffixをつける方法に甘んじているためすべて試していないことに注意願います。
 
-[module proxy](https://go.dev/ref/mod#module-proxy)は`GOPROXY` protocolを実装したHTTPサーバーです。
-見たところ実装自体は難しくなさそうですが、これのために1つ運用するサーバーを増やすというのもどうなのかなあという気持ちもあります。
+- サブグループを使わない:
+  - 単純ですが、サブグループを使わないだけでも解決します。
+  - https://github.com/golang/go/blob/go1.24.2/src/cmd/go/internal/vcs/vcs.go#L1523-L1585 などより、`VCS` suffixがない場合、`<<host>>/<<user>>/<<repository>>`というフォーマットとして解釈され、このパスにまず`?go-get=1`付きのHTTP GETが試みられます。前述のとおり少なくとも`gitlab`ではこれは成功するため意図通りに動作すると思われます。
+- vanity import pathを返すサーバーを運用する:
+  - 例えば[go.uber.org/zap](https://github.com/uber-go/zap)は実際にはgitubでホストされています。
+  - `curl https://go.uber.org/zap/zapcore?go-get=1`を実行するとわかりますが、`<meta name="go-import" content="vanity/module/path VCS https://path/to/VCS">`が返ってきます。
+  - このようにmodule pathと実際にソースコードがホストされるURLが違う時、module pathをvanity import pathなどと呼ぶのが通例のようです。
+  - `?go-get=1`で正しい内容が返りさえすれば(=module root pathが正しく取れれば)あとは成功するでしょうから、これでもうまくいくと思われます。
+  - (余談ですが、mono-repoかつvanity import pathを用いたい場合module proxyを用いなければうまく動作しない気がしています。)
+- go module proxyを運用する:
+  - 最も正道で最も大変な方法と思われます。
+  - [module proxy](https://go.dev/ref/mod#module-proxy)は`GOPROXY` protocolを実装したHTTPサーバーです。
+  - 見たところ実装自体は難しくなさそうですが、これのために1つ運用するサーバーを増やすというのもどうなのかなあという気持ちもあります。
+  - [github.com/goproxy/goproxy](https://github.com/goproxy/goproxy)がgoでgo module proxyを実装しているのでこれを用いるか、
+  - kubernetes clusterを動作させているなら[ArtifactHUBから探して](https://artifacthub.io/packages/search?ts_query_web=go+module+proxy&sort=relevance&page=1)Helmで導入するなどするとよいかもしれないです。
+  - このmodule proxy server自体にauthが必要ですので[GOAUTH](https://pkg.go.dev/cmd/go#hdr-GOAUTH_environment_variable)を各clientに設定してもらうか、イントラからしかアクセスできないようにするかする必要があります。これはこれで大変ですね。
 
-[github.com/goproxy/goproxy](https://github.com/goproxy/goproxy)がgoでgo module proxyを実装しているのでこれを用いるか、kubernetes clusterを動作させているなら[ArtifactHUBから探して](https://artifacthub.io/packages/search?ts_query_web=go+module+proxy&sort=relevance&page=1)Helmで導入するなどするとよいかもしれないです。
-筆者はやったことがないためこれ以上は書くことができません。
+module proxyを運用したい別の理由があるなら話は違いますが、`VCS` suffixをつけてしまうのが一番楽です。
 
-### source code organization
+### とりあえずmainを作ってビルドして実行してみる
+
+先ほどクローンしたディレクトリで、以下のようにファイルを作成し、`Go module`を初期化しましょう
+
+以下の手順ではgit repositoryの直下じゃなくてサブディレクトリにモジュールを作っています。これはこの記事向けのスニペットをまとめて同じrepositoryに置きたい筆者の都合です。
+なので読者はパスはいい感じに読み替えて都合のいいパスで実行してください。
+
+```
+mkdir starting-projects
+cd starting-projects
+go mod init github.com/ngicks/go-example-basics-revisited/starting-projects
+```
+
+`go mod init`実行後に以下のファイルが作成されたと思います
+
+```mod: go.mod
+module github.com/ngicks/go-example-basics-revisited/starting-projects
+
+go 1.24.2
+```
+
+このファイルが、`go module`の
+
+- 名前(というかパス)
+- version
+- toolchain
+- 依存するほかの`go module`
+
+などを記録するファイルとなります。
+`pyproject.toml`、`package.json`、`deno.json`などと近しいものです。
+
+このファイルは`go get`や`go mod tidy`などのコマンドに編集してもらうことになるので、手で編集することは少ないです。
+
+`go version`のfix release(1.24.2の末尾の.2)が0以外だと少々具合が悪いので編集します。
+
+```
+go mod edit -go=1.24.0
+```
+
+すると`go.mod`の内容は以下のように変更されます。
+
+```mod: go.mod
+module github.com/ngicks/go-example-basics-revisited/starting-projects
+
+go 1.24.0
+```
+
+`Go`のmajor release([Go 1.23]や[Go 1.24]のような)はAPI追加やたまにエッジケースの挙動が破壊的に変更されますから、これは重要な観点ですが、fix releaseはセキュリティーにかかわるfix以外では挙動の変更は起こらないことになっています。
+別に動作するにもかかわらずfix releaseが古い`go module`から`go get`できなくなるため、基本的にはfix releaseは`.0`を指定しておくほうが良いのではないかと思います。
+std libraryはビルドするときのtoolchainのものが使われるため、ビルドする側の設定次第で1.24.2でもビルドできますので`go.mod`では常に`.0`を指定していても問題ないはずです。
+
+エントリーポイントを作成します。
+
+```
+mkdir -p cmd/example
+touch cmd/example/main.go
+```
+
+ファイルの中身を以下のようにします。
+
+```go: cmd/example/main.go
+package main
+
+import "fmt"
+
+func main() {
+  fmt.Println("Hello world")
+}
+```
+
+`main` packageの`main`関数がエントリーポイントとなります。
+`func init() {}`が定義されているとそちらが先に実行されるので`main`が必ず最初に実行されるというわけではありません。
+
+以下のコマンドでビルドすることができます。
+
+```
+go build ./cmd/example
+```
+
+`linux/amd64`で実行すると`./example`が出力されます。
+`windows`だと`./example.exe`になります。
+
+もしくは以下のコマンドで実行します
+
+```
+$ go run ./cmd/example
+Hello world
+```
+
+`go run`はOS依存のtmpディレクトリにビルドして実行するショートハンド的コマンドで、毎回ビルドしてしまうので複数回実行したい場合は`go build`したほうが良いことが多いでしょう。
+
+ちなみに、以下ではダメです。
+
+```
+$ go build cmd/example
+package cmd/example is not in std (/usr/local/go/src/cmd/example)
+```
+
+```
+$ go help packages
+...
+An import path that is a rooted path or that begins with
+a . or .. element is interpreted as a file system path and
+denotes the package in that directory.
+
+Otherwise, the import path P denotes the package found in
+the directory DIR/src/P for some DIR listed in the GOPATH
+environment variable (For more details see: 'go help gopath').
+...
+```
+
+とあるように、`/`や`C:\`、`.`、`..`から始まらないパスは`$(go env GOPATH)`以下にあるかのように解決されてしまうからです。
+
+以下の場合はエラーなく実行できますが、パッケージが複数のファイルを含む場合うまくビルドできないことを筆者は確認しています。
+
+```
+$ go run cmd/example/main.go
+Hello world
+```
+
+つまり、`cmd/example`以下にファイルを足して`cmd/example/main.go`がそれを参照するようにすると
+
+```
+cat << EOF > cmd/example/other.go
+package main
+
+var Foo = "foo"
+EOF
+```
+
+```diff: cmd/example/main.go
+package main
+
+import "fmt"
+
+func main() {
+-  fmt.Println("Hello world")
++  fmt.Println("Hello world", Foo)
+}
+```
+
+以下のような感じでエラーを吐きます。
+
+```
+$ go run ./cmd/example/main.go
+command-line-arguments
+cmd/example/main.go:6:29: undefined: Foo
+```
+
+実はファイルリストだったら実行できるんですが
+
+```
+$ go run ./cmd/example/main.go ./cmd/example/other.go
+Hello world foo
+```
+
+ファイルが増えると困りますよね？
+なのでファイルパスじゃなくてpacakge pathで指定するとよいでしょう。
+
+相対パスでビルドを行う場合は`./`を必ず含めて、パッケージ名で指定するとよいでしょう。
+
+### packageを分ける
+
+前述のとおり、moduleは複数のpackageに分割されます。
+`Go module`では1 directory(フォルダー) = 1 packageとなります。
+
+- １つのdirectoryは１つのpackageしか持てません。
+  - ただし例外としてmain package以外については、package nameに`_test`というsuffixをつけてテスト用の別packageを同一directory内に定義できます(e.g. `pkg`に対して`pkg_test`)。
+    - `_test` packageは別のpackageなので、元のpackageとnamespaceを共有しません。そのためexportされたシンボルにしかアクセスできません。
+    - 何かの都合でテスト内で循環参照が生じてしまうようなときに`_test`を定義してそれを回避するのが主な使い道になります。
+- `Go`の慣習とGo teamのおすすめ的には、packageは関心をもとに分割するのが良いとされています。
+  - まずはpackageは分割せず、同一package内にすべて定義し、不都合が生じ始めたら分割したらよい、と言われています。
+  - もちろんもとから関心が別れる点が明確であれば先だってpackageを分割しておいても特段問題はないと思います。
+- packageとdirecotryの名前は一致しているのが望ましいです。
+  - これは、import時にデフォルトではpackageで指定される名前でそのpackageにアクセスできるようになるため、import path(= directoryの名前)とpackageの名前が不一致だとものすごく読みにくくなってしまうからです。
+    - `gopls`(`Go`の言語サーバー)が機能していると自動的にimportが追加されたりしますが、そのさいにpackageの名前が指定されるように修正されます。(i.e. `import name "path/to/pkg"`)
+  - 例外的にpackageの名前がdirectoryの名前のsuffixである場合は問題なしとされるようです
+    - 上記の`gopls`の修正が起こらない。
+    - `semanticTokens`の設定を有効にしていると、packageの名前部分だけ色が変わるのでわかるようになります。
+- 慣習的にpackageの名前は１語で短いものが良いとされます。
+  - 長い名前を与えないといけないということはpackage階層設計がうまくいっていないことの兆候だからということらしいです。
+- 複数単語を含む場合でも`_`や`-`でつながず、`some_package`の代わりに`somepackage`を用いるのがよいとされます。
+  - 前述通りpackageの名前がそれにアクセスするためのidentifierとなりますが、`_`が含まれるのは変数名の慣習と一致しません。
+  - さらに大文字・小文字を区別しないファイルシステムが存在するためすべて小文字が好ましいという都合があります。
+  - それらがあわさるとこういった慣習になっているのだと思います。
+
+同じパッケージ内のファイルはネームスペースを共有しています: つまり別のファイルに同名の関数は定義できないし、別のファイルの関数や変数を利用可能です。
+
+```
+mkdir pkg1 pkg2
+touch pkg1/some.go
+touch pkg2/other.go
+```
+
+ファイルを以下のようにします
+
+```go: pkg1/some.go
+package pkg1
+
+var Foo = "foo"
+```
+
+```go: pkg2/other.go
+package pkg2
+
+import (
+  "fmt"
+
+  "github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1"
+)
+
+func SayDouble() string {
+  return fmt.Sprintf("%q%q", pkg1.Foo, pkg1.Foo)
+}
+```
+
+上記のように、ほかのパッケージで定義した内容を利用するには、`import`宣言内で、fully qualifiedなパッケージパスを書くことで、インポートします。
+
+`Go module`は、循環インポートを許しません。つまり
+
+```diff: pkg1/some.go
+package pkg1
+
++import "github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2"
+
+var Foo = "foo"
+```
+
+とすると以下のように _import cycle not allowed_ エラーによりビルドできません。
+
+```
+$ go build ./pkg1
+package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1
+        imports github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2 from some.go
+        imports github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1 from other.go: import cycle not allowed
+```
+
+### 外部のGo moduleをimportする(go get)
+
+以下のコマンドドキュメントを参考にすると
+
+https://pkg.go.dev/cmd/go
+
+```
+go get <<fully-qualified-module-path>>
+```
+
+で、`Go module`を取得し、`go.mod`と`go.sum`を編集します。
+
+例えば
+
+```
+$ go get github.com/ngicks/go-iterator-helper
+go: added github.com/ngicks/go-iterator-helper v0.0.18
+```
+
+を実行すると以下のように`go.mod`と`go.sunm`にmodule情報が追記されます。
+
+```diff: go.mod
+module github.com/ngicks/go-example-basics-revisited/starting-projects
+
+go 1.24.0
+
++ require github.com/ngicks/go-iterator-helper v0.0.18 // indirect
+```
+
+```diff: go.sum
++github.com/ngicks/go-iterator-helper v0.0.18 h1:a9a3ndHDyYSsI9bLTV4LOUA9cg6NpwPyfL20t4HoLVw=
++github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7ON57aOpfu80ccBvPVHI=
+```
+
+`import`で各ソースコードにモジュールを導入して使用できるようになります。
+
+```diff: cmd/example/main.go
+package main
+
+-import "fmt"
++import (
++	"fmt"
++
++	"github.com/ngicks/go-iterator-helper/hiter"
++	"github.com/ngicks/go-iterator-helper/hiter/mapper"
++	"github.com/ngicks/go-iterator-helper/hiter/mathiter"
++)
+
+func main() {
+	fmt.Println("Hello world", Foo)
++	fmt.Println(hiter.Sum(mapper.Sprintf("%x", hiter.Limit(8, mathiter.Rng(256)))))
+}
+```
+
+```
+$ go run ./cmd/example/
+Hello world foo
+9585b4cf88cdbe27
+```
+
+上記の例では`go get`時にversionを指定していないため、すでに1度`go get`済みでキャッシュがある場合はその中の最新、そうでなければ`proxy.golang.org`によって既知の中の最新がダウンロードされるようです。
+明確にversionを指定したい場合は、package pathの末尾に`@version`で指定します。
+**gitの場合は`v`-prefixのついた[sem ver](https://semver.org/)形式のgit tagがversionとなります。**
+
+下記のいずれかの方法で指定できます。
+末尾の２つは全く同じ効果をもたらすので、`git-commit-hash`で指定するほうが簡単だと思います。
+
+```
+go get <<fully-qualified-module-path>>@latest
+go get <<fully-qualified-module-path>>@v1.2.3
+go get <<fully-qualified-module-path>>@<<git-commit-hash>>
+# v0.0.0-<<commit-date-time>>-<<commit-hash>>
+go get <<fully-qualified-module-path>>@v0.0.0-20230723110635-fd0b45653fa9
+```
+
+タグのついていない特定のcommit hashを指定可能です。
+`git-commit-hash`によるバージョン指定は`github.com`とセルフホストの`gitlab`では動作しました。
+しかしどこにドキュメントされているのかよくわかりませんので100%確証はないです。
+
+### package構成
+
+https://go.dev/doc/modules/layout
+
+- 実行ファイルを作成するのが主眼となるモジュールはトップディレクトリがメインパッケージになることが多い
+- ライブラリとしてインポートすることもできるが、実行ファイルも提供する場合は以下のような構成になることが多い
+
+実際にはプロジェクトの規模や意図などによってどのようにコードをオーガナイズするとよりよくなるかは変わるので、
+個別の議論は避け、ほかの記事に譲るものとします。
+
+```
+.
+|-- cmd
+| |-- command1
+| |   |-- main.go
+| |   `-- other_files.go
+| `-- command2
+|     |-- main.go
+|     `-- other_files.go
+|-- package_dir (名前はふさわしいものにする)
+|   `-- package.go
+|-- go.mod
+|-- go.sum
+`-- lib.go(名前はモジュールにふさわしい何かにする)
+```
 
 ## おわりに
 
@@ -494,3 +859,7 @@ go mod init example.com/ngicks/subgroup/go-example-basics-revisited.git
 [io.Reader]: https://pkg.go.dev/io@go1.24.2#Reader
 [io.Writer]: https://pkg.go.dev/io@go1.24.2#Writer
 [syscall.Errno]: https://pkg.go.dev/syscall@go1.24.2#Errno
+
+```
+
+```
