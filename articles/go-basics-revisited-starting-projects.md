@@ -881,7 +881,7 @@ https://go.dev/ref/mod#private-modules
 
 - `GOPROXY`もしくは`GOPRIVATE`の設定
 - (web access時にauthが必要な場合)`GOAUTH`の設定
-- (`GOPROXY`を用いないず、サブグループ下でソースを管理する場合)module nameを`.git`でsuffixする
+- (`GOPROXY`を用いず、サブグループ下でソースを管理する場合)module nameを`.git`でsuffixする
 - (`GOPROXY`を用いない場合）git credentialの適切な保存
 
 を行う必要があります。
