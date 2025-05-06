@@ -980,6 +980,8 @@ pinentry-program /usr/bin/pinentry
 
 ## おわりに
 
+private repositoryから`go get`するのは特に躓いたのでまとめておきました。
+
 <!-- other languages referenced -->
 
 [TypeScript]: https://www.typescriptlang.org/
