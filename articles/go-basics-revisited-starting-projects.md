@@ -33,7 +33,7 @@ published: false
 
 新しいプログラミング言語、フレームワーク、ライブラリー、ツール、etcを始めるとき筆者にとってよく障害となるのは「プロジェクトを始めるまでの方法がわからない」ということです。
 
-そこで、この記事では[Go]そのものの紹介、SDKのインストール、エディターのセットアップ、プロジェクトの開始方法(=モジュールの作成方法)、さらにcooporate proxy下でgo moduleをインポートできるようにする方法などについてまとめます。
+そこで、この記事では[Go]そのものの紹介、SDKのインストール、エディターのセットアップ、プロジェクトの開始方法(=モジュールの作成方法)、さらにprivate repositoryで管理されるgo moduleをインポートできるようにする方法などについてまとめます。
 
 ## 前提知識
 
@@ -452,7 +452,7 @@ https://gitlab.com/gitlab-org/api?go-get=1 はPublicですが、これも与え�
   - 見たところ実装自体は難しくなさそうですが、これのために1つ運用するサーバーを増やすというのもどうなのかなあという気持ちもあります。
   - [github.com/goproxy/goproxy](https://github.com/goproxy/goproxy)がgoでgo module proxyを実装しているのでこれを用いるか、
   - kubernetes clusterを動作させているなら[ArtifactHUBから探して](https://artifacthub.io/packages/search?ts_query_web=go+module+proxy&sort=relevance&page=1)Helmで導入するなどするとよいかもしれないです。
-  - このmodule proxy server自体にauthが必要ですので[GOAUTH](https://pkg.go.dev/cmd/go#hdr-GOAUTH_environment_variable)を各clientに設定してもらうか、イントラからしかアクセスできないようにするかする必要があります。これはこれで大変ですね。
+  - このmodule proxy server自体にauthが必要ですので[GOAUTH]を各clientに設定してもらうか、イントラからしかアクセスできないようにするかする必要があります。これはこれで大変ですね。
 
 module proxyを運用したい別の理由があるなら話は違いますが、`VCS` suffixをつけてしまうのが一番楽です。
 
@@ -700,7 +700,7 @@ package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1
 https://pkg.go.dev/cmd/go
 
 ```
-go get <<fully-qualified-module-path>>
+go get <<fully-qualified-package-path>>
 ```
 
 で、`Go module`を取得し、`go.mod`と`go.sum`を編集します。
@@ -712,7 +712,7 @@ $ go get github.com/ngicks/go-iterator-helper
 go: added github.com/ngicks/go-iterator-helper v0.0.18
 ```
 
-を実行すると以下のように`go.mod`と`go.sunm`にmodule情報が追記されます。
+を実行すると以下のように`go.mod`と`go.sum`にmodule情報が追記されます。
 
 ```diff: go.mod
 module github.com/ngicks/go-example-basics-revisited/starting-projects
@@ -726,6 +726,8 @@ go 1.24.0
 +github.com/ngicks/go-iterator-helper v0.0.18 h1:a9a3ndHDyYSsI9bLTV4LOUA9cg6NpwPyfL20t4HoLVw=
 +github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7ON57aOpfu80ccBvPVHI=
 ```
+
+まだこのmoduleはこのプロジェクトのどこからも使われていないので`// indirect`がつけれています。
 
 `import`で各ソースコードにモジュールを導入して使用できるようになります。
 
@@ -753,30 +755,64 @@ Hello world foo
 9585b4cf88cdbe27
 ```
 
-上記の例では`go get`時にversionを指定していないため、すでに1度`go get`済みでキャッシュがある場合はその中の最新、そうでなければ`proxy.golang.org`によって既知の中の最新がダウンロードされるようです。
-明確にversionを指定したい場合は、package pathの末尾に`@version`で指定します。
-**gitの場合は`v`-prefixのついた[sem ver](https://semver.org/)形式のgit tagがversionとなります。**
+この時点で`go mod tidy`を実行します。
 
+```
+go mod tidy
+```
+
+```diff: go.mod
+module github.com/ngicks/go-example-basics-revisited/starting-projects
+
+go 1.24.0
+
+-require github.com/ngicks/go-iterator-helper v0.0.18 // indirect
++require github.com/ngicks/go-iterator-helper v0.0.18
+```
+
+```diff: go.sum
++github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
++github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
+github.com/ngicks/go-iterator-helper v0.0.18 h1:a9a3ndHDyYSsI9bLTV4LOUA9cg6NpwPyfL20t4HoLVw=
+github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7ON57aOpfu80ccBvPVHI=
++gotest.tools/v3 v3.5.1 h1:EENdUnS3pdur5nybKYIh2Vfgc8IUNBjxDPSjtiJcOzU=
++gotest.tools/v3 v3.5.1/go.mod h1:isy3WKz7GK6uNw/sbHzfKBLvlvXwUyV06n6brMxxopU=
+```
+
+実際にプロジェクト内で使われるようになったので`// indirect`が外れます。
+さらに`go get`時には追加されていなかった依存先の`_test` moduleの依存先も`go.sum`に記録されています。
+`VCS`にプッシュする前には`go mod tidy`を実行しておくほうがよいでしょう。
+
+上記の例では`go get`時にversionを指定していないため、適当な最新バージョンが選ばられるようです。
 下記のいずれかの方法で指定できます。
 末尾の２つは全く同じ効果をもたらすので、`git-commit-hash`で指定するほうが簡単だと思います。
 
 ```
 go get <<fully-qualified-module-path>>@latest
 go get <<fully-qualified-module-path>>@v1.2.3
+go get <<fully-qualified-module-path>>@<<what-ever-git-tag>>
 go get <<fully-qualified-module-path>>@<<git-commit-hash>>
-# v0.0.0-<<commit-date-time>>-<<commit-hash>>
-go get <<fully-qualified-module-path>>@v0.0.0-20230723110635-fd0b45653fa9
+# v0.0.0-<<commit-date-time>>-<<commit-hash-truncated-at-12-letters>>
+go get <<fully-qualified-module-path>>@v0.0.0-20250505110635-fd0b45653fa9
 ```
 
-タグのついていない特定のcommit hashを指定可能です。
-`git-commit-hash`によるバージョン指定は`github.com`とセルフホストの`gitlab`では動作しました。
-しかしどこにドキュメントされているのかよくわかりませんので100%確証はないです。
+`@`の後に
+
+- (1)`latest`
+- (2)`git tag`(`VCS`が`git`の場合)
+- (3)`commit hash`
+- (4)`vX.Y.Z-<<commit-date-time>>-<<commit-hash-truncated-at-12-letters>>`
+
+のいずれかをつけます。
+
+`git tag`は`v`でprefixされた[Semantic Versioning 2.0](https://semver.org/)形式であれば`go.mod`にそのバージョンで記載されます([参照](https://go.dev/ref/mod#vcs-version))。`sem ver`形式でなくてもよいですが、その場合は(4)のようなpre-prelease形式に変換されて`go.mod`に記載されます。
+(3), (4)は同じ効果を持ち、`sem ver`でないtagを指定した時と同様にpre-release形式に変換されて記載されます。
 
 ### package構成
 
 https://go.dev/doc/modules/layout
 
-- 実行ファイルを作成するのが主眼となるモジュールはトップディレクトリがメインパッケージになることが多い
+- 実行ファイルを作成するのが主眼となるmoduleはトップディレクトリがmainになることが多い
 - ライブラリとしてインポートすることもできるが、実行ファイルも提供する場合は以下のような構成になることが多い
 
 実際にはプロジェクトの規模や意図などによってどのようにコードをオーガナイズするとよりよくなるかは変わるので、
@@ -797,6 +833,150 @@ https://go.dev/doc/modules/layout
 |-- go.sum
 `-- lib.go(名前はモジュールにふさわしい何かにする)
 ```
+
+## formatterの設定(goplsに任せるので特に設定はない)
+
+[gopls]の設定で`gofmt`, `goimports`, `gofumpt`などでformatがかけられます。多分前述したeditorのセットアップをしたうえで、editorで`Format On Save`を有効にすれば問題なくformatがかかりますので特に設定はありません。
+
+## linterの設定
+
+[gopls]の設定で`staticchek`や、[golang.org/x/tools/gopls/internal/analysis/modernize](https://pkg.go.dev/golang.org/x/tools/gopls/internal/analysis/modernize)などが有効になっているはずです。
+
+それ以外のいろいろなルールを追加したい場合は、[github.com/golangci/golangci-lint](https://github.com/golangci/golangci-lint)がよく用いられると思います。
+
+導入方法は下記で述べられていますが、[vscode],`GoLand`に関してはextensionを入れる以外には特に設定がいらず、`vim`/`neovim`に関しては[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)を用いるとよいでしょう(筆者は試したことがない)。
+
+https://golangci-lint.run/welcome/integrations/
+
+ルールを自作し、`golangci-lint`から実行させたい場合は
+
+- [github.com/quasilyte/go-ruleguard](https://github.com/quasilyte/go-ruleguard)で作成する
+  - 参考: [【Go】コーディング規則を簡単にlinterに落としこむ！go-ruleguardを使ってみる](https://zenn.dev/hrbrain/articles/4365c28245e2d3)
+- [golang.org/x/tools/go/analysis](https://pkg.go.dev/golang.org/x/tools/go/analysis)などで自作し、[Module Plugin System](https://golangci-lint.run/plugins/module-plugins)で追加
+
+などします。
+
+どちらも始めたての人がいきなりできるものではないと思う(`Go`のastと型システムに対する習熟がいる。これは他言語の経験では補いづらい)ため、基本は`golangci-lint`にあらかじめ統合されたもののみを使うとよいでしょう。
+
+## Private repositoryでソースをホストする場合
+
+https://go.dev/ref/mod#private-modules
+
+上記の説明より、一般公開されない、つまり特別な認証が必要な`VCS`でソースを管理し、`go get`などでモジュールをインポート/ダウンロードする場合、
+
+- `GOPROXY`もしくは`GOPRIVATE`の設定
+- (web access時にauthが必要な場合)`GOAUTH`の設定
+- (`GOPROXY`を用いない場合）git credentialの適切な保存
+
+を行う必要があります。
+
+`GOPROXY`は筆者は試したことがないため、省略します。
+`VCS`のcredentialは`git`のみを想定します。
+
+### GOPRIVATE
+
+`GOPRIVATE`の設定は以下で行います。
+
+```
+# git repositoryのURIが https://example.com/base_path
+# である場合、<<url_wo_protocol>>は`example.com/base_path`になります。
+go env -w GOPRIVATE=<<url_wo_protocol>>
+```
+
+(環境変数で指定すればよいと書かれていますが、筆者はうまくいかなかったので`go env -w`で書き込んでいます。)
+
+`GONOPROXY`, `GONOSUMDB`(`NO`であることに注意)を設定しない場合、`GOPRIVATE`がデフォルトとして使われます。
+`GONOPROXY`に設定されたホストからのモジュール取得する(`direct` mode)際には相手`VCS`に合わせたコマンドが使用されます(`git`の場合`git`コマンド -> [modfetch](https://github.com/golang/go/blob/go1.24.2/src/cmd/go/internal/modfetch/codehost/git.go#L233))。そのため、credentialの設定も多くの場合必要になります。
+
+`go env -w`で書き込まれた内容は`go env GOENV`で表示されるファイルに保存されます。
+
+```
+$ go env -w GOPRIVATE=example.com
+$ cat $(go env GOENV)
+GOPRIVATE=example.com
+# -uでunset
+$ go env -u GOPRIVATE
+$ cat $(go env GOENV)
+
+```
+
+[Docker]のbuild contextに渡したい場合などはこのファイルをマウントするとよいでしょう。
+
+### GOAUTH(筆者は試したことがない)
+
+[Go 1.23]かそれ以前では、`go tool`がhttp accessを行う際にはcredentialを`.netrc`から読み込んでいましたが、[Go 1.24]からは[GOAUTH]を設定することで任意の方法を設定できるようになりました(デフォルトは`.netrc`)。
+
+[private VCSかつサブグループを使用する場合.gitなどでmodule nameをsuffixしておく](#private-vcsかつサブグループを使用する場合gitなどでmodule-nameをsuffixしておく)のところで述べましたが、[Go 1.23]まで`.netrc`以外にcredを渡す方法がなかったため`gitlab`では`?go-get=1`がついている場合credentialなしのHTTP GETを受け付けるようになっていました。そのため設定する必要があるのはこれ以外にもっときつい制限をかけた`VCS`で使用しているか、もしくはprivate go module proxyを用いる場合でしょうか。
+
+筆者は試したことがないため参考までに、ですが、基本的には`git dir`を使用するとよいのではないかと思います。これは`GOAUTH=git /path/to/working/dir`を渡すと、[dirでgit credential fillを呼び出す](https://github.com/golang/go/blob/master/src/cmd/go/internal/auth/gitauth.go#L45)ものなので、git credentialの設定がしっかりされていれば追加の設定が不要であるためです。
+
+### git credentialの適切な保存
+
+`GOPROXY`を用いない場合、`VCS`に対して直接`VCS`のコマンド(`git`なら`git ls-remote`など)が実行されます。
+これは`direct` modeとドキュメント上呼ばれています。
+
+この場合、`git`なら`git`のcredentialを適切に保存しておく必要があります。private repositoryを利用している方はすでに設定しているかもしれないのでここは読み飛ばしてもらったほうがいいのかもしれません。
+
+#### Git Credential Manager
+
+`git credential`の適切な保存には筆者は[Git Credential Manager]を利用しています。
+
+- windowsの場合、[Git for windows](https://gitforwindows.org/)に付属してきますので、インストールオプションで一緒に入れます。
+- linuxの場合,[Install instructions](https://github.com/git-ecosystem/git-credential-manager/blob/release/docs/install.md)に従いセットアップを行います。
+
+[vscode]の各種`Remote` extensionが`git credential`のヘルパーをつないでホスト環境につなげてくれるような挙動をしますので、
+`wsl`などの場合はそちらを利用すれば`wincred`にcredentialの保存が簡単にできます。
+
+#### .netrc(非推奨)
+
+`.netrc`はネットワークの認証情報を**平文で**保存しておくファイルらしく、[linuxのman pageを検索するといくつかのコマンドがそれらを尊重する](https://www.google.com/search?q=netrc&sitesearch=man7.org%2Flinux%2Fman-pages&sa=Search+online+pages#ip=1)のがわかります。
+フォーマットは[IBMの「.netrc ファイルの作成」](https://www.ibm.com/docs/ja/aix/7.2?topic=customization-creating-netrc-file)を参考にしてください。
+[\${HOME}/.netrcあるいは${NETRC}にあるのが想定される](https://github.com/golang/go/blob/go1.24.2/src/cmd/go/internal/auth/netrc.go#L73-L96)ので適切に配置してください。
+
+`git`を含めた種々のコマンドが`.netrc`を読み込むようですが、`GOAUTH`が設定されていない場合は`go tool`もこれを読み込む挙動となっています。
+
+平文(=暗号化されていない)でcredentialを保存するフォーマットを推奨するべきではないはずなので、非推奨と述べておきます。
+
+#### (おまけ)gpg-agentの設定
+
+上記で[Git Credential Manager]を設定し、`pass`を利用する設定にしている場合などでローカルの`GnuPG`が利用されるようになっており、環境がguiを表示可能な時
+
+- そもそもdesktopのGUI付きlinux
+- `wslg`
+- `ssh config`で`X11Forwarding yes`にしている、など
+
+にはgpg-agentをGUI付きのものにすると例えば`tmux`スクリプトなんかでgpg-agentが呼び出されたときに気づかずパスワードの入力画面で固まらないため便利です。
+
+```
+# 筆者はみための好みでpinentry-qtを選択
+sudo apt install pinentry-qt
+```
+
+```
+$ cat ~/.gnupg/gpg-agent.conf
+pinentry-program /usr/bin/pinentry
+```
+
+筆者環境ではこれでも`pinentry-qt`が呼び出されますが、直接`pinentry-qt`を指定しても問題ありませんでした。
+
+### git-lfsを導入している場合はすべての環境でgit-lfsを使うように気を付ける
+
+`git-lfs`というよりは導入有無でfetch結果のファイルコンテンツが変わってしまうプラグイン全般なのですが。
+
+上記のような設定で`direct` modeで`Go module`が取得される場合、
+`git-lfs`の導入有無で`git`からのfetch後の内容が異なることがあります。
+これによってsum照合エラーで`go mod download`が失敗する現象を何度か体験しています。
+
+基本的にはすべての環境(`Dockerfile`なども含む)で`git-lfs`を導入しておくほうがよいでしょう。
+
+`git-lfs`は[Git Large File Storage](https://git-lfs.com/)のことで、`git`で大きなファイルを取り扱うための拡張機能です。
+`git-lfs`はhookとfilterを活用してコミット前後でトラック対象のファイルをテキストファイルのポインターに変換し、
+トラックされた大きなファイルはremote repositoryではなく大容量ファイル用のサーバーに上げるような挙動になります。(参考: https://github.com/git-lfs/git-lfs, [Git LFS をちょっと詳しく](https://qiita.com/ikmski/items/5cc8b8832336b8d85429))
+
+[`github`](https://docs.github.com/ja/repositories/working-with-files/managing-large-files/about-git-large-file-storage), [`gitlab`](https://docs.gitlab.com/ee/administration/lfs/index.html)双方とも`git-lfs`に対応しています。
+
+開発の経緯的に、想定された用途ははゲームなどで大きなバイナリファイルを一緒に管理することのようです。
+それ以外でもテスト用の大きなファイルを管理するときなどにも使うことがあると思います。
 
 ## おわりに
 
@@ -823,6 +1003,8 @@ https://go.dev/doc/modules/layout
 <!-- tools -->
 
 [git]: https://git-scm.com/
+[Git Credential Manager]: https://github.com/git-ecosystem/git-credential-manager?tab=readme-ov-file
+[Docker]: https://www.docker.com/
 
 <!-- Go versions -->
 
@@ -834,6 +1016,7 @@ https://go.dev/doc/modules/layout
 <!-- Go doc links -->
 
 [A Tour of Go]: https://go.dev/tour/welcome/
+[GOAUTH]: https://pkg.go.dev/cmd/go#hdr-GOAUTH_environment_variable
 
 <!-- Go tools -->
 
@@ -859,7 +1042,3 @@ https://go.dev/doc/modules/layout
 [io.Reader]: https://pkg.go.dev/io@go1.24.2#Reader
 [io.Writer]: https://pkg.go.dev/io@go1.24.2#Writer
 [syscall.Errno]: https://pkg.go.dev/syscall@go1.24.2#Errno
-
-```
-
-```
