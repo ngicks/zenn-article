@@ -102,7 +102,7 @@ go version go1.24.2 linux/amd64
 - 任意の型をベースとする型を定義できます。
   - 型にはmethod(型に関連した関数)を定義できます。
 - 特定のmethod setを実装する型なら何でも代入できる`interface`をもち、これによってdynamic dispatchを実現します。
-  - 例えば`type IOPort interface { Read(p []byte) (int, error); Write(b []byte) (int, error) }`を引数の型として指定するとすることで、`Read`と`Write`を実装するあらゆる型を代入可能な関数を定義できます。
+  - 例えば`type IOPort interface { Read(p []byte) (int, error); Write(b []byte) (int, error) }`を引数の型として指定するとすることで、`Read`と`Write`を実装するあらゆる型を引数に取れる関数を定義できます。
   - `interface{}`(なんのmethodも指定しない`interface`)にはあらゆる型の変数を代入可能です。上記の*feels like a dynamically typed, interpreted language*の部分はこのこともさしているのだと思います。
 - closure(無名の関数)を定義できます。
   - closureはスコープ内の変数をキャプチャできます。
