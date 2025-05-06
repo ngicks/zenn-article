@@ -873,7 +873,7 @@ https://golangci-lint.run/welcome/integrations/
 
 どちらも始めたての人がいきなりできるものではないと思う(`Go`のastと型システムに対する習熟がいる。これは他言語の経験では補いづらい)ため、基本は`golangci-lint`にあらかじめ統合されたもののみを使うとよいでしょう。
 
-## Private repositoryでソースをホストする場合
+## Private repositoryから`go get`する
 
 https://go.dev/ref/mod#private-modules
 
@@ -881,6 +881,7 @@ https://go.dev/ref/mod#private-modules
 
 - `GOPROXY`もしくは`GOPRIVATE`の設定
 - (web access時にauthが必要な場合)`GOAUTH`の設定
+- (`GOPROXY`を用いないず、サブグループ下でソースを管理する場合)module nameを`.git`でsuffixする
 - (`GOPROXY`を用いない場合）git credentialの適切な保存
 
 を行う必要があります。
@@ -924,6 +925,10 @@ $ cat $(go env GOENV)
 [private VCSかつサブグループを使用する場合.gitなどでmodule nameをsuffixしておく](#private-vcsかつサブグループを使用する場合.gitなどでmodule-nameをsuffixしておく)のところで述べましたが、[Go 1.23]まで`.netrc`以外にcredを渡す方法がなかったため`gitlab`では`?go-get=1`がついている場合credentialなしのHTTP GETを受け付けるようになっていました。そのため設定する必要があるのはこれ以外にもっときつい制限をかけた`VCS`で使用しているか、もしくはprivate go module proxyを用いる場合でしょうか。
 
 筆者は試したことがないため参考までに、ですが、基本的には`git dir`を使用するとよいのではないかと思います。これは`GOAUTH=git /path/to/working/dir`を渡すと、[dirでgit credential fillを呼び出す](https://github.com/golang/go/blob/master/src/cmd/go/internal/auth/gitauth.go#L45)ものなので、git credentialの設定がしっかりされていれば追加の設定が不要であるためです。
+
+### module nameを`.git`でsuffixする
+
+👉[private VCSかつサブグループを使用する場合.gitなどでmodule nameをsuffixしておく](#private-vcsかつサブグループを使用する場合.gitなどでmodule-nameをsuffixしておく)
 
 ### git credentialの適切な保存
 
