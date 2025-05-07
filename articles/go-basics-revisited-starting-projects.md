@@ -33,7 +33,7 @@ published: false
 
 新しいプログラミング言語、フレームワーク、ライブラリー、ツール、etcを始めるとき筆者にとってよく障害となるのは「プロジェクトを始めるまでの方法がわからない」ということです。
 
-そこで、この記事では[Go]そのものの紹介、SDKのインストール、エディターのセットアップ、プロジェクトの開始方法(=モジュールの作成方法)、さらにprivate repositoryで管理されるgo moduleをインポートできるようにする方法などについてまとめます。
+そこで、この記事では[Go]そのものの紹介、SDKのインストール、エディターのセットアップ、プロジェクトの開始方法(=moduleの作成方法)、さらにprivate repositoryで管理されるgo moduleをインポートできるようにする方法などについてまとめます。
 
 ## 前提知識
 
@@ -67,7 +67,7 @@ go version go1.24.2 linux/amd64
 
 `Go`は後方互換性をかなり気にするためサンプルコードや述べられていることは以降のバージョンでも（何ならこれよりの前のバージョンでも）基本的に一緒ですが、細かいところで改善が入ったりするのでそれを踏まえて読んでください。
 
-## snipetのconvention
+## snippetのconvention
 
 - shellコマンドの羅列の場合コピペしやすさを優先して特になにもprefixをつけずにコマンドを羅列します。
 - ただし、コマンド実行結果をsnipet内の併記したい場合は、コマンドは`$ `でprefixされます。
@@ -133,8 +133,8 @@ go version go1.24.2 linux/amd64
 - `goroutine`間で通信するためのprimitiveとして組み込まれた`chan`(channel)型が存在します。
 - 組み込み型として`slice`(動的にサイズが変更できるarray;ほかの言語のvectorに近いもの)、`map`(hash map),`chan`(channel)があってこれらはfor-range構文が対応していたりと特別扱いされます。
 - コンパイルが*遅くならない*ように気が遣われています。
-- モジュールシステムとパッケージマネージャが組み込まれています。
-  - モジュールの公開には特別な処理は必要ありません。`github`のようなVCS(Version Control System)で公開し、go moduleの名前を`https://`抜きのURLにすればそれで公開できます。
+- moduleシステムとpackageマネージャが組み込まれています。
+  - moduleの公開には特別な処理は必要ありません。`github`のようなVCS(Version Control System)で公開し、go moduleの名前を`https://`抜きのURLにすればそれで公開できます。
 - pointerは存在しますが、pointer arithmeticは(`unsafe`を使わない限り)できません
 - 非常に簡単に別のCPUアーキテクチャ、OS向けのビルドを行うことができます。
   - ただし`CGO`(C-binding)を使わない場合
@@ -157,7 +157,7 @@ https://go.dev/tour/welcome/1
 https://gobyexample.com/
 
 コード例とともに解説がされます。
-項目数が多く、知らないstdモジュールを使う部分をきちんと理解しようとすると時間がかかると思います。
+項目数が多く、知らないstdmoduleを使う部分をきちんと理解しようとすると時間がかかると思います。
 手が空いたら少しずつ読むのがいいのではないでしょうか。
 
 ### 公式読み物系
@@ -327,7 +327,7 @@ goのsurveyはself-selection, `vscode`の`Go extension`からの誘導, `GoLand`
   - 実行ファイルにもなるし、ライブラリとして公開されるものでも
 - moduleはさらにpackageと呼ばれる単位に分割されます。
 - 1 directory = 1 packageです
-  - 例外的にmain以外のpackageは`_test` suffixをつけた(e.g. `pkg`に対して`pkg_test`)テスト用パッケージを定義することができる
+  - 例外的にmain以外のpackageは`_test` suffixをつけた(e.g. `pkg`に対して`pkg_test`)テスト用packageを定義することができる
 - packageはname spaceを共有します。
   - 複数ファイルにわたって同じ変数、関数にアクセスできます
   - ほかの言語、例えば[Rust]では1つのファイルが1つのmoduleであり、ファイル内でもmoduleを定義することができますが、逆に`Go`ではこのように任意に分割する方法はありません。
@@ -338,7 +338,7 @@ goのsurveyはself-selection, `vscode`の`Go extension`からの誘導, `GoLand`
   - 必ず`./`から始まるパスを指定する。ないとstd libraryを指定していると`go tool`に思われる。
 - main以外のpackageはfully-qualified pathで(`<<module-name>>/path/to/directory`)importできる。
   - 相対パスを用いることもできるが、ほぼされることがないためしないほうが良いのではないかと思う。
-- 外部のモジュールは`go get`で取得することができる。
+- 外部のmoduleは`go get`で取得することができる。
 
 ### 事前にgit(VCS)でrepositoryを作成しておく
 
@@ -391,7 +391,7 @@ go get github.com/ngicks/go-example-basics-revisited
 
 で別moduleから導入、参照できます。
 
-:::details local onlyのモジュール
+:::details local onlyのmodule
 
 ローカルオンリーなつもりならおおむね`<<module-name>>`はなんでもよいはずです。
 
@@ -399,9 +399,9 @@ go get github.com/ngicks/go-example-basics-revisited
 go mod init whatever-whatever
 ```
 
-筆者が知る限りほかのモジュールから`go get`できなくなる以外の違いはないです。
+筆者が知る限りほかのmoduleから`go get`できなくなる以外の違いはないです。
 
-ただし、[How to write code](https://go.dev/doc/code)でも勧められる通り、なるだけ公開される前提でモジュールを作っておいたほうがよいでしょう。
+ただし、[How to write code](https://go.dev/doc/code)でも勧められる通り、なるだけ公開される前提でmoduleを作っておいたほうがよいでしょう。
 
 :::
 
@@ -475,7 +475,7 @@ module proxyを運用したい別の理由があるなら話は違いますが�
 
 先ほどクローンしたディレクトリで、以下のようにファイルを作成し、`Go module`を初期化しましょう
 
-以下の手順ではgit repositoryの直下じゃなくてサブディレクトリにモジュールを作っています。これはこの記事向けのスニペットをまとめて同じrepositoryに置きたい筆者の都合です。
+以下の手順ではgit repositoryの直下じゃなくてサブディレクトリにmoduleを作っています。これはこの記事向けのスニペットをまとめて同じrepositoryに置きたい筆者の都合です。
 なので読者はパスはいい感じに読み替えて都合のいいパスで実行してください。
 
 ```
@@ -512,13 +512,14 @@ go mod edit -go=1.24.0
 
 すると`go.mod`の内容は以下のように変更されます。
 
-```mod: go.mod
+```diff: go.mod
 module github.com/ngicks/go-example-basics-revisited/starting-projects
 
-go 1.24.0
+-go 1.24.2
++go 1.24.0
 ```
 
-`Go`のmajor release([Go 1.23]や[Go 1.24]のような)はAPI追加やたまにエッジケースの挙動が破壊的に変更されますから、これは重要な観点ですが、fix releaseはセキュリティーにかかわるfix以外では挙動の変更は起こらないことになっています。
+`Go`のmajor release([Go 1.23]や[Go 1.24]のような)はAPI追加、構文の追加、たまにエッジケースの挙動が破壊的に変更されますから、これは重要な観点です。他方、fix releaseはセキュリティーにかかわるfix以外では挙動の変更は起こらないことになっています。
 別に動作するにもかかわらずfix releaseが古い`go module`から`go get`できなくなるため、基本的にはfix releaseは`.0`を指定しておくほうが良いのではないかと思います。
 std libraryはビルドするときのtoolchainのものが使われるため、ビルドする側の設定次第で1.24.2でもビルドできますので`go.mod`では常に`.0`を指定していても問題ないはずです。
 
@@ -584,7 +585,7 @@ environment variable (For more details see: 'go help gopath').
 
 とあるように、`/`や`C:\`、`.`、`..`から始まらないパスは`$(go env GOPATH)`以下にあるかのように解決されてしまうからです。
 
-以下の場合はエラーなく実行できますが、パッケージが複数のファイルを含む場合うまくビルドできないことを筆者は確認しています。
+以下の場合はエラーなく実行できますが、packageが複数のファイルを含む場合うまくビルドできないことを筆者は確認しています。
 
 ```
 $ go run cmd/example/main.go
@@ -601,7 +602,7 @@ var Foo = "foo"
 EOF
 ```
 
-```diff: cmd/example/main.go
+```diff go: cmd/example/main.go
 package main
 
 import "fmt"
@@ -630,7 +631,7 @@ Hello world foo
 ファイルが増えると困りますよね？
 なのでファイルパスじゃなくてpacakge pathで指定するとよいでしょう。
 
-相対パスでビルドを行う場合は`./`を必ず含めて、パッケージ名で指定するとよいでしょう。
+相対パスでビルドを行う場合は`./`を必ず含めて、package名で指定するとよいでしょう。
 
 ### packageを分ける
 
@@ -657,7 +658,7 @@ Hello world foo
   - さらに大文字・小文字を区別しないファイルシステムが存在するためすべて小文字が好ましいという都合があります。
   - それらがあわさるとこういった慣習になっているのだと思います。
 
-同じパッケージ内のファイルはネームスペースを共有しています: つまり別のファイルに同名の関数は定義できないし、別のファイルの関数や変数を利用可能です。
+同じpackage内のファイルはネームスペースを共有しています: つまり別のファイルに同名の関数は定義できないし、別のファイルの関数や変数を利用可能です。
 
 ```
 mkdir pkg1 pkg2
@@ -687,11 +688,11 @@ func SayDouble() string {
 }
 ```
 
-上記のように、ほかのパッケージで定義した内容を利用するには、`import`宣言内で、fully qualifiedなパッケージパスを書くことで、インポートします。
+上記のように、ほかのpackageで定義した内容を利用するには、`import`宣言内で、fully qualifiedなpackageパスを書くことで、インポートします。
 
 `Go module`は、循環インポートを許しません。つまり
 
-```diff: pkg1/some.go
+```diff go: pkg1/some.go
 package pkg1
 
 +import "github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2"
@@ -744,9 +745,9 @@ go 1.24.0
 
 まだこのmoduleはこのプロジェクトのどこからも使われていないので`// indirect`がつけれています。
 
-`import`で各ソースコードにモジュールを導入して使用できるようになります。
+`import`で各ソースコードにmoduleを導入して使用できるようになります。
 
-```diff: cmd/example/main.go
+```diff go: cmd/example/main.go
 package main
 
 -import "fmt"
@@ -799,29 +800,158 @@ github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7O
 `VCS`にプッシュする前には`go mod tidy`を実行しておくほうがよいでしょう。
 
 上記の例では`go get`時にversionを指定していないため、適当な最新バージョンが選ばられるようです。
-下記のいずれかの方法で指定できます。
-末尾の２つは全く同じ効果をもたらすので、`git-commit-hash`で指定するほうが簡単だと思います。
+
+下記のドキュメントにある通り、`versinon query`によってversionの指定を行うことができます。
+
+https://go.dev/ref/mod#version-queries
+
+大体の場合下記のいずれかの方法で行うことになると思います
 
 ```
 go get <<fully-qualified-module-path>>@latest
 go get <<fully-qualified-module-path>>@v1.2.3
-go get <<fully-qualified-module-path>>@<<what-ever-git-tag>>
+go get <<fully-qualified-module-path>>@<<git-tag>>
 go get <<fully-qualified-module-path>>@<<git-commit-hash>>
-# v0.0.0-<<commit-date-time>>-<<commit-hash-truncated-at-12-letters>>
-go get <<fully-qualified-module-path>>@v0.0.0-20250505110635-fd0b45653fa9
 ```
 
-`@`の後に
+`git tag`は`v`でprefixされた[Semantic Versioning 2.0](https://semver.org/)形式であれば`go.mod`にそのバージョンで記載されます([参照](https://go.dev/ref/mod#vcs-version))。`sem ver`形式でなくてもよいですが、その場合は[pseudo-version](https://go.dev/ref/mod#glos-pseudo-version)というpre-release形式のversionにエンコードされて記載されます。
+この`pseudo-version`を直接指定しても取得できますが、指定したいrevisionの直前の`sem ver`から1つ進んだversionのpre-releaseになる変換方式のようですので、これを直接指定するのは手間です。なのでやらないほうが良いでしょう。
 
-- (1)`latest`
-- (2)`git tag`(`VCS`が`git`の場合)
-- (3)`commit hash`
-- (4)`vX.Y.Z-<<commit-date-time>>-<<commit-hash-truncated-at-12-letters>>`
+### internal: 外部公開しないpackage
 
-のいずれかをつけます。
+`internal`という名前のdirectoryを作成すると、それ以下で定義されるpackageは、`internal/`と同階層かそれ以下からしかアクセスできないpackageを作成できます。
 
-`git tag`は`v`でprefixされた[Semantic Versioning 2.0](https://semver.org/)形式であれば`go.mod`にそのバージョンで記載されます([参照](https://go.dev/ref/mod#vcs-version))。`sem ver`形式でなくてもよいですが、その場合は(4)のようなpre-prelease形式に変換されて`go.mod`に記載されます。
-(3), (4)は同じ効果を持ち、`sem ver`でないtagを指定した時と同様にpre-release形式に変換されて記載されます。
+例として以下のように`internal`を追加してみます。
+
+```
+.
+├── cmd
+│   └── example
+│       ├── main.go
+│       └── other.go
+├── go.mod
+├── go.sum
+├── internal
+│   └── i0
+│       └── i0.go
+├── pkg1
+│   ├── internal
+│   │   └── i1
+│   │       └── i1.go
+│   └── some.go
+└── pkg2
+    ├── internal
+    │   └── i2
+    │       └── i2.go
+    └── other.go
+```
+
+内容は何でもいいのでとりあえず以下のようにします。
+
+```go: internal/i0/i0.go
+package i0
+
+const Yay0 = "yay0"
+```
+
+```go: pkg1/internal/i1/i1.go
+package i1
+
+const Yay1 = "yay1"
+```
+
+```go: pkg2/internal/i2/i2.go
+package i2
+
+const Yay2 = "yay2"
+```
+
+前述のとおり、`internal/`と同階層か、それより下からは参照できます。
+
+```diff go: pkg1/some.go
+package pkg1
+
++import (
++	"github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
++	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1/internal/i1"
++)
+
+var Foo = "foo"
++
++func SayYay0() string {
++	return i0.Yay0
++}
++
++func SayYay1() string {
++	return i1.Yay1
++}
+```
+
+```diff go: pkg2/other.go
+package pkg2
+
+import (
+	"fmt"
+
++	"github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
+	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1"
++	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2"
+)
+
+func SayDouble() string {
+	return fmt.Sprintf("%q%q", pkg1.Foo, pkg1.Foo)
+}
+
++func SayYay0() string {
++	return i0.Yay0
++}
++
++func SayYay2() string {
++	return i2.Yay2
++}
+```
+
+もちろんこれらはビルドが成功します。
+
+```
+$ go build ./pkg1
+$ go build ./pkg2
+```
+
+試しに下ではない階層からimportしてみます
+
+```diff go: pkg2/other.go
+package pkg1
+
+import (
+	"github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
+	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1/internal/i1"
++	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2"
+)
+
+var Foo = "foo"
+
+func SayYay0() string {
+	return i0.Yay0
+}
+
+func SayYay1() string {
+	return i1.Yay1
+}
+
++func SayYay2() string {
++	return i2.Yay2
++}
+```
+
+これは述べた通りエラーとなります。
+
+```
+$ go build ./pkg2
+package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2
+        imports github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1
+        pkg1/some.go:6:2: use of internal package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2 not allowed
+```
 
 ### package構成
 
@@ -835,18 +965,18 @@ https://go.dev/doc/modules/layout
 
 ```
 .
-|-- cmd
-| |-- command1
-| |   |-- main.go
-| |   `-- other_files.go
-| `-- command2
-|     |-- main.go
-|     `-- other_files.go
-|-- package_dir (名前はふさわしいものにする)
-|   `-- package.go
-|-- go.mod
-|-- go.sum
-`-- lib.go(名前はモジュールにふさわしい何かにする)
+├── cmd
+│ ├── command1
+│ │   ├── main.go
+│ │   └── other_files.go
+│ └── command2
+│     ├── main.go
+│     └── other_files.go
+├── package_dir (名前はふさわしいものにする)
+│   └── package.go
+├── go.mod
+├── go.sum
+└── lib.go(名前はmoduleにふさわしい何かにする)
 ```
 
 ## formatterの設定(goplsに任せるので特に設定はない)
@@ -877,7 +1007,7 @@ https://golangci-lint.run/welcome/integrations/
 
 https://go.dev/ref/mod#private-modules
 
-上記の説明より、一般公開されない、つまり特別な認証が必要な`VCS`でソースを管理し、`go get`などでモジュールをインポート/ダウンロードする場合、
+上記の説明より、一般公開されない、つまり特別な認証が必要な`VCS`でソースを管理し、`go get`などでmoduleをインポート/ダウンロードする場合、
 
 - `GOPROXY`もしくは`GOPRIVATE`の設定
 - (web access時にauthが必要な場合)`GOAUTH`の設定
@@ -902,7 +1032,7 @@ go env -w GOPRIVATE=<<url_wo_protocol>>
 (環境変数で指定すればよいと書かれていますが、筆者はうまくいかなかったので`go env -w`で書き込んでいます。)
 
 `GONOPROXY`, `GONOSUMDB`(`NO`であることに注意)を設定しない場合、`GOPRIVATE`がデフォルトとして使われます。
-`GONOPROXY`に設定されたホストからのモジュール取得する(`direct` mode)際には相手`VCS`に合わせたコマンドが使用されます(`git`の場合`git`コマンド -> [modfetch](https://github.com/golang/go/blob/go1.24.2/src/cmd/go/internal/modfetch/codehost/git.go#L233))。そのため、credentialの設定も多くの場合必要になります。
+`GONOPROXY`に設定されたホストからのmodule取得する(`direct` mode)際には相手`VCS`に合わせたコマンドが使用されます(`git`の場合`git`コマンド -> [modfetch](https://github.com/golang/go/blob/go1.24.2/src/cmd/go/internal/modfetch/codehost/git.go#L233))。そのため、credentialの設定も多くの場合必要になります。
 
 `go env -w`で書き込まれた内容は`go env GOENV`で表示されるファイルに保存されます。
 
@@ -924,7 +1054,11 @@ $ cat $(go env GOENV)
 
 [private VCSかつサブグループを使用する場合.gitなどでmodule nameをsuffixしておく](#private-vcsかつサブグループを使用する場合.gitなどでmodule-nameをsuffixしておく)のところで述べましたが、[Go 1.23]まで`.netrc`以外にcredを渡す方法がなかったため`gitlab`では`?go-get=1`がついている場合credentialなしのHTTP GETを受け付けるようになっていました。そのため設定する必要があるのはこれ以外にもっときつい制限をかけた`VCS`で使用しているか、もしくはprivate go module proxyを用いる場合でしょうか。
 
-筆者は試したことがないため参考までに、ですが、基本的には`git dir`を使用するとよいのではないかと思います。これは`GOAUTH=git /path/to/working/dir`を渡すと、[dirでgit credential fillを呼び出す](https://github.com/golang/go/blob/master/src/cmd/go/internal/auth/gitauth.go#L45)ものなので、git credentialの設定がしっかりされていれば追加の設定が不要であるためです。
+筆者は試したことがないため参考までに、ですが、基本的には`git dir`を使用するとよいのではないかと思います。これは`GOAUTH=git /path/to/working/dir`を渡すと、[dirでgit credential fillを呼び出し](https://github.com/golang/go/blob/master/src/cmd/go/internal/auth/gitauth.go#L45)、[Basic Auth](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Authentication#basic_authentication_scheme)としてHTTP Headerにセットするものなので、git credentialの設定がしっかりされていれば追加の設定が不要であるためです。
+
+`Basic Auth`以外の認証方法が必要な場合はカスタムコマンドを渡します。`go help goauth`を参照してください。
+
+(試してみたかったんですが、`github`でprivate repositoryを`direct` modeで取得する際には`GOAUTH`を設定していなくてもよいみたいなので試せませんでした。)
 
 ### module nameを`.git`でsuffixする
 
@@ -974,10 +1108,8 @@ sudo apt install pinentry-qt
 
 ```
 $ cat ~/.gnupg/gpg-agent.conf
-pinentry-program /usr/bin/pinentry
+pinentry-program /usr/bin/pinentry-qt
 ```
-
-筆者環境ではこれでも`pinentry-qt`が呼び出されますが、直接`pinentry-qt`を指定しても問題ありませんでした。
 
 ### git-lfsを導入している場合はすべての環境でgit-lfsを使うように気を付ける
 
@@ -997,6 +1129,168 @@ pinentry-program /usr/bin/pinentry
 
 開発の経緯的に、想定された用途ははゲームなどで大きなバイナリファイルを一緒に管理することのようです。
 それ以外でもテスト用の大きなファイルを管理するときなどにも使うことがあると思います。
+
+## task runner
+
+`Go`には組み込まれたtask runnerはありません。使わないか、外部のtask runnerを使います。
+
+### 使わない
+
+以下のケースではtask runnerを用いなくても十分通用します。
+
+- 複雑なビルド過程やテストマッチャーがない
+- [Dockerfile]などでビルドを記述できる
+- `//go:generate`で事足りる
+- `.sh`と`.bat`を両対応できる程度の量しかスクリプトがいらない
+- 管理用コマンドも全部`Go`で実装するつもり
+
+[Generate Go files by processing source](https://pkg.go.dev/cmd/go#hdr-Generate_Go_files_by_processing_source)より、`//go:generate command`というマジックコメントを`.go`ファイルの中に書き込むと、`go generate ./path/to/file_or_package`で`command`を実行できます。主眼は`code generator`を実行することですが実際には任意のコマンドを実行可能です。
+
+依存moduleの管理は`go.mod`でできますし、moduleをvendorする機能もサポートされていますので、task runnerが必要ないケースも多いのではないでしょうか。
+
+### Make
+
+[make](https://www.gnu.org/software/make/)を使っているプロジェクトをいくつか見たことがあります。
+筆者はこの方法をとったことがないため何とも言えませんが、
+
+- pros:
+- `linux`ならもとからインストール済みのことが多い
+- cons:
+  - `make`はtask runnerではないという批判
+  - syntaxの覚え方が苦しんで覚える以外の方法があるのかわからない
+  - windowsで動かそうとするとハマる
+
+という感じでしょうか(筆者の完全主観ですが)
+
+チームがすでに`make`に慣れている場合はよい思います。
+
+### github.com/go-task/task
+
+[github.com/go-task/task]を用いるという方法もあります。
+
+https://taskfile.dev/
+
+> Task is a task runner / build tool that aims to be simpler and easier to use than, for example, GNU Make.
+
+とある通り、`make`などの代替を目指すものです。
+
+- pros:
+  - `Go`で開発されているため、toolchainが入っていれば簡単にインストール可能なところが相性がよいです。
+  - yamlで書ける
+  - cross-platform
+- cons:
+  - 追加のツールのinstall必要
+
+```
+go install github.com/go-task/task/v3/cmd/task@latest
+```
+
+`--init`で初期化を行います。
+
+```
+$ task --init
+Taskfile created: Taskfile.yml
+```
+
+デフォルトで以下が作成されます。
+
+```yaml: Taskfile.yml
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  GREETING: Hello, World!
+
+tasks:
+  default:
+    cmds:
+      - echo "{{.GREETING}}"
+    silent: true
+```
+
+[Templating Reference](https://taskfile.dev/reference/templating/)にあるように[text/template]の構文でtemplateを書けるようですね
+
+```diff yaml: Taskfile.yml
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  GREETING: Hello, World!
+
+tasks:
+  default:
+    cmds:
+-      - echo "{{.GREETING}}"
++      - echo "{{index .GREETING 0}}"
+    silent: true
+```
+
+```
+$ task default
+72
+```
+
+72は`H`のascii codeです。
+
+[Usage#task-dependencies](https://taskfile.dev/usage/#task-dependencies)より、task間に依存関係を記述可能です
+
+```diff yaml: Taskfile.yml
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  GREETING: Hello, World!
+
+tasks:
+  default:
+    cmds:
+      - echo "{{index .GREETING 0}}"
+    silent: true
++  quack:
++    cmds:
++      - echo quack
++  run:
++    deps: [quack]
++    cmds:
++      - go run ./cmd/example
+```
+
+```
+$ task run
+task: [quack] echo quack
+quack
+task: [run] go run ./cmd/example
+Hello world foo
+ede693e1e85a2f70
+```
+
+最近のpowershell(というかwindowsに？)にはunix風コマンドがいくつかあります。echoは存在するみたいなのでこれはwindowsでも動作するようです。
+
+### deno task
+
+[dax]: https://github.com/dsherret/dax
+
+[deno]のtask runnerを用いる方法もあると思います
+
+https://docs.deno.com/runtime/reference/cli/task/
+
+- pros:
+  - [dax]を用いた容易なスクリプト開発
+  - cross-platform
+- cons:
+  - 別言語の知識が必要
+  - 管理すべきツールが増える
+
+[deno]は[Rust]の[tokio](https://github.com/tokio-rs/tokio)をバックエンドに、javascript engineの[V8](https://v8.dev/)で動作するjavascript/typescriptランタイムです。
+
+[dax]を用いるとshellscriptのようなノリで`typescript`がかけるためいい感じです。
+なんとshellコマンド間や`javascript object`にpipeが行えるのです。shellscriptで書くには億劫な高度な演算を`typescript`でかいたり、コマンドの結果を`WebStream`に受けていじくったりできるので便利だと思います。
+
+ただ半面導入するツールが増えのが難点です。`Go`で開発されているわけでもないためぱっと導入できるわけでもないですし、書き込まれるキャッシュ領域も増えるので、必ずしもこれが最適な選択というわけでもありません。
+チームがすでに`typescript`に慣れており、何かの事情ですでに[deno]を導入している場合はよいかもしれません。
 
 ## おわりに
 
@@ -1027,6 +1321,7 @@ private repositoryから`go get`するのは特に躓いたのでまとめてお
 [git]: https://git-scm.com/
 [Git Credential Manager]: https://github.com/git-ecosystem/git-credential-manager?tab=readme-ov-file
 [Docker]: https://www.docker.com/
+[Dockerfile]: https://docs.docker.com/build/concepts/dockerfile/
 
 <!-- Go versions -->
 
@@ -1043,6 +1338,7 @@ private repositoryから`go get`するのは特に躓いたのでまとめてお
 <!-- Go tools -->
 
 [gopls]: https://github.com/golang/tools/tree/master/gopls
+[github.com/go-task/task]: https://github.com/go-task/task
 
 <!-- references to spec -->
 
@@ -1064,3 +1360,4 @@ private repositoryから`go get`するのは特に躓いたのでまとめてお
 [io.Reader]: https://pkg.go.dev/io@go1.24.2#Reader
 [io.Writer]: https://pkg.go.dev/io@go1.24.2#Writer
 [syscall.Errno]: https://pkg.go.dev/syscall@go1.24.2#Errno
+[text/template]: https://pkg.go.dev/text/template@go1.24.2
