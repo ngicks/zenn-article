@@ -752,16 +752,16 @@ package main
 
 -import "fmt"
 +import (
-+	"fmt"
++  "fmt"
 +
-+	"github.com/ngicks/go-iterator-helper/hiter"
-+	"github.com/ngicks/go-iterator-helper/hiter/mapper"
-+	"github.com/ngicks/go-iterator-helper/hiter/mathiter"
++  "github.com/ngicks/go-iterator-helper/hiter"
++  "github.com/ngicks/go-iterator-helper/hiter/mapper"
++  "github.com/ngicks/go-iterator-helper/hiter/mathiter"
 +)
 
 func main() {
-	fmt.Println("Hello world", Foo)
-+	fmt.Println(hiter.Sum(mapper.Sprintf("%x", hiter.Limit(8, mathiter.Rng(256)))))
+  fmt.Println("Hello world", Foo)
++  fmt.Println(hiter.Sum(mapper.Sprintf("%x", hiter.Limit(8, mathiter.Rng(256)))))
 }
 ```
 
@@ -872,18 +872,18 @@ const Yay2 = "yay2"
 package pkg1
 
 +import (
-+	"github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
-+	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1/internal/i1"
++  "github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
++  "github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1/internal/i1"
 +)
 
 var Foo = "foo"
 +
 +func SayYay0() string {
-+	return i0.Yay0
++  return i0.Yay0
 +}
 +
 +func SayYay1() string {
-+	return i1.Yay1
++  return i1.Yay1
 +}
 ```
 
@@ -891,23 +891,23 @@ var Foo = "foo"
 package pkg2
 
 import (
-	"fmt"
+  "fmt"
 
-+	"github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
-	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1"
-+	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2"
++  "github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
+  "github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1"
++  "github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2"
 )
 
 func SayDouble() string {
-	return fmt.Sprintf("%q%q", pkg1.Foo, pkg1.Foo)
+  return fmt.Sprintf("%q%q", pkg1.Foo, pkg1.Foo)
 }
 
 +func SayYay0() string {
-+	return i0.Yay0
++  return i0.Yay0
 +}
 +
 +func SayYay2() string {
-+	return i2.Yay2
++  return i2.Yay2
 +}
 ```
 
@@ -924,23 +924,23 @@ $ go build ./pkg2
 package pkg1
 
 import (
-	"github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
-	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1/internal/i1"
-+	"github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2"
+  "github.com/ngicks/go-example-basics-revisited/starting-projects/internal/i0"
+  "github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1/internal/i1"
++  "github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2"
 )
 
 var Foo = "foo"
 
 func SayYay0() string {
-	return i0.Yay0
+  return i0.Yay0
 }
 
 func SayYay1() string {
-	return i1.Yay1
+  return i1.Yay1
 }
 
 +func SayYay2() string {
-+	return i2.Yay2
++  return i2.Yay2
 +}
 ```
 
@@ -985,11 +985,11 @@ https://go.dev/doc/modules/layout
 
 ## linterの設定
 
-[gopls]の設定で`staticchek`や、[golang.org/x/tools/gopls/internal/analysis/modernize](https://pkg.go.dev/golang.org/x/tools/gopls/internal/analysis/modernize)などが有効になっているはずです。
+[gopls]の設定で`staticcheck`や、[golang.org/x/tools/gopls/internal/analysis/modernize](https://pkg.go.dev/golang.org/x/tools/gopls/internal/analysis/modernize)などが有効になっているはずです。
 
 それ以外のいろいろなルールを追加したい場合は、[github.com/golangci/golangci-lint](https://github.com/golangci/golangci-lint)がよく用いられると思います。
 
-導入方法は下記で述べられていますが、[vscode],`GoLand`に関してはextensionを入れる以外には特に設定がいらず、`vim`/`neovim`に関しては[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)を用いるとよいでしょう(筆者は試したことがない)。
+導入方法は下記で述べられていますが、[vscode],`GoLand`に関してはextensionを入れる以外には特に設定がいらず、`vim`/`neovim`に関しては[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)を用いるように書かれています。[エディタのセットアップ](#エディタのセットアップ)のところで触れましたが、`neovim`(v0.11.0かそれ以降)では[neovim/nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)に[`golangci-lint-langserver`の設定設定](https://github.com/neovim/nvim-lspconfig/blob/v2.1.0/lsp/golangci_lint_ls.lua)が存在していますので[vim.lsp.enable](<https://neovim.io/doc/user/lsp.html#vim.lsp.enable()>)`("golangci_lint_ls")`すればよいです。
 
 https://golangci-lint.run/welcome/integrations/
 
@@ -1154,7 +1154,7 @@ pinentry-program /usr/bin/pinentry-qt
 筆者はこの方法をとったことがないため何とも言えませんが、
 
 - pros:
-- `linux`ならもとからインストール済みのことが多い
+  - `linux`ならもとからインストール済みのことが多い
 - cons:
   - `make`はtask runnerではないという批判
   - syntaxの覚え方が苦しんで覚える以外の方法があるのかわからない
@@ -1175,11 +1175,11 @@ https://taskfile.dev/
 とある通り、`make`などの代替を目指すものです。
 
 - pros:
-  - `Go`で開発されているため、toolchainが入っていれば簡単にインストール可能なところが相性がよいです。
-  - yamlで書ける
+  - `Go`で開発されているため、toolchainが入っていれば簡単にインストール可能
   - cross-platform
+  - yamlで書ける
 - cons:
-  - 追加のツールのinstall必要
+  - 管理すべきツールが増える
 
 ```
 go install github.com/go-task/task/v3/cmd/task@latest
@@ -1278,8 +1278,9 @@ ede693e1e85a2f70
 https://docs.deno.com/runtime/reference/cli/task/
 
 - pros:
-  - [dax]を用いた容易なスクリプト開発
   - cross-platform
+  - jsonで書ける
+  - [dax]を用いた容易なスクリプト開発
 - cons:
   - 別言語の知識が必要
   - 管理すべきツールが増える
@@ -1291,6 +1292,60 @@ https://docs.deno.com/runtime/reference/cli/task/
 
 ただ半面導入するツールが増えのが難点です。`Go`で開発されているわけでもないためぱっと導入できるわけでもないですし、書き込まれるキャッシュ領域も増えるので、必ずしもこれが最適な選択というわけでもありません。
 チームがすでに`typescript`に慣れており、何かの事情ですでに[deno]を導入している場合はよいかもしれません。
+
+`task`であげた例と似たようなものは以下のようになります。
+
+```json: dneo.json
+{
+  "tasks": {
+    "quack": "deno eval 'console.log(\"quack\")'",
+    "run": {
+      "command": "go run ./cmd/example",
+      "dependencies": ["quack"]
+    }
+  },
+  "imports": {
+    "#/": "./script/"
+  }
+}
+```
+
+```
+$ deno task run
+Task quack deno eval 'console.log("quack")'
+quack
+Task run go run ./cmd/example
+Hello world foo
+ed35803c9ff5b841
+```
+
+[dax]を用いるとshellのように`typescript`がかけます。
+少し極端な例として`sha256sum`をとるのをshellだけでやるような形と、WebStreamを混在させたバージョンの二つを挙げてスタイルの自由さの例とします。
+
+```ts: script/dax_example.ts
+import { crypto } from "jsr:@std/crypto";
+import { encodeHex } from "jsr:@std/encoding/hex";
+
+import $ from "@david/dax";
+
+const sum1 = await $`cat ./go.mod | sha256sum | awk '{print $1}'`.text();
+
+const pipe = new TransformStream<Uint8Array, Uint8Array>();
+const sumP = crypto.subtle.digest("SHA-256", pipe.readable);
+await $`cat ./go.mod > ${pipe.writable}`;
+const sum2 = encodeHex(await sumP);
+
+console.log(sum1);
+console.log(sum2);
+console.log("same? =", sum1 === sum2);
+```
+
+```
+$ deno run -A ./script/dax_example.ts
+a141062eb619fb89a183d62b8896d192170b1dd6fc479611f6c5a427038447f0
+a141062eb619fb89a183d62b8896d192170b1dd6fc479611f6c5a427038447f0
+same? = true
+```
 
 ## おわりに
 
