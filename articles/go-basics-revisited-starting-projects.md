@@ -33,7 +33,7 @@ published: false
 
 新しいプログラミング言語、フレームワーク、ライブラリー、ツール、etcを始めるとき筆者にとってよく障害となるのは「プロジェクトを始めるまでの方法がわからない」ということです。
 
-そこで、この記事では[Go]そのものの紹介、SDKのインストール、エディターのセットアップ、プロジェクトの開始方法(=moduleの作成方法)、さらにprivate repositoryで管理されるgo moduleをインポートできるようにする方法などについてまとめます。
+そこで、この記事では[Go]そのものの紹介、SDKのインストール、エディターのセットアップ、プロジェクトの開始方法(=moduleの作成方法)、さらにprivate repositoryで管理されるgo moduleをインポートできるようにする方法、タスクランナーなどについてまとめます。
 
 ## 前提知識
 
@@ -80,18 +80,33 @@ go version go1.24.2 linux/amd64
 - [Verilog](https://en.wikipedia.org/wiki/Verilog)(HDL)でAltera製の[FPGA](https://en.wikipedia.org/wiki/Field-programmable_gate_array)の回路を記述していた
 - [C++]\(Visual Studio Community 2019だったと思う\)を使ってセンサーから値を読み込んで計算を行うプログラムを作っていた
   - 四元数で回転を計算するのに[Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page)を使っていました。
+  - GUIをつけるのに[MFC](http://msdn.microsoft.com/ja-jp/library/d06h2x6e.aspx)を使っていました。
 
 `FPGA`を使ったプロジェクトはとん挫したので遊びみたいなものです。
-機械や制御を専門とする学徒であったためこの時点ではソフトウェアに詳しくはありませんでした。とくにC++に関しては研究室に置いてあった古い本を読みながらやったので当時からしても古い書き方をしていたと思います。
+機械や制御を専門とする学徒であったためこの時点ではソフトウェアに詳しくはありませんでした。とくに`C++`に関しては研究室に置いてあった古い本を読みながらやったので当時からしても古い書き方をしていたと思います。
 
 社会人になってから
 
-- [Node.js]\([TypeScript]\)
-- ちょっとだけ[python]
-- [Rust]\: C/C++で書かれたライブラリのbindingを書いて使ってた程度であんまりメインで使ってるわけではないです。
-- [Go]
+- [Node.js]\([TypeScript]\)\:
+  - 業務アプリの一部みたいなやつ、APIサーバーとかを書いてました。
+  - イベントループがあるのがいいなあと思ったんですが、仕様の過渡期とかがつらくて離れました。
+    - `Node.js`の`commonjs module` -> `ECMA module`
+    - `Node.js stream` -> `WebStream`
+    - -> `fetch` などなど
+  - もうすぐ移行が終わりそうなので楽しみにしてます。
+- ちょっとだけ[python]\:
+  - 業務改善のためのツールに使用してました。`Excel`をいじくるやつです。実行ファイルに固めてくれと言われてこりゃしんどいわとなってのちに[Go]で書きなおしています。
+  - `python`のasyncについて教えるためにasync周りの`CPython`の実装を読んでます。おもしろいです。
+- [Rust]\:
+  - `C/C++`で書かれたライブラリのbindingを書いて使ってた程度であんまりメインで使ってるわけではないです。
+  - `PDFium`へのbindingを書いてました。[pdfium_rs](https://github.com/asafigan/pdfium_rs)をフォークして拡張する形でやってました。楽しかったなあ。
+  - [deno]のruntimeが[Rust]\([tokio]\)なので必然的に読む機会は多いです。
+- [Go]\: 仕事でも趣味でも使っています。APIサーバーを書いたり、`Docker API`を通じてコンテナ状態をいじったり、画像をいじくったりいろいろやってます。
 
-を扱っています。
+別に書かないですが
+
+- [Java]\: 学生時代`Swing JAVA`でUIを作る講義がありました。[Elasticsearch]のソースを読んだりしてます。
+- [C]\: `linux` kernelとか`busybox`とかの詳細がわからなくて困ることがあるので読まざるを得ません。プロジェクトによってはマクロでオブジェクト指向みたいなことしてて毎回ビビらされます。`QEMU/virsh`, `OpenSSL`,などなど重要なツールはどれも`C`で書かれている気がします。が、最近は[Rustに移行するもの](https://discourse.ubuntu.com/t/carefully-but-purposefully-oxidising-ubuntu/56995)も増えてきましたね。
 
 少し特殊な環境で動くソフトウェアを書くためデータベース周りの話にあまり明るくなかったりします。
 手元でスクリプティングを行う場合はもっぱら[neovim]の[Lua]、[deno], [Go]のいずれかで行っています。
@@ -108,38 +123,44 @@ go version go1.24.2 linux/amd64
 
 これよりもう少し説明すると、[Go]は
 
-- C系の文法
-- 強い静的型付け
-  - 暗黙的な型変換は起きません。筆者の知る限り最近の言語はそれを行わないので意外でもないでしょうか。
+- C系統の文法で
+- 静的型付けで
+- 言語に組み込まれた`goroutine`, いわゆる[Green Thread](https://en.wikipedia.org/wiki/Green_thread)の機能があります。
+  - これを呼び出すには`go`キーワードの後に関数やmethodの呼び出しを書くだけです。簡単です。
+  - `goroutine`のランタイムがOS ThreadをCPU個数と同数（正確には違う）作っておいて、それらの上で`goroutine`をスケジュールします。
+  - CPUと同数個のOS Threadを作っておいて、そのうえでタスクを動かすのは[Node.js]も似たようなコンセプトを持っていますが、`goroutine`は普通のOS Threadかのようにユーザーには見えるという違いがあります。
+  - [Rust]には`async/await`構文があり、[tokio]などのランタイムを用いると似たようなことができます([deno]は[tokio]を使用しています)が、こちらは(`async fn`は)stackless statemachineになる方式、`goroutine`はそれぞれがstackを持っていますので違いがあります。
+  - coorporativeなタスクの切り替えしかできないかと思いきや[Go 1.14]からpreemptiveな切り替えにも対応しています。
 - GC(Garbage Collector)があり、手動でのメモリ確保・解放はほぼやることはありません。
 - 言語仕様が簡潔で、言語としてサポートされた構文は多くありません。
   - [spec#Keywords](https://go.dev/ref/spec#Keywords)より、keywordは25個とほかの言語と比べて少ないです。
-- 任意の型をベースとする型を定義できます。
-  - 型にはmethod(型に関連した関数)を定義できます。
-- 特定のmethod setを実装する型なら何でも代入できる`interface`をもち、これによってdynamic dispatchを実現します。
-  - 例えば`type IOPort interface { Read(p []byte) (int, error); Write(b []byte) (int, error) }`を引数の型として指定するとすることで、`Read`と`Write`を実装するあらゆる型を引数に取れる関数を定義できます。
-  - `interface{}`(なんのmethodも指定しない`interface`)にはあらゆる型の変数を代入可能です。上記の*feels like a dynamically typed, interpreted language*の部分はこのこともさしているのだと思います。
-- closure(無名の関数)を定義できます。
-  - closureはスコープ内の変数をキャプチャできます。
-  - 関数、method、closureはいずれも区別なく引数として渡すことができます。
-- `goroutine`という言語に組み込まれたconcurrency mechanismが存在します。
-  - `goroutine`は[spec#Go_statement](https://go.dev/ref/spec#Go_statements)で述べられている通り*an independent concurrent thread of control*です。いわゆる[Green Thread](https://en.wikipedia.org/wiki/Green_thread)です。
-  - メモリ、スケジューリング双方で軽量であるため、OS threadと違い大量に生成するのが普通です。
-    - `goroutine`ごとにstackを持っていますが、2～6KiB(プラットフォームによる)から始まって必要に応じて成長します。
-  - `go`キーワードを前につけて関数やmethodを実行するだけです。とっても簡単。
-  - 言語に組み込まれているため、エコシステム内でどのランタイムを使うかなどの分断が起きません。
-  - async/awaitのような構文を持ち込まずに非同期性を実現します。
-    - あとから長いIO処理入れたくなった、となったとしてもsignatureの変更が起こらないという良さがあります。
-- `goroutine`間で通信するためのprimitiveとして組み込まれた`chan`(channel)型が存在します。
-- 組み込み型として`slice`(動的にサイズが変更できるarray;ほかの言語のvectorに近いもの)、`map`(hash map),`chan`(channel)があってこれらはfor-range構文が対応していたりと特別扱いされます。
+  - 例えばほかの言語でよくある`while`はなく、代わりにcondition部分のない`for { /* do anything */ }`を用います。
 - コンパイルが*遅くならない*ように気が遣われています。
-- moduleシステムとpackageマネージャが組み込まれています。
-  - moduleの公開には特別な処理は必要ありません。`github`のようなVCS(Version Control System)で公開し、go moduleの名前を`https://`抜きのURLにすればそれで公開できます。
+  - 機能も構文もあまりコンパイルが遅くならないように気遣って追加されるようです。proposalを読んでるとコンパイルの速度が遅くならない方式だからこの方法を採用する、みたいな言及があります。
+  - `go run ./path/to/main`を実行すると、毎回ビルドしてから実行するんですが、こうしても気にならないほどにはコンパイルは速いです。
+- classや継承はなく、`interface`による抽象化を行います。
+  - `interface`は特定の`method set`を実装する型なら何でも代入できる型という意味になります。
+  - `interface{}`(なんのmethodも指定しない`interface`)にはあらゆる型の変数を代入可能です。上記の*feels like a dynamically typed, interpreted language*の部分はこのこともさしているのだと思います。
+- methodは、任意の型をベースとした型を定義し、それに関連した関数として実装します。
+  - `type A struct { Foo string; Bar int}`や`type B string`のように、別の型をベースとして型を定義できます
+  - もちろん、`type C A`も可能です。
+  - `func (a A) MethodName() {}`という構文でmethodは定義できます。ここでいう`a`がほかの言語でいう`self`とか`this`です。
+    - 同じpackage内なら複数のファイルに分散して定義したりできます。
+- method、関数、closureはすべて区別なく変数や引数に代入可能です。
+- 組み込み型として`array`(`[5]T`)、`slice`(`[]T`) = 動的にサイズが変更できるarray;ほかの言語のvectorに近いもの、`map`(`map[K]V`) = hash map,`chan`(`chan T`) = channel(`goroutine`-safeな通信ができる)があってこれらはfor-range構文が対応していたりと特別扱いされます。
+- moduleシステムが組み込まれています。
+  - moduleの公開には特別な処理は必要ありません。`github`のようなVCS(Version Control System)で公開し、`Go module`の名前を`https://`抜きのURLにすればそれで公開できます。
 - pointerは存在しますが、pointer arithmeticは(`unsafe`を使わない限り)できません
 - 非常に簡単に別のCPUアーキテクチャ、OS向けのビルドを行うことができます。
-  - ただし`CGO`(C-binding)を使わない場合
+  - ただし`CGO`(FFI)を使わない場合
 - 非常に簡単にstaticにビルドできます。
-  - ただし`CGO`(C-binding)を使わない場合
+  - ただし`CGO`(FFI)を使わない場合
+
+よくいろいろないといわれますが
+
+- genericsは[Go 1.18]で実装されました
+- iteratorは[Go 1.23]で実装されました
+- `?`構文は[dicussion](https://github.com/golang/go/discussions/71460)に入ってるので1～2年以内に実装されるかも！
 
 ### A Tour of Go
 
@@ -149,8 +170,10 @@ https://go.dev/tour/welcome/1
 インタラクティブなコードスニペットと簡単なエクササイズがあり、これさえこなせばとりあえず開発は始められます。
 **以後の文章はA Tour of Goをすべてこなしたことを前提とします。**
 
-慣れてない頃に、syntax highlightのかからないwebページでコードを書くのはきついと思うのでローカルのエディターにコピーして実行したほうが良いとは思います。
-大体３~５時間ぐらいで全部終わると思います。
+慣れてない頃に、syntax highlightのかからないwebページでコードを書くのはきついと思いますが、軽く調べた限り任意のエディターで実行する簡単な方法はなさそうです。
+
+筆者の記憶にある限り筆者は合計6時間ぐらいですべて終わりました(当時はまだgenerics実装前だったので今はもう少し長い)。
+時間のほとんどは構文エラーがよくわかんなくて費やされたのでローカルのエディターにコピーして書いてコピーしなおして実行すればもっと早く終わるかもしれません。
 
 ### Go by Example
 
@@ -207,6 +230,7 @@ std libに入ると厳密な後方互換性の約束を守る必要がありま�
 - ここで先に実装されてからstdに昇格されたり(`maps`, `slices`など)、
 - stdがFrozenなので代わりにこちらのものを使うべきだったり(`syscall`の代わりに[golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys#section-readme))
 - 1ファイルにバンドルされてstdに組み込まれていたり([golang.org/x/net/http2](https://pkg.go.dev/golang.org/x/net/http2))
+- 古い`Go`でも利用できるようにstdへの追加がこちらにも入れられる(`encoding/json/v2`など)
 
 することもあります。
 
@@ -260,6 +284,8 @@ sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xf /tmp/go-download/dist.ta
 ```
 rm -rf ~/.local/go && tar -C ~/.local -xf /tmp/go-download/dist.tar.gz
 ```
+
+以降は`~/.local/go`に入れてある前提で書かれます。
 
 ### PATHを通す
 
@@ -332,7 +358,7 @@ goのsurveyはself-selection, `vscode`の`Go extension`からの誘導, `GoLand`
 - moduleはさらにpackageと呼ばれる単位に分割されます。
 - 1 directory = 1 packageです
   - 例外的にmain以外のpackageは`_test` suffixをつけた(e.g. `pkg`に対して`pkg_test`)テスト用packageを定義することができる
-- packageはname spaceを共有します。
+- packageはnamespaceを共有します。
   - 複数ファイルにわたって同じ変数、関数にアクセスできます
   - ほかの言語、例えば[Rust]では1つのファイルが1つのmoduleであり、ファイル内でもmoduleを定義することができますが、逆に`Go`ではこのように任意に分割する方法はありません。
 - main packageが実行ファイルとしてビルドできる
@@ -340,7 +366,7 @@ goのsurveyはself-selection, `vscode`の`Go extension`からの誘導, `GoLand`
   - main packageは任意のパスに任意の個数用意できる。
 - `go build ./path/to/main/package/`でディレクトリ指定でビルドする
   - 必ず`./`から始まるパスを指定する。ないとstd libraryを指定していると`go tool`に思われる。
-- main以外のpackageはfully-qualified pathで(`<<module-name>>/path/to/directory`)importできる。
+- main以外のpackageはfully-qualified path(`<<module-name>>/path/to/directory`)でimportできる。
   - 相対パスを用いることもできるが、ほぼされることがないためしないほうが良いのではないかと思う。
 - 外部のmoduleは`go get`で取得することができる。
 
@@ -378,7 +404,7 @@ pushd $dest
 go mod init <<module-name>>
 ```
 
-`<<module-name>>`は基本的に上記`<<uri>>`からプロトコルスキームを抜いたものにするとよいです。
+`<<module-name>>`は基本的に上記`<<uri>>`からprotocol schemeを抜いたものにするとよいです。
 そうすると`go get <<module-name>>`でこのmoduleを別の`Go module`へ導入できるためです。
 
 例えば、`VCS`のuriが`https://github.com/ngicks/go-example-basics-revisited`である場合、
@@ -435,17 +461,17 @@ go mod init example.com/ngicks/subgroup/go-example-basics-revisited.git
     - `go install`: `<<module-name>>/cmd/command-name`のようにsub-packageにmain packageを作ることが多い。
     - mono-repo: 1つの`VCS` repositoryに対して複数のgo moduleをホストすることができますのでmodule root = gitなどでcloneする対象とも限りません。
 - (少なくとも)`gitlab`では(おそらく)あらゆるパスに対して`?go-get=1` query paramをつけたHTTP GETが成功します
-  - 返ってくる内容は`go tool`の期待に反してmodule root pathではなく、渡されたパスをオウム返しするだけです。
+  - 返ってくる内容は`go tool`の期待に反してmodule root pathではなく、アクセスされたURLのパスをオウム返しするだけです。
   - おそらくセキュリティーのためです(後述)。そのためおそらくどのVCSでもこうなっているんじゃないでしょうか
 
 というのが理由です。
 
 [Go 1.24]まで、`.netrc`を用いる以外に`go tool`にcredentialを渡す方法がなく、そのため`?go-get=1`は認証情報なしでリクエストされることがほとんどだったと思われます。
-少なくとも筆者の環境では`.netrc`を作成していませんがprivate repositoryから`go get`が成功していました。ということは認証なしで`?go-get=1`付きのリクエストはとりあえず成功するようにできていたんだと思います。セキュリティー的な懸念から"正しい"内容を認証していない状態で返すわけにはいきませんので、こういう挙動になっていたのでしょう。
+少なくとも筆者の環境では`.netrc`を作成していませんがprivate repositoryから`go get`が成功していました。ということは認証なしで`?go-get=1`付きのリクエストはとりあえず成功するようにできていたんだと思います。404とか403みたいにエラー種がパスによって変わるとどういうパス構成なのかが外部からばれてしまうため、"正しい"内容を認証していない状態で返すわけにはいきませんので、こういう挙動になっていたのでしょう。
 `direct` modeで`git`コマンドを直接用いる際には`git`コマンドのcredentialがそのまま利用されますから、ここは広く用いられる方法でcredentialを渡すことができます。
 後方互換性のことを考えるとこの挙動が変わることはまずない気がします。
 
-https://gitlab.com/gitlab-org/api?go-get=1 はPublicですが、これも与えられたパスをオウム返しする挙動であるのでPublicであってもうまく動かないと思われます。このURLが指し示す先はサブグループなので500番台とか404とかを返すのが正しい挙動に思えますね。
+https://gitlab.com/gitlab-org/api?go-get=1 はPublicですが、これも与えられたパスをオウム返しする挙動であるのでPublicであってもうまく動かないと思われます。このURLが指し示す先はサブグループなので500番台とか400とかを返すのが正しい挙動に思えますね。
 
 もし仮にmodule nameに`VCS` suffixをつけたくないとしたら、好ましい解決方法は
 
@@ -635,7 +661,7 @@ Hello world foo
 ファイルが増えると困りますよね？
 なのでファイルパスじゃなくてpacakge pathで指定するとよいでしょう。
 
-相対パスでビルドを行う場合は`./`を必ず含めて、package名で指定するとよいでしょう。
+相対パスでビルドを行う場合は`./`を必ず含めて、directory名で指定するとよいでしょう。
 
 ### packageを分ける
 
@@ -662,7 +688,7 @@ Hello world foo
   - さらに大文字・小文字を区別しないファイルシステムが存在するためすべて小文字が好ましいという都合があります。
   - それらがあわさるとこういった慣習になっているのだと思います。
 
-同じpackage内のファイルはネームスペースを共有しています: つまり別のファイルに同名の関数は定義できないし、別のファイルの関数や変数を利用可能です。
+同じpackage内のファイルはnamespaceを共有しています: つまり別のファイルに同名の関数は定義できないし、別のファイルの関数や変数を利用可能です。
 
 ```
 mkdir pkg1 pkg2
@@ -750,6 +776,7 @@ go 1.24.0
 まだこのmoduleはこのプロジェクトのどこからも使われていないので`// indirect`がつけれています。
 
 `import`で各ソースコードにmoduleを導入して使用できるようになります。
+[gopls]の設定で[completeUnimported](https://github.com/golang/tools/blob/gopls/v0.18.1/gopls/internal/settings/settings.go#L617-L619)が有効にされていると、可能な場合`import`に書かれていない内容でも補完がかかります(e.g. `import` clauseがないファイルで`fmt.`と打つと`fmt.Println`などがサジェストされ、選ぶと`import "fmt"`が追記される)ので、見た目に反してこの内容を書くのは面倒ではありません。(初めて導入したモジュールとかは補完されないことがある。)
 
 ```diff go: cmd/example/main.go
 package main
@@ -801,7 +828,8 @@ github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7O
 
 実際にプロジェクト内で使われるようになったので`// indirect`が外れます。
 さらに`go get`時には追加されていなかった依存先の`_test` moduleの依存先も`go.sum`に記録されています。
-`VCS`にプッシュする前には`go mod tidy`を実行しておくほうがよいでしょう。
+
+`go mod tidy`を行うと`go.sum`の内容が整理されたり、使われなくなった外部moduleが削除されたりします。`VCS`にプッシュする前には`go mod tidy`を実行しておくほうがよいでしょう。
 
 上記の例では`go get`時にversionを指定していないため、適当な最新バージョンが選ばられるようです。
 
@@ -815,7 +843,7 @@ https://go.dev/ref/mod#version-queries
 go get <<fully-qualified-module-path>>@latest
 go get <<fully-qualified-module-path>>@v1.2.3
 go get <<fully-qualified-module-path>>@<<git-tag>>
-go get <<fully-qualified-module-path>>@<<git-commit-hash>>
+go get <<fully-qualified-module-path>>@<<git-commit-hash-prefix>>
 ```
 
 `git tag`は`v`でprefixされた[Semantic Versioning 2.0](https://semver.org/)形式であれば`go.mod`にそのバージョンで記載されます([参照](https://go.dev/ref/mod#vcs-version))。`sem ver`形式でなくてもよいですが、その場合は[pseudo-version](https://go.dev/ref/mod#glos-pseudo-version)というpre-release形式のversionにエンコードされて記載されます。
@@ -924,7 +952,7 @@ $ go build ./pkg2
 
 試しに下ではない階層からimportしてみます
 
-```diff go: pkg2/other.go
+```diff go: pkg1/other.go
 package pkg1
 
 import (
@@ -951,9 +979,8 @@ func SayYay1() string {
 これは述べた通りエラーとなります。
 
 ```
-$ go build ./pkg2
-package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2
-        imports github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1
+$ go build ./pkg1
+package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1
         pkg1/some.go:6:2: use of internal package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2 not allowed
 ```
 
@@ -987,13 +1014,16 @@ https://go.dev/doc/modules/layout
 
 [gopls]の設定で`gofmt`, `goimports`, `gofumpt`などでformatがかけられます。多分前述したeditorのセットアップをしたうえで、editorで`Format On Save`を有効にすれば問題なくformatがかかりますので特に設定はありません。
 
+といいつつ、`vim`/`neovim`ではさらに[追加の設定](https://github.com/golang/tools/blob/gopls/v0.18.1/gopls/doc/vim.md#imports-and-formatting)が必要です。どうも試してる限りまだこのautocmdがないとimportの修正が起こらないっぽい？詳しくなくて裏が取れてません。
+筆者は`lua_ls`に警告を受けるのが気に入らなかったので[若干修正](https://github.com/ngicks/dotfiles/blob/75b4a0c4db837b5fdc700b9d183ddb5d53598bb8/.config/nvim/after/lsp/gopls.lua#L1-L32)して使っています
+
 ## linterの設定
 
 [gopls]の設定で`staticcheck`や、[golang.org/x/tools/gopls/internal/analysis/modernize](https://pkg.go.dev/golang.org/x/tools/gopls/internal/analysis/modernize)などが有効になっているはずです。
 
 それ以外のいろいろなルールを追加したい場合は、[github.com/golangci/golangci-lint](https://github.com/golangci/golangci-lint)がよく用いられると思います。
 
-導入方法は下記で述べられていますが、[vscode],`GoLand`に関してはextensionを入れる以外には特に設定がいらず、`vim`/`neovim`に関しては[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)を用いるように書かれています。[エディタのセットアップ](#エディタのセットアップ)のところで触れましたが、`neovim`(v0.11.0かそれ以降)では[neovim/nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)に[`golangci-lint-langserver`の設定設定](https://github.com/neovim/nvim-lspconfig/blob/v2.1.0/lsp/golangci_lint_ls.lua)が存在していますので、何かしらのpackage managerで`neovim/nvim-lspconfig`を`rtp`に加えて置き、`golangcli-lint`と`golangci-lint-langserver`が`$PATH`を通し、[vim.lsp.enable](<https://neovim.io/doc/user/lsp.html#vim.lsp.enable()>)`("golangci_lint_ls")`すればよいです。
+導入方法は下記で述べられていますが、[vscode],`GoLand`に関してはextensionを入れる以外には特に設定がいらず、`vim`/`neovim`に関しては[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)を用いるように書かれています。[エディタのセットアップ](#エディタのセットアップ)のところで触れましたが、`neovim`(v0.11.0かそれ以降)では[neovim/nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)に[`golangci-lint-langserver`の設定設定](https://github.com/neovim/nvim-lspconfig/blob/v2.1.0/lsp/golangci_lint_ls.lua)が存在していますので、何かしらのpackage managerで`neovim/nvim-lspconfig`を`rtp`に加えて置き、`golangcli-lint`と`golangci-lint-langserver`が`$PATH`を通し、[vim.lsp.enable](<https://neovim.io/doc/user/lsp.html#vim.lsp.enable()>)`("golangci_lint_ls")`すればよいです。([筆者の設定](https://github.com/ngicks/dotfiles/blob/75b4a0c4db837b5fdc700b9d183ddb5d53598bb8/.config/nvim/after/lsp/golangci_lint_ls.lua)。`nvim-lspconfig`の設定とマージされる前提です。)
 
 https://golangci-lint.run/welcome/integrations/
 
@@ -1115,6 +1145,8 @@ $ cat ~/.gnupg/gpg-agent.conf
 pinentry-program /usr/bin/pinentry-qt
 ```
 
+ターミナルで入力を求めてくる形式のものは`lazygit`の画面ステートをぶっ壊したりして大変な目にあうかもしれないです(n敗)。
+
 ### git-lfsを導入している場合はすべての環境でgit-lfsを使うように気を付ける
 
 `git-lfs`というよりは導入有無でfetch結果のファイルコンテンツが変わってしまうプラグイン全般なのですが。
@@ -1143,7 +1175,7 @@ pinentry-program /usr/bin/pinentry-qt
 以下のケースではtask runnerを用いなくても十分通用します。
 
 - 複雑なビルド過程やテストマッチャーがない
-- [Dockerfile]などでビルドを記述できる
+- `github actions`,`gitlab ci`, [Dockerfile]などでビルドを記述できる
 - `//go:generate`で事足りる
 - `.sh`と`.bat`を両対応できる程度の量しかスクリプトがいらない
 - 管理用コマンドも全部`Go`で実装するつもり
@@ -1271,7 +1303,7 @@ Hello world foo
 ede693e1e85a2f70
 ```
 
-最近のpowershell(というかwindowsに？)にはunix風コマンドがいくつかあります。echoは存在するみたいなのでこれはwindowsでも動作するようです。
+最近のpowershell(というかwindowsに？)にはunix風コマンドがいくつかあります(`tar`とか`curl`とか)。echoは存在するみたいなのでこれはwindowsでも動作するようです。
 
 ### deno task
 
@@ -1289,7 +1321,7 @@ https://docs.deno.com/runtime/reference/cli/task/
   - 別言語の知識が必要
   - 管理すべきツールが増える
 
-[deno]は[Rust]の[tokio](https://github.com/tokio-rs/tokio)をバックエンドに、javascript engineの[V8](https://v8.dev/)で動作するjavascript/typescriptランタイムです。
+[deno]は[Rust]の[tokio](https://github.com/tokio-rs/tokio)をバックエンドに、`javascript` engineの[V8](https://v8.dev/)で動作する`javascript`/`typescript`ランタイムです。
 
 [dax]を用いるとshellscriptのようなノリで`typescript`がかけるためいい感じです。
 なんとshellコマンド間や`javascript object`にpipeが行えるのです。shellscriptで書くには億劫な高度な演算を`typescript`でかいたり、コマンドの結果を`WebStream`に受けていじくったりできるので便利だと思います。
@@ -1324,7 +1356,8 @@ ed35803c9ff5b841
 ```
 
 [dax]を用いるとshellのように`typescript`がかけます。
-少し極端な例として`sha256sum`をとるのをshellだけでやるような形と、WebStreamを混在させたバージョンの二つを挙げてスタイルの自由さの例とします。
+少し極端な例として`sha256sum`をとるのをshellだけでやるような形と、`WebStream`を混在させたバージョンの二つを挙げてスタイルの自由さの例とします。
+[builtInCommands](https://github.com/dsherret/dax/blob/0.43.0/src/command.ts#L90-L107)は[dax]が抽象化しているのでwindowsでも動きます。`sha256sum`や`awk`はないので実際には`WebStream`版のようなことをすることになるでしょう。
 
 ```ts: script/dax_example.ts
 import { crypto } from "jsr:@std/crypto";
@@ -1351,23 +1384,28 @@ a141062eb619fb89a183d62b8896d192170b1dd6fc479611f6c5a427038447f0
 same? = true
 ```
 
+[dax]・・・すばらしい・・・
+
 ## おわりに
 
 private repositoryから`go get`するのは特に躓いたのでまとめておきました。
 
 <!-- other languages referenced -->
 
+[Java]: https://www.java.com/
 [TypeScript]: https://www.typescriptlang.org/
 [python]: https://www.python.org/
-[C++]: https://en.wikipedia.org/wiki/C%2B%2B
+[C]: https://www.c-language.org/
+[C++]: https://isocpp.org/
 [Rust]: https://www.rust-lang.org
 [The Rust Programming Language 日本語]: https://doc.rust-jp.rs/book-ja/
 [Lua]: https://www.lua.org/
 
-<!-- other SDKs referenced -->
+<!-- other lib/SDKs referenced -->
 
 [Node.js]: https://nodejs.org/en
 [deno]: https://deno.com/
+[tokio]: https://tokio.rs/
 
 <!-- editors -->
 
@@ -1381,11 +1419,14 @@ private repositoryから`go get`するのは特に躓いたのでまとめてお
 [Git Credential Manager]: https://github.com/git-ecosystem/git-credential-manager?tab=readme-ov-file
 [Docker]: https://www.docker.com/
 [Dockerfile]: https://docs.docker.com/build/concepts/dockerfile/
+[Elasticsearch]: https://www.elastic.co/docs/solutions/search
 
 <!-- Go versions -->
 
 [Go]: https://go.dev/
 [Go 1.11]: https://go.dev/doc/go1.11
+[Go 1.14]: https://go.dev/doc/go1.14
+[Go 1.18]: https://go.dev/doc/go1.18
 [Go 1.23]: https://go.dev/doc/go1.23
 [Go 1.24]: https://go.dev/doc/go1.24
 
