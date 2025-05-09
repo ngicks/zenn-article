@@ -130,7 +130,7 @@ go version go1.24.2 linux/amd64
   - `goroutine`のランタイムがOS ThreadをCPU個数と同数（正確には違う）作っておいて、それらの上で`goroutine`をスケジュールします。
   - CPUと同数個のOS Threadを作っておいて、そのうえでタスクを動かすのは[Node.js]も似たようなコンセプトを持っていますが、`goroutine`は普通のOS Threadかのようにユーザーには見えるという違いがあります。
   - [Rust]には`async/await`構文があり、[tokio]などのランタイムを用いると似たようなことができます([deno]は[tokio]を使用しています)が、こちらは(`async fn`は)stackless statemachineになる方式、`goroutine`はそれぞれがstackを持っていますので違いがあります。
-  - coorporativeなタスクの切り替えしかできないかと思いきや[Go 1.14]からpreemptiveな切り替えにも対応しています。
+  - coorperativeなタスクの切り替えしかできないかと思いきや[Go 1.14]からpreemptiveな切り替えにも対応しています。
 - GC(Garbage Collector)があり、手動でのメモリ確保・解放はほぼやることはありません。
 - 言語仕様が簡潔で、言語としてサポートされた構文は多くありません。
   - [spec#Keywords](https://go.dev/ref/spec#Keywords)より、keywordは25個とほかの言語と比べて少ないです。
