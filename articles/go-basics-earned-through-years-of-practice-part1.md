@@ -6,6 +6,13 @@ topics: ["go"]
 published: true
 ---
 
+## OUTDATED
+
+dockerでビルドする周りの話以外は書きなおしました(dockerでビルドの話を書きなおすのはもうちょいいろいろ検証したいのでしばらく先になりそうです・・・。)
+特にprivate repository周りの話が重要じゃないところだけど結構間違ってたので恥ずかしいのでこの記事は見ないでください。
+
+https://zenn.dev/ngicks/articles/go-basics-revisited-starting-projects
+
 ## Goで開発して3年のプラクティスまとめ(1/4): プロジェクトを始めるまで編
 
 yet another入門記事です。
