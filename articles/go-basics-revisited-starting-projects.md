@@ -1024,7 +1024,8 @@ https://go.dev/doc/modules/layout
 
 それ以外のいろいろなルールを追加したい場合は、[github.com/golangci/golangci-lint](https://github.com/golangci/golangci-lint)がよく用いられると思います。
 
-導入方法は下記で述べられていますが、[vscode],`GoLand`に関してはextensionを入れる以外には特に設定がいらず、`vim`/`neovim`に関しては[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)を用いるように書かれています。[エディタのセットアップ](#エディタのセットアップ)のところで触れましたが、`neovim`(v0.11.0かそれ以降)では[neovim/nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)に[`golangci-lint-langserver`の設定設定](https://github.com/neovim/nvim-lspconfig/blob/v2.1.0/lsp/golangci_lint_ls.lua)が存在していますので、何かしらのpackage managerで`neovim/nvim-lspconfig`を`rtp`に加えて置き、`golangcli-lint`と`golangci-lint-langserver`が`$PATH`を通し、[vim.lsp.enable](<https://neovim.io/doc/user/lsp.html#vim.lsp.enable()>)`("golangci_lint_ls")`すればよいです。([筆者の設定](https://github.com/ngicks/dotfiles/blob/75b4a0c4db837b5fdc700b9d183ddb5d53598bb8/.config/nvim/after/lsp/golangci_lint_ls.lua)。`nvim-lspconfig`の設定とマージされる前提です。)
+導入方法は下記で述べられていますが、[vscode],`GoLand`に関してはextensionを入れる以外には特に設定がいらず、`vim`/`neovim`に関しては[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)を用いるように書かれています。
+[エディタのセットアップ](#エディタのセットアップ)のところで触れたような感じで設定すればよいです([筆者の設定](https://github.com/ngicks/dotfiles/blob/75b4a0c4db837b5fdc700b9d183ddb5d53598bb8/.config/nvim/after/lsp/golangci_lint_ls.lua)。`nvim-lspconfig`の設定とマージされる前提です。)
 
 https://golangci-lint.run/welcome/integrations/
 
