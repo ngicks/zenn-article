@@ -597,7 +597,7 @@ Hello world
 
 ```
 $ go build cmd/example
-package cmd/example is not in std (/usr/local/go/src/cmd/example)
+package cmd/example is not in std (~/.local/go/src/cmd/example)
 ```
 
 ```
@@ -614,6 +614,7 @@ environment variable (For more details see: 'go help gopath').
 ```
 
 とあるように、`/`や`C:\`、`.`、`..`から始まらないパスは`$(go env GOPATH)`以下にあるかのように解決されてしまうからです。
+(前述した表現では`std`であるかのように解決される、と述べていますが、これは`GOPATH`をいじることはもうないから、すなわち`GOPATH`=`std`と実質なっているからです。)
 
 以下の場合はエラーなく実行できますが、packageが複数のファイルを含む場合うまくビルドできないことを筆者は確認しています。
 
