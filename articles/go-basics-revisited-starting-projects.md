@@ -852,7 +852,7 @@ go get <<fully-qualified-module-path>>@<<git-commit-hash-prefix>>
 
 ### internal: 外部公開しないpackage
 
-`internal`という名前のdirectoryを作成すると、それ以下で定義されるpackageは、`internal/`と同階層かそれ以下からしかアクセスできないpackageを作成できます。
+`internal`という名前のdirectoryを作成すると、それ以下で定義されるpackageは、`internal/`と同階層かそれ以下からしかimportできなくなります。
 
 例として以下のように`internal`を追加してみます。
 
