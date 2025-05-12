@@ -64,7 +64,7 @@ gotoolchain追加後は現在呼び出された`go`コマンドよりも`go.mod`
 
 ## 経緯
 
-詳しくは前述の[discussion](https://github.com/golang/go/discussions/63397)に書かれているのでそこを読んでほしいのですが、要点だけを述べると
+詳しくは前述の[discussion](https://github.com/golang/go/discussions/63397)に書かれているのでそこを読んでほしいのですが、適当にまとめ直すと
 
 `encoding/json`にはいろいろ問題がありました。
 
