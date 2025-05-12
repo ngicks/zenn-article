@@ -24,7 +24,9 @@ https://go-review.googlesource.com/c/go/+/665796
 
 https://zenn.dev/ngicks/articles/go-json-undefined-or-null-v2
 
-何が変わったかなどをついてこの記事で述べていきたいと思います。
+何が変わったかなどをついてこの記事で述べていきたいと思います。この記事は結構焼き増しです！！！
+
+以後特にほかに述べられないとき`v1`とは`encoding/json`のことをさし、`v2`とは`encoding/json/v2`のことをさします。
 
 ## サンプル
 
@@ -104,7 +106,7 @@ gotoolchain追加後は現在呼び出された`go`コマンドよりも`go.mod`
 
 破壊的変更を避けながらこれらを解消することはできるかもしれないが、デフォルトの挙動を[RFC 8259](https://tools.ietf.org/html/rfc8259)に準拠させるなどしたほうが良いと思われるので`v2`として破壊的変更を加えよう、みたいな感じです。
 
-## 顕著な変更
+## v1からの顕著な変更
 
 [proposal]に貼られていますが、以下のように構造が変化します。
 
@@ -141,95 +143,117 @@ https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/e
 
 これらを型に実装させれば、前述の経緯のところで述べた[json.Unmarshaler]使用時の極端なパフォーマンス劣化を避けることができます。
 
+## discussion版からの顕著な変更
+
+https://github.com/golang/go/issues/71497#issuecomment-2626483666
+
+顕著な変更（主観）は
+
+- `MarshalJSONV2`/`UnmarshalJSONV2` -> `MarshalJSONTo`/`UnmarshalJSONFrom`に改名
+- `MarshalJSONTo`/`UnmarshalJSONFrom`がoptionsを受け取らなくなった。
+  - 代わりに`jsontext.Encoder`/`jsontext.Deocder`が`Options`を返すことができるように。
+- `jsontext.Encoder`/`jsontext.Decoder`の`StackPointer`が`string`の代わりに`jsontext.Pointer`を返すように。
+- `jsontext.ObjectStart`/`jsontext.ObjectEnd` -> `jsontext.BeginObject`/`jsontext.EndObject`に変更
+
+その他いろいろ追加されています。
+
 ## 使ってみる
 
 ### jsontext.Encoder
 
 `WriteToken`、`WriteValue`で値を書き込みますが、内部のステートマシンが状態を覚えているので`:`とか`,`とかを手動で書き込む必要はないです。これはいいデザインですね。
 
-`StackDepth`で現在のJSON ObjectやJSON Arrayのnest回数がわかります。これは自分で実装すると面倒なので助かります。
+`StackDepth`,`StackIndex`,`StackPointer`は`jsontext.Decoder`と共通なmethodでそれぞれ、
+
+- 現在のJSON ObjectやJSON Arrayのnest回数
+- i番目の階層の開始token: `0`, `{`, `[`のどれか
+- JSON Pointer([RFC 6901](https://datatracker.ietf.org/doc/html/rfc6901))
+
+が取得できます。
 
 `UnusedBuffer`で`encoderState`に紐づくバッファーが利用できるので、これを利用するとよいというAPIのようです。内部のコメントを見ると`encoderState`のバッファーの未使用の部分をsliceで返すような実装をしていたけどやめたようなことがコメントで書かれています。見た限りずっとこのコメントが残されています。proposalになる時点でもこのmethod名が変わらなかったので実装されるときもこのままかもしれないですね。
 
-`StackIndex`で現在の`StackDepth`までの間の階層の開始tokenがわかります。これは`0`, `{`, `[`のどれかになります。親が`{`のときのみ～みたいな条件の違うエンコーディングが必要な時に用いるんでしょうか。
+[sninnet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/encoder_test.go)
 
 ```go
 import (
-	"bytes"
-	"encoding/json/jsontext"
-	"testing"
+    "bytes"
+    "encoding/json/jsontext"
+    "testing"
 )
 
 func TestEncoder(t *testing.T) {
-	buf := new(bytes.Buffer)
-	enc := jsontext.NewEncoder(buf, jsontext.WithIndent("    "))
+    buf := new(bytes.Buffer)
+    enc := jsontext.NewEncoder(buf, jsontext.WithIndent("    "))
 
-	var err error
-	bufErr := func(e error) {
-		if err != nil {
-			return
-		}
-		err = e
-	}
+    var err error
+    bufErr := func(e error) {
+        if err != nil {
+            return
+        }
+        err = e
+    }
 
-	assertDepth := func(enc *jsontext.Encoder, depth int) {
-		if enc.StackDepth() != depth {
-			t.Errorf("wrong depth: expected = %d, actual = %d", depth, enc.StackDepth())
-		}
-	}
+    assertDepth := func(enc *jsontext.Encoder, depth int) {
+        if enc.StackDepth() != depth {
+            t.Errorf("wrong depth: expected = %d, actual = %d", depth, enc.StackDepth())
+        }
+    }
 
-	assertDepth(enc, 0)
-	bufErr(enc.WriteToken(jsontext.BeginObject))
-	assertDepth(enc, 1)
+    assertDepth(enc, 0)
+    bufErr(enc.WriteToken(jsontext.BeginObject))
+    assertDepth(enc, 1)
 
-	bufErr(enc.WriteToken(jsontext.String("foo")))
-	bufErr(enc.WriteToken(jsontext.Null))
-	bufErr(enc.WriteToken(jsontext.String("baz")))
+    bufErr(enc.WriteToken(jsontext.String("foo")))
+    bufErr(enc.WriteToken(jsontext.Null))
+    bufErr(enc.WriteToken(jsontext.String("baz")))
 
-	bufErr(enc.WriteToken(jsontext.BeginObject))
-	assertDepth(enc, 2)
+    bufErr(enc.WriteToken(jsontext.BeginArray))
+    assertDepth(enc, 2)
 
-	bufErr(enc.WriteToken(jsontext.String("qux")))
-	bufErr(enc.WriteToken(jsontext.Int(123)))
-	bufErr(enc.WriteToken(jsontext.String("quux")))
-	if enc.OutputOffset() == int64(buf.Len()) {
-		t.Errorf("immediately flushed at %d", enc.OutputOffset())
-	}
-	v := enc.UnusedBuffer()
-	v = append(v, []byte(`[`)...)
-	v = append(v, []byte(`{"corge":null}`)...)
-	v = append(v, []byte(`]`)...)
-	assertDepth(enc, 2)
-	bufErr(enc.WriteValue(v))
-	assertDepth(enc, 2)
+    bufErr(enc.WriteToken(jsontext.String("qux")))
+    bufErr(enc.WriteToken(jsontext.Int(123)))
+    bufErr(enc.WriteToken(jsontext.String("quux")))
+    if enc.OutputOffset() == int64(buf.Len()) {
+        t.Errorf("immediately flushed at %d", enc.OutputOffset())
+    }
+    v := enc.UnusedBuffer()
+    v = append(v, []byte(`[`)...)
+    v = append(v, []byte(`{"corge":null}`)...)
+    v = append(v, []byte(`]`)...)
+    assertDepth(enc, 2)
+    bufErr(enc.WriteValue(v))
+    assertDepth(enc, 2)
 
-	t.Log(enc.StackIndex(0)) // encoder_test.go:52: <invalid jsontext.Kind: '\x00'> 1
-	t.Log(enc.StackIndex(1)) // encoder_test.go:53: { 4
-	t.Log(enc.StackIndex(2)) // encoder_test.go:54: { 4
+    t.Log(enc.StackIndex(0)) // encoder_test.go:52: <invalid jsontext.Kind: '\x00'> 1
+    t.Log(enc.StackIndex(1)) // encoder_test.go:53: { 4
+    t.Log(enc.StackIndex(2)) // encoder_test.go:54: [ 4
 
-	bufErr(enc.WriteToken(jsontext.EndObject))
-	assertDepth(enc, 1)
-	bufErr(enc.WriteToken(jsontext.EndObject))
-	assertDepth(enc, 0)
+    bufErr(enc.WriteToken(jsontext.EndArray))
+    assertDepth(enc, 1)
+    bufErr(enc.WriteToken(jsontext.EndObject))
+    assertDepth(enc, 0)
 
-	if err != nil {
-		panic(err)
-	}
-	expected := `{
+    if err != nil {
+        panic(err)
+    }
+    expected := `{
     "foo": null,
-    "baz": {
-        "qux": 123,
-        "quux": [
+    "baz": [
+        "qux",
+        123,
+        "quux",
+        [
             {
                 "corge": null
             }
         ]
-    }
+    ]
 }
 `
-	if buf.String() != expected {
-		t.Fatalf("not equal:\nexpected = %s\nactual  = %s", expected, buf.String())
-	}
+    if buf.String() != expected {
+        t.Fatalf("not equal:\nexpected = %s\nactual  = %s", expected, buf.String())
+    }
 }
 ```
 
@@ -237,11 +261,711 @@ func TestEncoder(t *testing.T) {
 
 `PeekKind`で値を消費せずに`jsontext.Kind`を取得し、`ReadToken`, `ReadValue`で値を読み込みます。
 
-`jsontext.Encoder`同様`StackDepth`で現在のJSON ObjectやJSON Arrayのnest回数が取得できます。
+`StackDepth`,`StackIndex`,`StackPointer`は`jsontext.Encoder`と共通なmethodでそれぞれ、
 
-`jsontext.Encoder`と同様に`StackIndex`で現在の`StackDepth`までの間の階層の開始tokenがわかります。これは`0`, `{`, `[`のどれかになります。
+- 現在のJSON ObjectやJSON Arrayのnest回数
+- i番目の階層の開始token: `0`, `{`, `[`のどれか
+- JSON Pointer([RFC 6901](https://datatracker.ietf.org/doc/html/rfc6901))
 
-`StackPointer`でJSON Pointer ([RFC 6901](https://datatracker.ietf.org/doc/html/rfc6901))が取得できます。decodeでエラー発生時にこれをエラーテキストに含ませるとわかりやすくていいかもしれません。
+が取得できます。
+
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/decoder_test.go)
+
+```go
+import (
+    "bytes"
+    "encoding/json/jsontext"
+    "io"
+    "strings"
+    "testing"
+)
+
+func TestDecoder(t *testing.T) {
+    const input = `{
+    "foo": null,
+    "baz": [
+        "qux",
+        123,
+        "quux",
+        [
+            {
+                "corge": null
+            }
+        ]
+    ]
+}
+`
+    dec := jsontext.NewDecoder(strings.NewReader(input))
+
+    expected := []any{
+        jsontext.BeginObject,
+        jsontext.String("foo"),
+        jsontext.Null,
+        jsontext.String("baz"),
+        "peek",
+        jsontext.BeginArray,
+        jsontext.String("qux"),
+        jsontext.Int(123),
+        "peek",
+        jsontext.String("quux"),
+        jsontext.Value(`[{"corge":null}]`),
+        jsontext.EndArray,
+        jsontext.EndObject,
+    }
+
+    for _, tokenOrValue := range expected {
+        idxKind, valueLen := dec.StackIndex(dec.StackDepth())
+        t.Logf("depth = %d, index kind = %s, len at index = %d, stack pointer = %q", dec.StackDepth(), idxKind, valueLen, dec.StackPointer())
+        /*
+           decoder_test.go:46: depth = 0, index kind = <invalid jsontext.Kind: '\x00'>, len at index = 0, stack pointer = ""
+           decoder_test.go:46: depth = 1, index kind = {, len at index = 0, stack pointer = ""
+           decoder_test.go:46: depth = 1, index kind = {, len at index = 1, stack pointer = "/foo"
+           decoder_test.go:46: depth = 1, index kind = {, len at index = 2, stack pointer = "/foo"
+           decoder_test.go:46: depth = 1, index kind = {, len at index = 3, stack pointer = "/baz"
+           decoder_test.go:46: depth = 1, index kind = {, len at index = 3, stack pointer = "/baz"
+           decoder_test.go:46: depth = 2, index kind = [, len at index = 0, stack pointer = "/baz"
+           decoder_test.go:46: depth = 2, index kind = [, len at index = 1, stack pointer = "/baz/0"
+           decoder_test.go:46: depth = 2, index kind = [, len at index = 2, stack pointer = "/baz/1"
+           decoder_test.go:46: depth = 2, index kind = [, len at index = 2, stack pointer = "/baz/1"
+           decoder_test.go:46: depth = 2, index kind = [, len at index = 3, stack pointer = "/baz/2"
+           decoder_test.go:46: depth = 2, index kind = [, len at index = 4, stack pointer = "/baz/3"
+           decoder_test.go:46: depth = 1, index kind = {, len at index = 4, stack pointer = "/baz"
+        */
+        switch x := tokenOrValue.(type) {
+        case string:
+            t.Logf("peek = %s", dec.PeekKind())
+        /*
+           decoder_test.go:62: peek = [
+           decoder_test.go:62: peek = string
+        */
+        case jsontext.Token:
+            tok, err := dec.ReadToken()
+            if err != nil && err != io.EOF {
+                panic(err)
+            }
+            if tok.Kind() != x.Kind() {
+                t.Errorf("not equal: expected(%v) != actual(%v)", x, tok)
+            }
+            switch tok.Kind() {
+            case 'n': // null
+            case 'f': // false
+            case 't': // true
+            case '"', '0': // string literal, number literal
+                if tok.String() != x.String() {
+                    t.Errorf("not equal: expected(%s) != actual(%s)", x, tok)
+                }
+            case '{': // end object
+            case '}': // end object
+            case '[': // begin array
+            case ']': // end array
+            }
+        case jsontext.Value:
+            val, err := dec.ReadValue()
+            if err != nil && err != io.EOF {
+                panic(err)
+            }
+            if bytes.Equal(val, x) {
+                t.Errorf("not equal: expected(%q) != actual(%q)", string(x), string(val))
+            }
+        }
+    }
+}
+```
+
+### jsontext.Decoder.StackPointer
+
+`jsontext.Deocder.StackPointer`を活用すれば特定の`JSON Pointer`まで値を読み捨ててdecodeをするみたいなこともできます。
+
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/decoder_pointer_test.go)
+
+```go
+import (
+    "bytes"
+    "encoding/json/jsontext"
+    "encoding/json/v2"
+    "errors"
+    "fmt"
+    "io"
+    "strconv"
+    "strings"
+    "testing"
+)
+
+func ReadJSONAt(dec *jsontext.Decoder, pointer jsontext.Pointer, read func(dec *jsontext.Decoder) error) (err error) {
+    lastToken := pointer.LastToken()
+    var idx int64 = -1
+    if len(lastToken) > 0 && strings.TrimLeftFunc(lastToken, func(r rune) bool { return '0' <= r && r <= '9' }) == "" {
+        idx, err = strconv.ParseInt(lastToken, 10, 64)
+        if err == nil {
+            pointer = pointer[:len(pointer)-len(lastToken)-1]
+        } else {
+            // I'm not really super sure this could happen.
+            idx = -1
+        }
+    }
+
+    for {
+        _, err = dec.ReadToken()
+        if errors.Is(err, io.EOF) {
+            break
+        }
+        if err != nil {
+            return err
+        }
+        p := dec.StackPointer()
+        if pointer == p {
+            if idx >= 0 {
+                // skip '['
+                _, err = dec.ReadToken()
+                if err != nil {
+                    return err
+                }
+                for ; idx > 0; idx-- {
+                    err := dec.SkipValue()
+                    if err != nil {
+                        return err
+                    }
+                }
+            }
+            return read(dec)
+        }
+    }
+    return nil
+}
+
+func TestDecoder_Pointer(t *testing.T) {
+    jsonBuf := []byte(`{"yay":"yay","nay":[{"boo":"boo"},{"bobo":"bobo"}],"foo":{"bar":{"baz":"baz"}}}`)
+
+    type Boo struct {
+        Boo string `json:"boo"`
+    }
+    type Bobo struct {
+        Bobo string `json:"bobo"`
+    }
+    type Baz struct {
+        Baz string `json:"baz"`
+    }
+
+    type testCase struct {
+        pointer    jsontext.Pointer
+        readTarget any
+        expected   any
+    }
+    for _, tc := range []testCase{
+        {"/foo/bar/baz/qux", nil, nil},
+        {"/foo/bar", Baz{}, Baz{"baz"}},
+        {"/nay/0", Boo{}, Boo{"boo"}},
+        {"/nay/1", Bobo{}, Bobo{"bobo"}},
+    } {
+        found := false
+        err := ReadJSONAt(
+            jsontext.NewDecoder(bytes.NewBuffer(jsonBuf)),
+            tc.pointer,
+            func(dec *jsontext.Decoder) error {
+                found = true
+                return json.UnmarshalDecode(dec, &tc.readTarget)
+            },
+        )
+        if err != nil && err != io.EOF {
+            panic(err)
+        }
+        if !found {
+            if tc.readTarget != nil {
+                t.Errorf("not found: expected = %#v", tc.expected)
+            }
+        } else {
+            expected := fmt.Sprintf("%#v", tc.expected)
+            read := fmt.Sprintf("%#v", tc.readTarget)
+            if expected != read {
+                t.Errorf("read not as expected: expected(%q) != actual(%q)", expected, read)
+            }
+        }
+    }
+}
+```
+
+実用しようと思うならたとえば`/foo/bar/baz`が与えられた時に`/foo/bar`を読み終わって`/foo/other`に移行したときに探索をやめるようなコードが必要ですが、例なので実装していません。
+
+### v2.MarshalerTo / v2.UnmarshalerFrom
+
+何度もやってる`undefined | null | T`を表現できる型を`v2.MarshalerTo`/`v2.UnmarshalerFrom`で実装してみます。
+
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/arshaler_to_from_test.go)
+
+```go
+import (
+    "encoding/json/jsontext"
+    "encoding/json/v2"
+    "testing"
+)
+
+var (
+    _ json.MarshalerTo     = Option[any]{}
+    _ json.UnmarshalerFrom = (*Option[any])(nil)
+    _ json.MarshalerTo     = Und[any]{}
+    _ json.UnmarshalerFrom = (*Und[any])(nil)
+)
+
+type Option[V any] struct {
+    some bool
+    v    V
+}
+
+func None[V any]() Option[V] {
+    return Option[V]{}
+}
+
+func Some[V any](v V) Option[V] {
+    return Option[V]{some: true, v: v}
+}
+
+func (o Option[V]) IsZero() bool {
+    return o.IsNone()
+}
+
+func (o Option[V]) IsNone() bool {
+    return !o.some
+}
+
+func (o Option[V]) IsSome() bool {
+    return o.some
+}
+
+func (o Option[V]) Value() V {
+    return o.v
+}
+
+func (o Option[V]) MarshalJSONTo(enc *jsontext.Encoder) error {
+    if o.IsNone() {
+        return enc.WriteToken(jsontext.Null)
+    }
+    return json.MarshalEncode(enc, o.Value())
+}
+
+func (o *Option[V]) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+    if k := dec.PeekKind(); k == 'n' {
+        err := dec.SkipValue()
+        if err != nil {
+            return err
+        }
+        o.some = false
+        o.v = *new(V)
+        return nil
+    }
+    var v V
+    err := json.UnmarshalDecode(dec, &v)
+    if err != nil {
+        return err
+    }
+    // preventing half-baked value left in-case of error in middle of decode
+    // sacrificing performance
+    o.some = true
+    o.v = v
+    return nil
+}
+
+type Und[V any] struct {
+    opt Option[Option[V]]
+}
+
+func Undefined[V any]() Und[V] {
+    return Und[V]{}
+}
+
+func Null[V any]() Und[V] {
+    return Und[V]{opt: Some(None[V]())}
+}
+
+func Defined[V any](v V) Und[V] {
+    return Und[V]{opt: Some(Some(v))}
+}
+
+func (u Und[V]) IsZero() bool {
+    return u.IsUndefined()
+}
+
+func (u Und[V]) IsUndefined() bool {
+    return u.opt.IsNone()
+}
+
+func (u Und[V]) IsNull() bool {
+    return u.opt.IsSome() && u.opt.Value().IsNone()
+}
+
+func (u Und[V]) IsDefined() bool {
+    return u.opt.IsSome() && u.opt.Value().IsSome()
+}
+
+func (u Und[V]) Value() V {
+    return u.opt.Value().Value()
+}
+
+func (u Und[V]) MarshalJSONTo(enc *jsontext.Encoder) error {
+    if !u.IsDefined() {
+        return enc.WriteToken(jsontext.Null)
+    }
+    return json.MarshalEncode(enc, u.Value())
+}
+
+func (u *Und[V]) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+    // should be with omitzero which handles absence of field.
+    if k := dec.PeekKind(); k == 'n' {
+        err := dec.SkipValue()
+        if err != nil {
+            return err
+        }
+        *u = Null[V]()
+        return nil
+    }
+    var v V
+    err := json.UnmarshalDecode(dec, &v)
+    if err != nil {
+        return err
+    }
+    *u = Defined(v)
+    return nil
+}
+
+func TestArshalerToFrom(t *testing.T) {
+    type sample struct {
+        // null or string
+        Foo Option[string]
+        // undefined or string
+        Bar Option[int] `json:",omitzero"`
+        // undefined | null | bool
+        Baz Und[bool] `json:",omitzero"`
+    }
+
+    type testCase struct {
+        in        sample
+        marshaled string
+    }
+    for _, tc := range []testCase{
+        {sample{}, `{"Foo":null}`},
+        {sample{Some(""), Some(0), Null[bool]()}, `{"Foo":"","Bar":0,"Baz":null}`},
+        {sample{Some("foo"), Some(5), Defined(false)}, `{"Foo":"foo","Bar":5,"Baz":false}`},
+        {sample{None[string](), None[int](), Defined(true)}, `{"Foo":null,"Baz":true}`},
+    } {
+        t.Run(tc.marshaled, func(t *testing.T) {
+            bin, err := json.Marshal(tc.in)
+            if err != nil {
+                panic(err)
+            }
+            if string(bin) != tc.marshaled {
+                t.Errorf("not equal: expected(%q) != actual(%q)", tc.marshaled, string(bin))
+            }
+            var unmarshaled sample
+            err = json.Unmarshal(bin, &unmarshaled)
+            if err != nil {
+                panic(err)
+            }
+            if unmarshaled != tc.in {
+                t.Errorf("not euql:\nexpected(%#v)\n!=\nactual(%#v)", tc.in, unmarshaled)
+            }
+        })
+    }
+}
+```
+
+### `json:",format:value"`
+
+`json:",format:value"`でフォーマットを指定できます。現状は[組み込まれた](https://pkg.go.dev/github.com/go-json-experiment/json#example-package-FormatFlags)特定のものしか指定できません。
+ユーザー指定のformatを持てるようにしようというのは[別proposal](https://github.com/golang/go/issues/71664)になっています。最初の実装時には入ってこないかもしれないです。
+
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/tag_format_test.go)
+
+```go
+import (
+    "encoding/json/v2"
+    "testing"
+    "time"
+)
+
+func TestArshalerFormat(t *testing.T) {
+    type sample struct {
+        Foo map[string]string `json:",format:emitempty"`
+        Bar []byte            `json:",format:array"`
+        Baz time.Duration     `json:",format:units"`
+        Qux time.Time         `json:",format:'2006-01-02'"`
+    }
+
+    s := sample{
+        Foo: nil,
+        Bar: []byte(`bar`),
+        Baz: time.Minute,
+        Qux: time.Date(2025, 0o5, 12, 22, 23, 22, 123456789, time.UTC),
+    }
+
+    bin, err := json.Marshal(s)
+    if err != nil {
+        panic(err)
+    }
+    expected := `{"Foo":{},"Bar":[98,97,114],"Baz":"1m0s","Qux":"2025-05-12"}`
+    if string(bin) != expected {
+        t.Errorf("not equal:\n%s\n!=\n%s", expected, string(bin))
+    }
+}
+```
+
+### `json:",unknown"`でフォールバック
+
+`json:",unknown"`でstruct fieldなどで指定されていない(=不明な)フィールドをすべて格納できます。これが欲しかった。
+
+`json.DiscardUnknownMembers(true)`で無視、`json.RejectUnknownMembers(true)`でエラーに挙動を変更できます。
+
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/tag_unknown_test.go)
+
+```go
+import (
+    "encoding/json/v2"
+    "maps"
+    "testing"
+)
+
+func TestTagUnknown(t *testing.T) {
+    type sample struct {
+        X   map[string]any `json:",unknown"`
+        Foo string
+        Bar int
+        Baz bool
+    }
+
+    input := []byte(`{"Foo":"foo","Bar":12,"Baz":true,"Qux":"qux","Quux":"what!?"}`)
+    var s sample
+    err := json.Unmarshal(input, &s)
+    if err != nil {
+        panic(err)
+    }
+    expected := map[string]any{"Qux": "qux", "Quux": "what!?"}
+    if !maps.Equal(s.X, expected) {
+        t.Errorf("not equal:\n%#v\n!=\n%#v", expected, s.X)
+    }
+
+    err = json.Unmarshal(input, &s, json.RejectUnknownMembers(true))
+    if err == nil {
+        t.Error("should cause an error")
+    } else {
+        t.Logf("%v", err)
+        // tag_unknown_test.go:32: json: cannot unmarshal JSON string into Go play.sample: unknown object member name "Qux"
+    }
+}
+```
+
+### streaming decode
+
+`v1`でやっていたようにstreaming deocdeも可能です。
+
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/streaming_decode_test.go)
+
+```go
+import (
+    "bytes"
+    "encoding/json/jsontext"
+    "encoding/json/v2"
+    "io"
+    "reflect"
+    "testing"
+)
+
+func TestStreamingDecode(t *testing.T) {
+    const input = `{
+    "foo": null,
+    "bar": {
+            "baz": [
+                {"foo":"foo1"},
+                {"foo":"foo2"},
+                {"foo":"foo3"}
+            ]
+        }
+}
+`
+
+    dec := jsontext.NewDecoder(bytes.NewReader([]byte(input)))
+    for dec.StackPointer() != jsontext.Pointer("/bar/baz") {
+        _, err := dec.ReadToken()
+        if err != nil {
+            if err != io.EOF {
+                panic(err)
+            }
+            break
+        }
+    }
+
+    if dec.PeekKind() != '[' {
+        panic("not array")
+    }
+    _, err := dec.ReadToken()
+    if err != nil {
+        panic(err)
+    }
+    type sample struct {
+        Foo string `json:"foo"`
+    }
+    var decoded []sample
+    for dec.PeekKind() != ']' {
+        var s sample
+        err := json.UnmarshalDecode(dec, &s)
+        if err != nil {
+            panic(err)
+        }
+        decoded = append(decoded, s)
+    }
+    expected := []sample{{"foo1"}, {"foo2"}, {"foo3"}}
+    if !reflect.DeepEqual(expected, decoded) {
+        t.Errorf("not equal:\nexpected(%#v)\n!=\nactual(%#v)", expected, decoded)
+    } else {
+        t.Logf("decoded = %#v", decoded)
+        // streaming_decode_test.go:59: decoded = []play.sample{play.sample{Foo:"foo1"}, play.sample{Foo:"foo2"}, play.sample{Foo:"foo3"}}
+    }
+}
+```
+
+## まだ足りてなさそうなところ
+
+### token列からのunmarshalは簡単じゃなさそう。
+
+`encoding/xml`には[xml.NewTokenDecoder]がありますが、`encoding/json/v2`にはこういったtoken readerがないため効率的なtee-ingができないかもしれないです。
+ということで下記の`Either[L, R]`を例に出します。jsonからunmarshalするとき、左で成功すれば左、だめなら右でunmarshal、どっちかで成功すればよいというものです。tokenのtee-ingができないと一旦`JSON Value`をバッファーする必要があり、これは`v1`の[json.Unmarshaler]と同様にも思えますが、こちらは`v2`の`Options`を伝搬できる違いがあります。
+
+とはいえ下記のように`jsontext.Encoder`/`jsontext.Decoder`がinterfaceになることはないでしょうから当面(もしくはずっと)token列からのunmarshalはできないと思われます。
+
+> - Make Encoder and Decoder an interface: The json.MarshalerTo and json.UnmarshalerFrom interfaces reference a concrete jsontext.Encoder and jsontext.Decoder implementation, which prevents use of a customer encoder or decoder. We considered making these an interface, but the performance cost of constantly calling a virtual method was expensive when a vast majority of usages are for the standard implementation.
+
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/arshaler_either_test.go)
+
+```go
+import (
+    "encoding/json/jsontext"
+    "encoding/json/v2"
+    "fmt"
+    "testing"
+)
+
+var (
+    _ json.MarshalerTo     = Either[any, any]{}
+    _ json.UnmarshalerFrom = (*Either[any, any])(nil)
+)
+
+// zero value is zero left.
+type Either[L, R any] struct {
+    isRight bool
+    l       L
+    r       R
+}
+
+func Left[L, R any](l L) Either[L, R] {
+    return Either[L, R]{isRight: false, l: l}
+}
+
+func Right[L, R any](r R) Either[L, R] {
+    return Either[L, R]{isRight: true, r: r}
+}
+
+func (e Either[L, R]) IsLeft() bool {
+    return !e.isRight
+}
+
+func (e Either[L, R]) IsRight() bool {
+    return e.isRight
+}
+
+func (e Either[L, R]) Left() L {
+    return e.l
+}
+
+func (e Either[L, R]) Right() R {
+    return e.r
+}
+
+func (e Either[L, R]) Unpack() (L, R) {
+    // for ? syntax discussed under https://github.com/golang/go/discussions/71460
+    return e.l, e.r
+}
+
+func MapLeft[L, R, L2 any](e Either[L, R], mapper func(l L) L2) Either[L2, R] {
+    if e.IsLeft() {
+        return Left[L2, R](mapper(e.Left()))
+    }
+    return Right[L2](e.Right())
+}
+
+func (e Either[L, R]) MapLeft(mapper func(l L) L) Either[L, R] {
+    return MapLeft(e, mapper)
+}
+
+func MapRight[L, R, R2 any](e Either[L, R], mapper func(l R) R2) Either[L, R2] {
+    if e.IsRight() {
+        return Right[L](mapper(e.Right()))
+    }
+    return Left[L, R2](e.Left())
+}
+
+func (e Either[L, R]) MapRight(mapper func(l R) R) Either[L, R] {
+    return MapRight(e, mapper)
+}
+
+func (e Either[L, R]) MarshalJSONTo(enc *jsontext.Encoder) error {
+    if e.IsLeft() {
+        return json.MarshalEncode(enc, e.Left())
+    }
+    return json.MarshalEncode(enc, e.Right())
+}
+
+func (e *Either[L, R]) UnmarshalJSONFrom(dec *jsontext.Decoder) error {
+    val, err := dec.ReadValue()
+    if err != nil {
+        return err
+    }
+
+    var l L
+    errL := json.Unmarshal(val, &l, dec.Options())
+    if errL == nil {
+        e.isRight = false
+        e.l = l
+        e.r = *new(R)
+        return nil
+    }
+
+    var r R
+    errR := json.Unmarshal(val, &r, dec.Options())
+    if errR == nil {
+        e.isRight = true
+        e.l = *new(L)
+        e.r = r
+        return nil
+    }
+
+    return fmt.Errorf("Either[L, R]: unmarshal failed for both L and R: l = (%w), r = (%w)", errL, errR)
+}
+
+func TestArshalerEither(t *testing.T) {
+    type testCase struct {
+        in   string
+        fail bool
+    }
+    for _, tc := range []testCase{
+        {"\"foo\"", false},
+        {"123", false},
+        {"false", true},
+    } {
+        var e Either[string, int]
+        err := json.Unmarshal([]byte(tc.in), &e)
+        if (err != nil) != tc.fail {
+            t.Errorf("incorrect!")
+        }
+        t.Logf("err = %v", err)
+        /*
+           arshaler_either_test.go:122: err = <nil>
+           arshaler_either_test.go:122: err = <nil>
+           arshaler_either_test.go:122: err = json: cannot unmarshal into Go play.Either[string,int]: Either[L, R]: unmarshal failed for both L and R: l = (json: cannot unmarshal JSON boolean into Go string), r = (json: cannot unmarshal JSON boolean into Go int)
+        */
+    }
+}
+```
+
+## おわりに
+
+多分使えるようになるのは`Go 1.26`からでしょうからあと１年とすこし耐えましょう。
 
 <!-- other languages referenced -->
 
@@ -308,6 +1032,7 @@ func TestEncoder(t *testing.T) {
 [json.Marshaler]: https://pkg.go.dev/encoding/json@go1.24.3#Marshaler
 [json.Unmarshaler]: https://pkg.go.dev/encoding/json@go1.24.3#Unmarshaler
 [json.Unmarshal]: https://pkg.go.dev/encoding/json@go1.24.3#Unmarshal
+[xml.NewTokenDecoder]: https://pkg.go.dev/encoding/xml@go1.24.3#NewTokenDecoder
 [errors.New]: https://pkg.go.dev/errors@go1.24.3#New
 [errors.Is]: https://pkg.go.dev/errors@go1.24.3#Is
 [errors.As]: https://pkg.go.dev/errors@go1.24.3#As
