@@ -755,7 +755,7 @@ func TestTagUnknown(t *testing.T) {
 
 `v1`でやっていたようにstreaming deocdeも可能です。
 
-[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/streaming_decode_test.go#L12-L62)
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/streaming_decode_test.go#L12-L63)
 
 ```go
 import (
@@ -826,7 +826,7 @@ func TestStreamingDecode(t *testing.T) {
 `v2.WithUnmarshalers(v2.UnmarshalFromFunc(func (...) {...}))`で型ごとにunmarshalerを変更できます。
 これを利用すればもっと簡単に(と言いつつコードはごちゃごちゃしますが)streaming decodeを行うことができます。
 
-[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/streaming_decode_test.go#L64-L114)
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/streaming_decode_test.go#L65-L115)
 
 ```go
 import (
