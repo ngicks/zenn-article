@@ -76,7 +76,7 @@ gotoolchain追加後は現在呼び出された`go`コマンドよりも`go.mod`
   - strcutなどに向けてunmarshalするとき、想定されないフィールドが含まれるときにそれらをどこかにfallbackする機能がない
   - etc, etc.
 - APIが変
-  - `json.NewDecoder(r).Decode(v)`がよくされるが、`r io.Reader`から1つのJSON Valueと取り出すだけでそのあとにゴミデータがあった場合などにエラーにならない。
+  - `json.NewDecoder(r).Decode(v)`がよくされるが、`r io.Reader`から1つのJSON Valueを取り出すだけでそのあとにゴミデータがあった場合などにエラーにならない。
   - `json.Compact`, `json.Indent`, `json.HTMLEscape`などが`bytes.Buffer`を使っていること。より柔軟な`[]byte`, `io.Writer`などを使わないこと。
 - パフォーマンスが悪い
   - `MarshalJSON`のinterfaceが`[]byte`を返すものであり、毎回allocationが要求される
@@ -96,7 +96,7 @@ gotoolchain追加後は現在呼び出された`go`コマンドよりも`go.mod`
     - (顕著な変更は無効な文字、例えばペアになっていないsurrogate pairとかが許されていたことです。)
   - array(`[n]T`)の長さが不一致でもunmarshalが成功する
   - `json:",string"`オプションが数値以外にも適用される、また、`[]int`などにrecursiveに適用されない。
-  - Unmarshal時のGo structフィールド名とJSON objectのキー名とのマッチングがでcase-insensitive。
+  - Unmarshal時のGo structフィールド名とJSON objectのキー名とのマッチングがcase-insensitive。
     - `json:"name"`で指定していたとしてもcase-insensitiveでした。
   - underlying typeがnon-addressableである型の`MarshalJSON` / `UnmarshalJSON`が呼ばれない。
     - method receiverがpointerで`json.Marshal`に渡された値がnon-pointerだった時のことをさしています。
@@ -755,7 +755,7 @@ func TestTagUnknown(t *testing.T) {
 
 `v1`でやっていたようにstreaming deocdeも可能です。
 
-[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/streaming_decode_test.go)
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/streaming_decode_test.go#L12-L62)
 
 ```go
 import (
@@ -767,8 +767,7 @@ import (
     "testing"
 )
 
-func TestStreamingDecode(t *testing.T) {
-    const input = `{
+const streamDecodeInput = `{
     "foo": null,
     "bar": {
             "baz": [
@@ -780,7 +779,8 @@ func TestStreamingDecode(t *testing.T) {
 }
 `
 
-    dec := jsontext.NewDecoder(bytes.NewReader([]byte(input)))
+func TestStreamingDecode(t *testing.T) {
+    dec := jsontext.NewDecoder(bytes.NewReader([]byte(streamDecodeInput)))
     for dec.StackPointer() != jsontext.Pointer("/bar/baz") {
         _, err := dec.ReadToken()
         if err != nil {
@@ -794,6 +794,7 @@ func TestStreamingDecode(t *testing.T) {
     if dec.PeekKind() != '[' {
         panic("not array")
     }
+    // discard '['
     _, err := dec.ReadToken()
     if err != nil {
         panic(err)
@@ -815,7 +816,89 @@ func TestStreamingDecode(t *testing.T) {
         t.Errorf("not equal:\nexpected(%#v)\n!=\nactual(%#v)", expected, decoded)
     } else {
         t.Logf("decoded = %#v", decoded)
-        // streaming_decode_test.go:59: decoded = []play.sample{play.sample{Foo:"foo1"}, play.sample{Foo:"foo2"}, play.sample{Foo:"foo3"}}
+        // streaming_decode_test.go:60: decoded = []play.sample{play.sample{Foo:"foo1"}, play.sample{Foo:"foo2"}, play.sample{Foo:"foo3"}}
+    }
+}
+```
+
+### streaming deocde 2
+
+`v2.WithUnmarshalers(v2.UnmarshalFromFunc(func (...) {...}))`で型ごとにunmarshalerを変更できます。
+これを利用すればもっと簡単に(と言いつつコードはごちゃごちゃしますが)streaming decodeを行うことができます。
+
+[snippet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/streaming_decode_test.go#L64-L114)
+
+```go
+import (
+    "bytes"
+    "encoding/json/jsontext"
+    "encoding/json/v2"
+    "io"
+    "reflect"
+    "testing"
+)
+
+const streamDecodeInput = `{
+    "foo": null,
+    "bar": {
+            "baz": [
+                {"foo":"foo1"},
+                {"foo":"foo2"},
+                {"foo":"foo3"}
+            ]
+        }
+}
+`
+
+func TestStreamingDecode2(t *testing.T) {
+    type Data struct {
+        Foo string `json:"foo"`
+    }
+
+    type Bar struct {
+        Baz []Data `json:"baz"`
+    }
+
+    type sample struct {
+        Foo *int `json:"foo"`
+        Bar Bar  `json:"bar"`
+    }
+
+    dataChan := make(chan Data)
+    unmarshaler := json.WithUnmarshalers(json.UnmarshalFromFunc(func(dec *jsontext.Decoder, d *Data) error {
+        type plain Data
+        var p plain
+        err := json.UnmarshalDecode(dec, &p)
+        if err == nil {
+            dataChan <- Data(p)
+        }
+        *d = Data(p)
+        return err
+    }))
+
+    resultCh := make(chan []Data)
+    go func() {
+        var result []Data
+        for d := range dataChan {
+            result = append(result, d)
+        }
+        resultCh <- result
+    }()
+
+    var s sample
+    err := json.Unmarshal([]byte(streamDecodeInput), &s, unmarshaler)
+    if err != nil {
+        panic(err)
+    }
+    close(dataChan)
+    result := <-resultCh
+
+    expected := []Data{{"foo1"}, {"foo2"}, {"foo3"}}
+    if !reflect.DeepEqual(expected, result) {
+        t.Errorf("not equal:\nexpected(%#v)\n!=\nactual(%#v)", expected, result)
+    } else {
+        t.Logf("decoded = %#v", result)
+        // streaming_decode_test.go:111: decoded = []play.Data{play.Data{Foo:"foo1"}, play.Data{Foo:"foo2"}, play.Data{Foo:"foo3"}}
     }
 }
 ```
@@ -825,7 +908,8 @@ func TestStreamingDecode(t *testing.T) {
 ### token列からのunmarshalは簡単じゃなさそう。
 
 `encoding/xml`には[xml.NewTokenDecoder]がありますが、`encoding/json/v2`にはこういったtoken readerがないため効率的なtee-ingができないかもしれないです。
-ということで下記の`Either[L, R]`を例に出します。jsonからunmarshalするとき、左で成功すれば左、だめなら右でunmarshal、どっちかで成功すればよいというものです。tokenのtee-ingができないと一旦`JSON Value`をバッファーする必要があり、これは`v1`の[json.Unmarshaler]と同様にも思えますが、こちらは`v2`の`Options`を伝搬できる違いがあります。
+
+ということで下記の`Either[L, R]`を例に出します。jsonからunmarshalするとき、左で成功すれば左、だめなら右でunmarshal、どっちかで成功すればよいというものです。tokenのtee-ingができないと一旦`JSON Value`をバッファーする必要があり、これは`v1`の[json.Unmarshaler]と同様にパフォーマンスが悪そうに思えます。こちらは`v2`の`Options`を伝搬できる違いがあり、実装が無意味というわけでもないです。
 
 とはいえ下記のように`jsontext.Encoder`/`jsontext.Decoder`がinterfaceになることはないでしょうから当面(もしくはずっと)token列からのunmarshalはできないと思われます。
 
@@ -853,55 +937,8 @@ type Either[L, R any] struct {
     r       R
 }
 
-func Left[L, R any](l L) Either[L, R] {
-    return Either[L, R]{isRight: false, l: l}
-}
-
-func Right[L, R any](r R) Either[L, R] {
-    return Either[L, R]{isRight: true, r: r}
-}
-
 func (e Either[L, R]) IsLeft() bool {
     return !e.isRight
-}
-
-func (e Either[L, R]) IsRight() bool {
-    return e.isRight
-}
-
-func (e Either[L, R]) Left() L {
-    return e.l
-}
-
-func (e Either[L, R]) Right() R {
-    return e.r
-}
-
-func (e Either[L, R]) Unpack() (L, R) {
-    // for ? syntax discussed under https://github.com/golang/go/discussions/71460
-    return e.l, e.r
-}
-
-func MapLeft[L, R, L2 any](e Either[L, R], mapper func(l L) L2) Either[L2, R] {
-    if e.IsLeft() {
-        return Left[L2, R](mapper(e.Left()))
-    }
-    return Right[L2](e.Right())
-}
-
-func (e Either[L, R]) MapLeft(mapper func(l L) L) Either[L, R] {
-    return MapLeft(e, mapper)
-}
-
-func MapRight[L, R, R2 any](e Either[L, R], mapper func(l R) R2) Either[L, R2] {
-    if e.IsRight() {
-        return Right[L](mapper(e.Right()))
-    }
-    return Left[L, R2](e.Left())
-}
-
-func (e Either[L, R]) MapRight(mapper func(l R) R) Either[L, R] {
-    return MapRight(e, mapper)
 }
 
 func (e Either[L, R]) MarshalJSONTo(enc *jsontext.Encoder) error {
@@ -962,6 +999,60 @@ func TestArshalerEither(t *testing.T) {
     }
 }
 ```
+
+:::details 残りのmethod
+
+```go
+func Left[L, R any](l L) Either[L, R] {
+    return Either[L, R]{isRight: false, l: l}
+}
+
+func Right[L, R any](r R) Either[L, R] {
+    return Either[L, R]{isRight: true, r: r}
+}
+
+
+func (e Either[L, R]) IsRight() bool {
+    return e.isRight
+}
+
+func (e Either[L, R]) Left() L {
+    return e.l
+}
+
+func (e Either[L, R]) Right() R {
+    return e.r
+}
+
+func (e Either[L, R]) Unpack() (L, R) {
+    // for ? syntax discussed under https://github.com/golang/go/discussions/71460
+    return e.l, e.r
+}
+
+func MapLeft[L, R, L2 any](e Either[L, R], mapper func(l L) L2) Either[L2, R] {
+    if e.IsLeft() {
+        return Left[L2, R](mapper(e.Left()))
+    }
+    return Right[L2](e.Right())
+}
+
+func (e Either[L, R]) MapLeft(mapper func(l L) L) Either[L, R] {
+    return MapLeft(e, mapper)
+}
+
+func MapRight[L, R, R2 any](e Either[L, R], mapper func(l R) R2) Either[L, R2] {
+    if e.IsRight() {
+        return Right[L](mapper(e.Right()))
+    }
+    return Left[L, R2](e.Left())
+}
+
+func (e Either[L, R]) MapRight(mapper func(l R) R) Either[L, R] {
+    return MapRight(e, mapper)
+}
+```
+
+:::
 
 ## おわりに
 
