@@ -1081,7 +1081,7 @@ func (e Either[L, R]) MapRight(mapper func(l R) R) Either[L, R] {
 - `PeekKind`でJSON ObjectかJSON Arrayのときと、それ以外のときで分岐します。
   - `null`, `false`, `true`, `""`(String literal), `0`(Number literal)のいずれかである場合はどちらにせよValue単位の読み込みになるため、`ReadValue`を読んでunmarshalしておきます。
 - まず初めに`StackDepth`をとっておきます。`jsontext.Decoder.ReadToken`するとこの数値が増加するはずですので、元のdepthに戻ったとき1つのJSON ObjectかJSON Arrayが読み終わったとみなせます。
-- `jsontext.Decoder` -(`jsontext.Token`)-> `jsontext.Encoder` -(`[]byte`)-> `*io.PipeWriter` -> `*io.PipeReader` -(`[]byte`)-> `jsontext.Reader`と経由することで1つの`jsontext.Decoder`の読み込みをteeすることができます。
+- `jsontext.Decoder` -(`jsontext.Token`)-> `jsontext.Encoder` -(`[]byte`)-> `*io.PipeWriter` -> `*io.PipeReader` -(`[]byte`)-> `jsontext.Decoder`と経由することで1つの`jsontext.Decoder`の読み込みをteeすることができます。
 - 片方のunmarshalが早期にエラー終了するのがありうることを考えると2つの`io.Pipe`が必要です。
 - あとはどこかのgoroutineがpanicした時に備えてrecoverしてre-panicできるように少し考慮を加えて完成です。
 
