@@ -143,6 +143,8 @@ https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/e
 
 これらを型に実装させれば、前述の経緯のところで述べた[json.Unmarshaler]使用時の極端なパフォーマンス劣化を避けることができます。
 
+[*json.Encoder]/[*json.Decoder]に当たるものとして`*jsontext.Encoder`/`*jsontext.Decoder`が実装されます。
+
 ## discussion版からの顕著な変更
 
 https://github.com/golang/go/issues/71497#issuecomment-2626483666
@@ -160,6 +162,8 @@ https://github.com/golang/go/issues/71497#issuecomment-2626483666
 ## 使ってみる
 
 ### jsontext.Encoder
+
+`*jsontext.Encoder`は[*json.Encoder]に当たるもので、言葉通りJSONのTokenやValueを`io.Writer`に書き込むことができます。
 
 `WriteToken`、`WriteValue`で値を書き込みますが、内部のステートマシンが状態を覚えているので`:`とか`,`とかを手動で書き込む必要はないです。これはいいデザインですね。
 
@@ -258,6 +262,8 @@ func TestEncoder(t *testing.T) {
 ```
 
 ### jsontext.Decoder
+
+`*jsontext.Decoder`は[*json.Decoder]に当たるもので、言葉通りJSON TokenやValueを`io.Reader`から読み込むことができます。
 
 `PeekKind`で値を消費せずに`jsontext.Kind`を取得し、`ReadToken`, `ReadValue`で値を読み込みます。
 
@@ -1068,7 +1074,7 @@ func (e Either[L, R]) MapRight(mapper func(l R) R) Either[L, R] {
 
 :::
 
-### tee-ing版
+#### tee-ing版
 
 すごく迂遠なことをすればtokenのtee-ingが実装できます。
 
@@ -1372,6 +1378,8 @@ func TestArshalerEither(t *testing.T) {
 <!-- references to sdk library -->
 
 [panic]: https://pkg.go.dev/builtin@go1.24.3#panic
+[*json.Decoder]: https://pkg.go.dev/encoding/json@go1.24.3#Decoder
+[*json.Encoder]: https://pkg.go.dev/encoding/json@go1.24.3#Encoder
 [json.Marshal]: https://pkg.go.dev/encoding/json@go1.24.3#Marshal
 [json.Marshaler]: https://pkg.go.dev/encoding/json@go1.24.3#Marshaler
 [json.Unmarshaler]: https://pkg.go.dev/encoding/json@go1.24.3#Unmarshaler
