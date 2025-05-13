@@ -3,7 +3,7 @@ title: "gotipでencoding/json/v2を試す"
 emoji: "📦"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## gotipでencoding/json/v2を試す
