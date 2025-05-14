@@ -200,7 +200,7 @@ encoder単位、呼び出し単位でのふるまいの変更ができる`Option
 
 https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/v2/arshal_funcs.go#L204-L251
 
-https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/v2/arshal_funcs.go#L253-L285
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/v2/arshal_funcs.go#L287-L336
 
 見てのとおりそれぞれencoder/decoderを受け取るため、`StackDepth`, `StackIndex`, `StackPointer`を用いて階層情報を取得しそれに基づいてふるまいを変えることもできるようになっています。
 
