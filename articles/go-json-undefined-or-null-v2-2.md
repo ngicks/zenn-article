@@ -6,6 +6,12 @@ topics: ["go"]
 published: true
 ---
 
+## EDIT 2025-05-14
+
+- [v1からの顕著な変更](#v1からの顕著な変更)部分を増量しました。
+- [jsontext.Decoder.StackPointer](#jsontext.decoder.stackpointer)部分もうちょい凝った処理にしました。
+- [tee-ing版](#tee-ing版)増設して`*jsontext.Decoder`で読んだ内容を2つにteeする方法を述べました。
+
 ## gotipでencoding/json/v2を試す
 
 長いこと[discussion](https://github.com/golang/go/discussions/63397)にあった`encoding/json/v2`ですが2025-01-31に以下のproposalに移行しました。
@@ -77,6 +83,7 @@ gotoolchain追加後は現在呼び出された`go`コマンドよりも`go.mod`
   - etc, etc.
 - APIが変
   - `json.NewDecoder(r).Decode(v)`がよくされるが、`r io.Reader`から1つのJSON Valueを取り出すだけでそのあとにゴミデータがあった場合などにエラーにならない。
+  - `Decoder`, `Encoder`にOptionを設定する方法があるが([SetEscapeHTML](https://pkg.go.dev/encoding/json@go1.24.3#Encoder.SetEscapeHTML)とか[DisallowUnknownFields](https://pkg.go.dev/encoding/json@go1.24.3#Decoder.DisallowUnknownFields)とかのこと)、`json.Marhsal`, `json.Unmarshal`にはない
   - `json.Compact`, `json.Indent`, `json.HTMLEscape`などが`bytes.Buffer`を使っていること。より柔軟な`[]byte`, `io.Writer`などを使わないこと。
 - パフォーマンスが悪い
   - `MarshalJSON`のinterfaceが`[]byte`を返すものであり、毎回allocationが要求される
@@ -108,12 +115,16 @@ gotoolchain追加後は現在呼び出された`go`コマンドよりも`go.mod`
 
 ## v1からの顕著な変更
 
+### encoding/json/jsontextとencoding/json/v2に分かれる
+
 [proposal]に貼られていますが、以下のように構造が変化します。
 
 ![](https://raw.githubusercontent.com/go-json-experiment/json/6e475c84a2bf3c304682aef375e000771a318a5c/api.png)
 
 `encoding/json/jsontext`を追加し、ここでJSONの文法を処理します。
 `encoding/json/v2`を追加し、ここで`jsontext`で処理されたトークン情報を用いて、`v1`と同様に`reflect`などを使用して`Go`の値との相互的なやり取りを実現します。
+
+### encoding/json/v2
 
 [json.Marshal], [json.Unmarshal]とほぼ同等なものに加えて、`io.Reader`/`io.Writer`, `*jsontext.Encoder`/`*jsontext.Decoder`を引数に取る新しいAPIが追加されます。
 
@@ -131,19 +142,82 @@ https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/e
 
 見てのとおり、`Options`という型でoptionを受け付けられるようになっており、ユーザー側で柔軟な挙動の変更が可能です。
 
-https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/internal/jsonopts/options.go#L7-L18
-
-`Options`はinterfaceですが上記のとおり現状`encoding/json`以下のパッケージからしか定義ができないようになっています。
-
-[json.Marshaler], [json.Unmarshaler]加えて以下の`MarshalerTo`と`UnmarshalerFrom`が追加されます。
-
-https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/v2/arshal_methods.go#L48-L62
-
-https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/v2/arshal_methods.go#L79-L96
-
-これらを型に実装させれば、前述の経緯のところで述べた[json.Unmarshaler]使用時の極端なパフォーマンス劣化を避けることができます。
+### encoding/json/jsontext
 
 [*json.Encoder]/[*json.Decoder]に当たるものとして`*jsontext.Encoder`/`*jsontext.Decoder`が実装されます。
+それぞれ[io.Writer]/[io.Reader]を引数にとって初期化します。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/encode.go#L84-L95
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/decode.go#L117-L126
+
+JSONのToken単位での読み書きをする`Write/ReadToken`と,JSON Value単位(`"foo"`のようなstring literalや`{"foo":"bar"}`のような1つのJSON Objectなど)での読み書きをする`Write/ReadValue`があり、`v1`に比べるとよりレキシカルな操作が可能です。
+
+また、[*json.Decoder.More]の代わりに`PeekKind`があり、これによって次のtokenの種類(kind)をしることができます。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/decode.go#L302-L309
+
+(`v1`では読んじゃったらUnreadできないからすごい困ってたんですよ)
+
+`*jsontext.Encoder`/`*jsontext.Decoder`ともに、`StackDepth`, `StackIndex`, `StackPointer`を実装しており、現在のnestの深さ、ある深さの開始Token(`{`なのか`[`なのか)、現在の位置のJSON Pointer([RFC 6901])をそれぞれ知ることができます。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/decode.go#L1126-L1134
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/decode.go#L1136-L1158
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/decode.go#L1160-L1163
+
+`jsontext.Token`は構造体、`jsontext.Value`は`[]byte`であり、interfaceではないので不要なbox化が起きなくなっています。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/token.go#L32-L90
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/value.go#L38-L47
+
+### Options
+
+多くの`v2` APIがうけつける`Options`型によって、encoder単位、呼び出し単位でふるまいのカスタマイズが可能になっています。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/internal/jsonopts/options.go#L7-L18
+
+`Options`はinterfaceですが上記のとおり現状`encoding/json`以下のpackageからしか定義ができないようになっています。
+逆に言うとこのハックによって`encoding/json/v2`, `encoding/json/jsontext`のそれぞれにふさわしいpackageで`Options`が定義されています。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/options.go#L17-L45
+
+上記のようにいろいろあります。
+
+関連APIが`Options`を受け取るほか、`*jsontext.Encoder`/`*jsontext.Decoder`がこれを引きまわすようになっているため、`MarshalJSONTo`/`UnmarshalJSONFrom`の実装もこれらを受け取ることができます。
+
+例えば`v2`で`v1`の[json.MarshalIndent]相当のことをするには`jsontext.WithIdent`を`v2.Marshal*`系APIに渡します。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/jsontext/options.go#L221-L255
+
+`*jsontext.Encoder`はこの`Options`が渡されていた場合、streamへの書き出し時にObjectやArrayがnestするたびに`StackDepth`に応じたインデントを書きだします。`v1`では一旦Marshalをして`[]byte`を出力し、これを解析してインデントをつけなおすという遠回りな処理をしていましたが、`v2`では`Options`がencoderについて回ることで処理がずいぶんシンプルになっています。
+
+encoder単位、呼び出し単位でのふるまいの変更ができる`Options`で顕著なものは`MarshalToFunc[T any]`/`UnmarshalFunc[T any]`です。
+これらは、関数をあたることで特定の型`T`のmarshal, unmarshalのふるまいを変えることができます。
+`v1`までは[json.Marshaler]/[json.Unmarshaler]を型に実装させるしかありませんでしたが、`v2`では呼び出しごとに変更することができるほか、closureを渡すことができるので、例えばある型が見つかるたび`channel`に送信するとか、カウントをインクリメントするとかもできます。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/v2/arshal_funcs.go#L204-L251
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/v2/arshal_funcs.go#L253-L285
+
+見てのとおりそれぞれencoder/decoderを受け取るため、`StackDepth`, `StackIndex`, `StackPointer`を用いて階層情報を取得しそれに基づいてふるまいを変えることもできるようになっています。
+
+### struct tag
+
+`json:""` struct tagも大幅な変更があります。
+
+https://github.com/golang/go/blob/0e17905793cb5e0acc323a0cdf3733199d93976a/src/encoding/json/v2/fields.go#L469-L555
+
+特に顕著なのは
+
+- `case:value`, `format:value`などでフォーマットを指定できるように(のちにサンプルを示す)
+  - 前述の`time.Time`が`RFC3339`以外でmarshal/unmarshalできなかった問題が解決します。
+- `inline`で型をembedしなくてもembedしてた時みたいにmarshal/unmarshalされます
+- `unknown`でstrcut fieldなどで指定していない(=不明な)フィールドをまとめて格納することができます。(のちにサンプルを示す)
+- `json:"name"`のname部分をsingle quotation mark(`'`)でescape可能に
+  - `json:"',\"'"`と設定すれば、`",\""`というフィールドが出力されます。
 
 ## discussion版からの顕著な変更
 
@@ -171,7 +245,7 @@ https://github.com/golang/go/issues/71497#issuecomment-2626483666
 
 - 現在のJSON ObjectやJSON Arrayのnest回数
 - i番目の階層の開始token: `0`, `{`, `[`のどれか
-- JSON Pointer([RFC 6901](https://datatracker.ietf.org/doc/html/rfc6901))
+- JSON Pointer([RFC 6901])
 
 が取得できます。
 
@@ -1398,6 +1472,10 @@ func TestArshalerEither(t *testing.T) {
 [Dockerfile]: https://docs.docker.com/build/concepts/dockerfile/
 [Elasticsearch]: https://www.elastic.co/docs/solutions/search
 
+<!-- RFCs -->
+
+[RFC 6901]: https://datatracker.ietf.org/doc/html/rfc6901
+
 <!-- Go versions -->
 
 [Go]: https://go.dev/
@@ -1429,9 +1507,11 @@ func TestArshalerEither(t *testing.T) {
 
 [panic]: https://pkg.go.dev/builtin@go1.24.3#panic
 [*json.Decoder]: https://pkg.go.dev/encoding/json@go1.24.3#Decoder
+[*json.Decoder.More]: https://pkg.go.dev/encoding/json@go1.24.3#Decoder.More
 [*json.Encoder]: https://pkg.go.dev/encoding/json@go1.24.3#Encoder
 [json.Marshal]: https://pkg.go.dev/encoding/json@go1.24.3#Marshal
 [json.Marshaler]: https://pkg.go.dev/encoding/json@go1.24.3#Marshaler
+[json.MarshalIndent]: https://pkg.go.dev/encoding/json@go1.24.3#MarshalIndent
 [json.Unmarshaler]: https://pkg.go.dev/encoding/json@go1.24.3#Unmarshaler
 [json.Unmarshal]: https://pkg.go.dev/encoding/json@go1.24.3#Unmarshal
 [xml.NewTokenDecoder]: https://pkg.go.dev/encoding/xml@go1.24.3#NewTokenDecoder
