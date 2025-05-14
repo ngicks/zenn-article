@@ -1195,9 +1195,10 @@ func (e Either[L, R]) MapRight(mapper func(l R) R) Either[L, R] {
 - `PeekKind`でJSON ObjectかJSON Arrayのときと、それ以外のときで分岐します。
   - `null`, `false`, `true`, `""`(String literal), `0`(Number literal)のいずれかである場合はどちらにせよValue単位の読み込みになるため、`ReadValue`を読んでunmarshalしておきます。
 - JSON ObjectかJSON Arrayのとき、まず初めに`StackDepth`をとっておきます。`jsontext.Decoder.ReadToken`すると`{`か`[`を読むことでdepthが増加するはずですので、元のdepthに戻ったときそののJSON ObjectかJSON Arrayが読み終わったとみなせます。
-- `jsontext.Decoder` -(`jsontext.Token`)-> `jsontext.Encoder` -(`[]byte`)-> `*io.PipeWriter` -> `*io.PipeReader` -(`[]byte`)-> `jsontext.Decoder`と経由することで1つの`jsontext.Decoder`の読み込みをteeすることができます。
-- 片方のunmarshalが早期にエラー終了するのがありうることを考えると2つの`*jsontext.Encoder`が必要です。
-  - [io.MultiWriter]を使って1つの`*jsontext.Encoder`にまとてはいけないということを述べています。
+- 二つ[io.Pipe]を作り、自家版[io.MultiWriter]みたいなものでwriter側を結合して1つの[io.Writer]にし、`*jsontext.Encoder`を作成します。
+- `*jsontext.Decoder.ReadToken`で読み込んだtokenをこのencoderに書き込みます。
+  - `ReadToken`も`ReadValue`も`,`や`:`の情報がドロップしてしまうため、これを完全に再建するためには`*jsontext.Encoder`の力が必要です。
+- [io.MultiWriter]をそのまま使えないのは、片方の`v2.UnmarshalRead`が早期にエラー終了したとき、こちらには書き込まなくてよくなるのでそれをpipeのwriter側に伝えたいが、これに`CloseWithError`以外のうまい方法がないためです。
 - あとはどこかのgoroutineがpanicした時に備えてrecoverしてre-panicできるように少し考慮を加えて完成です。
 
 ものすごい大きなJSON Objectとかでない限りValue-buffer版のほうが効率いいと思うので微妙な気持ちになりますが、筆者が思いつけるのはここが限界です。
@@ -1991,6 +1992,7 @@ func TestArshalerEither(t *testing.T) {
 [*http.Server]: https://pkg.go.dev/net/http@go1.24.3#Server
 [io.EOF]: https://pkg.go.dev/io@go1.24.3#EOF
 [io.MultiWriter]: https://pkg.go.dev/io@go1.24.3#MultiWriter
+[io.Pipe]: https://pkg.go.dev/io@go1.24.3#Pipe
 [io.Reader]: https://pkg.go.dev/io@go1.24.3#Reader
 [io.Writer]: https://pkg.go.dev/io@go1.24.3#Writer
 [syscall.Errno]: https://pkg.go.dev/syscall@go1.24.3#Errno
