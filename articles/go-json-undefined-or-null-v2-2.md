@@ -20,7 +20,7 @@ https://github.com/golang/go/issues/71497
 
 [proposal]: https://github.com/golang/go/issues/71497
 
-2025-04-15に`GOEXPERIMENT=jsonv2`下で利用できるようになるCLがマージされました。
+2025-04-18に`GOEXPERIMENT=jsonv2`下で利用できるようになるCLがマージされました。
 
 https://go-review.googlesource.com/c/go/+/665796
 
