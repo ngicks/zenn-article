@@ -142,7 +142,7 @@ go version go1.24.2 linux/amd64
   - `interface`は特定の`method set`を実装する型なら何でも代入できる型という意味になります。
   - `interface{}`(なんのmethodも指定しない`interface`)にはあらゆる型の変数を代入可能です。上記の*feels like a dynamically typed, interpreted language*の部分はこのこともさしているのだと思います。
 - methodは、任意の型をベースとした型を定義し、それに関連した関数として実装します。
-  - `type A struct { Foo string; Bar int}`や`type B string`のように、別の型をベースとして型を定義できます
+  - `type A struct { Foo string; Bar int }`や`type B string`のように、別の型をベースとして型を定義できます
   - もちろん、`type C A`も可能です。
   - `func (a A) MethodName() {}`という構文でmethodは定義できます。ここでいう`a`がほかの言語でいう`self`とか`this`です。
     - 同じpackage内なら複数のファイルに分散して定義したりできます。
