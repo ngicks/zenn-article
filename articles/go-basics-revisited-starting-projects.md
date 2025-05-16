@@ -828,7 +828,7 @@ github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7O
 ```
 
 実際にプロジェクト内で使われるようになったので`// indirect`が外れます。
-さらに`go get`時には追加されていなかった依存先の`_test` moduleの依存先も`go.sum`に記録されています。
+さらに`go get`時には追加されていなかった依存先の依存先も`go.sum`に記録されています。 
 
 `go mod tidy`を行うと`go.sum`の内容が整理されたり、使われなくなった外部moduleが削除されたりします。`VCS`にプッシュする前には`go mod tidy`を実行しておくほうがよいでしょう。
 
