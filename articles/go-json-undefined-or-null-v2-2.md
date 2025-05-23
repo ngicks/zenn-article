@@ -8,7 +8,7 @@ published: true
 
 ## EDIT 2025-05-23
 
-- [v2.Marshal / v2.Unmarshal](#v2.Marshal/v2.Unmarshal)を追加しました。一番ふつうの使い方です。
+- [v2.Marshal / v2.Unmarshal](#v2.marshal-%2F-v2.unmarshal)を追加しました。一番ふつうの使い方です。
 
 ## EDIT 2025-05-14
 
