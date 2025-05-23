@@ -6,6 +6,10 @@ topics: ["go"]
 published: true
 ---
 
+## EDIT 2025-05-23
+
+- [v2.Marshal / v2.Unmarshal](#v2.Marshal/v2.Unmarshal)を追加しました。一番ふつうの使い方です。
+
 ## EDIT 2025-05-14
 
 - [v1からの顕著な変更](#v1からの顕著な変更)部分を増量しました。
@@ -234,6 +238,63 @@ https://github.com/golang/go/issues/71497#issuecomment-2626483666
 その他いろいろ追加されています。
 
 ## 使ってみる
+
+### v2.Marshal / v2.Unmarshal
+
+`Marshal`/`Unmarshal`の使用感はあまり変わりません。
+
+ちょっとしたコツとして、`v2.Marshal`に渡す値は必ずaddressableなもの、つまりポインターにします。
+しない場合、`v2`は一旦値をコピーしてポインターに変換しなおします。これはnon-addressableな値だとmethod receiverがpointerだと`reflect`経由では呼び出しができないためです。
+
+こうしておくほうが若干パフォーマンスが良いです。
+
+```go
+package main
+
+import (
+    "encoding/json/jsontext"
+    "encoding/json/v2"
+    "fmt"
+    "time"
+)
+
+type A struct {
+    Foo string    `json:"foo,omitzero"`
+    Bar int       `json:"int,omitzero"`
+    T   time.Time `json:"t,omitzero,format:RFC3339"`
+    U   string    `json:"',\"'"`
+}
+
+func main() {
+    a := A{
+        Foo: "foo",
+        Bar: 123,
+        T:   time.Now(),
+        U:   "um",
+    }
+
+    bin, err := json.Marshal(&a, jsontext.WithIndent("    "))
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println(string(bin))
+    /*
+       {
+           "foo": "foo",
+           "int": 123,
+           "t": "2025-05-23T21:47:23+09:00",
+           ",\"": "um"
+       }
+    */
+    a = *new(A)
+    err = json.Unmarshal(bin, &a)
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("%#v\n", a)
+    // main.A{Foo:"foo", Bar:123, T:time.Date(2025, time.May, 23, 21, 47, 23, 0, time.Local), U:"um"}
+}
+```
 
 ### jsontext.Encoder
 
