@@ -3,18 +3,22 @@ title: "tmuxのstatus lineの色をpane modeとhost名に合わせて変える"
 emoji: "💻"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["tmux"]
-published: false
+published: true
 ---
 
 ## tmuxのstatus lineの色をpane modeとhost名に合わせて変える
 
-っていう話が割と苦労したのでまとめて置きます。
+っていう話は誰かがすでにまとめてくれている気がするんですが検索してもなかなかたどりつけず、結構苦労をしたのでまとめておきます。
 
 最近sshでサーバーに入って作業することが増えたんですが、ssh先が増えるに伴って自分がどこにいるかがよくわかなくなってしまいます。
 また、[neovim]でよく作業するため、pane分割を行わないことがよくあります。その時、自分がどのpane modeにいるのかよくわからなくなってしまうんですね。
 そのため表題のようなことをしました。
 
 ちなみに[Tmux Plugin Manager](https://github.com/tmux-plugins/tpm)は使いません。
+
+## 前提知識
+
+[tmux](https://github.com/tmux/tmux)の一通りの使用方法
 
 ## 環境
 
@@ -25,12 +29,8 @@ $ tmux -V
 tmux 3.4
 ```
 
-カラーコードを使用する部分が`tmux 3.3a`では動作しなかったので工夫するよりアップデートしてしまえという感じで筆者は手元で最新をビルドして`$HOME/.local/bin`に送り込んで使っています。
+カラーコードを使用する部分が`tmux 3.3a`では動作しなかったので工夫するよりアップデートしてしまえという感じで筆者は手元で最新(`3.5a`)をビルドして`$HOME/.local/bin`に送り込んで使っています。記事執筆環境では`3.4`が入っていますのでこれはそのままになっています。
 サーバーに既に古い`tmux`が入っている場合、それを上書きするとスクリプトが動かなくなるとかあるので自分の使用するやつだけ変えるようにしましょう。
-
-## 前提知識
-
-[tmux](https://github.com/tmux/tmux)の一通りの使用方法
 
 ## 完成品がこちらです
 
@@ -72,7 +72,7 @@ run-shell "$SHELL ~/.config/tmux/set_status_right.sh"
 
 - `run-shell`を使うと`/bin/sh -c`で渡された文字列を評価します。
   - `$SHELL`を渡すとログインシェルでスクリプトを実行できるのでこうしておいています。
-- `tmux.conf`の中で完結したかったですが、bashの分岐処理をがっつり使いたかったためshell scriptとして切り分けました。
+- できるなら`tmux.conf`の中で完結したかったですが、bashの分岐処理を使いたかったためshell scriptとして切り分けました。
 
 ```shell: ~/.config/tmux/set_status_left.sh
 # display mode
@@ -104,7 +104,7 @@ tmux set-hook -g pane-mode-changed "${STATUS_LEFT}"
 ```
 
 - staus leftの文字列をくみ上げ、`set-option -g status-left`と各種イベントにフックとして登録します。
-- `prefix_on_color`, `prefix_off_color`の文字列を見るとわかる通り、`#{?A,B,C}`の分岐処理の中にカンマを含めるには`#`でエスケープが必要なようです。
+- `prefix_on_color`, `prefix_off_color`の文字列を見るとわかる通り、`#{?A,B,C}`のような分岐処理の中にカンマを含んだ文字列を入れるには`#`でエスケープが必要なようです。
 - `STATUS_LEFT`の部分、`if -F #{==:copy-mode,#{pane_mode}}`でpane modeに対するマッチングを行います。
   - `==:`は見てわかる通り`A == B`で判定を行います。
   - `m`ならglob pattern, `m/r`ならregular expressionで判定できますが、
@@ -142,7 +142,7 @@ tmux set-option -g status-right "#[fg=${HOST_FG_COLOR},bg=#${HOST_BG_COLOR}] #H 
 
 pane modeに対応した色の変更は視界の端でも割と見えるため便利になりました。
 
-host名に対して色が偏るかと思いきや筆者の環境ではいい感じにばらけているため見やすくて非常によくなりました。
+host名から計算された色は偏るかと思いきや筆者の環境ではいい感じにばらけているため見やすくて非常によくなりました。
 status line一部ではなく全体をこの色にしたり、背景色を変更したりするとより気づきやすいかもしれません。
 
 [tmux]: https://github.com/tmux/tmux
