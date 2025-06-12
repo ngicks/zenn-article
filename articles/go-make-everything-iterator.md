@@ -211,6 +211,17 @@ https://github.com/ngicks/go-iterator-helper/blob/main/x/exp/xiter/xiter.go
 
 シグネチャが変わることもあり得るでしょうし現時点で使うのは時期尚早かなという気もします。
 
+EDIT2025-06-12:
+
+xiterのproposalは閉じられました。
+
+https://github.com/golang/go/issues/61898#issuecomment-2899385258
+
+まだ時期尚早ということらしいです。
+ということで`hiter`以下に同等のものを実装しておきました。
+
+https://github.com/ngicks/go-iterator-helper/blob/v0.0.20/hiter/basic_adapter.go
+
 ## リファクタ: \[\]V, map\[K\]Vの代わりにiter.Seq\[V\], iter.Seq2\[K, V\]を受けとる
 
 単なるデータシーケンスとして`[]V`と`map[K]V`を受けとっていたとこを`iter.Seq[V]`、`iter.Seq2[K, V]`を受け取るようにリファクタします。
@@ -580,7 +591,8 @@ https://github.com/golang/go/discussions/56413
 
 - archive/tar.Reader.Next: Nextを呼ぶたび`tar.Reader`の中身が変わるステートフルなのがiteratorに合わないと感じた
   - ~~tarの`io.ReaderAt`を受けて`*io.SectionReader`を返すライブラリを実装してもいいなと考えていたので、そっち版にiteratorを実装しようかなという検討による。~~
-    - `archive/tar`の実装とPAXとUSTarの仕様をチラチラ見てたんですが心おれました。tarをディレクトリとしてfsにマウントできるものがあるのは知っているので、不可能ではないとわかっているんですが大変ではありそうです。
+    - ~~`archive/tar`の実装とPAXとUSTarの仕様をチラチラ見てたんですが心おれました。tarをディレクトリとしてfsにマウントできるものがあるのは知っているので、不可能ではないとわかっているんですが大変ではありそうです。~~
+    - EDIT2025-06-12: こっちの記事でほぼ実装しました -> [\[Go\]tarのReaderにReadAtを実装する\(ついでにfs.FSにもする\)](https://zenn.dev/ngicks/articles/go-tar-reader-implement-reader-at)
 - bufio.Reader.ReadByte: 力尽き
 - expvar.Do: 力尽き
 - flag.Visit: 力尽き

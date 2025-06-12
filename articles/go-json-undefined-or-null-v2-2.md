@@ -6,16 +6,6 @@ topics: ["go"]
 published: true
 ---
 
-## EDIT 2025-05-23
-
-- [v2.Marshal / v2.Unmarshal](#v2.marshal-%2F-v2.unmarshal)を追加しました。一番ふつうの使い方です。
-
-## EDIT 2025-05-14
-
-- [v1からの顕著な変更](#v1からの顕著な変更)部分を増量しました。
-- [jsontext.Decoder.StackPointer](#jsontext.decoder.stackpointer)部分もうちょい凝った処理にしました。
-- [tee-ing版](#tee-ing版)増設して`*jsontext.Decoder`で読んだ内容を2つにteeする方法を述べました。
-
 ## gotipでencoding/json/v2を試す
 
 長いこと[discussion](https://github.com/golang/go/discussions/63397)にあった`encoding/json/v2`ですが2025-01-31に以下のproposalに移行しました。
@@ -28,7 +18,8 @@ https://github.com/golang/go/issues/71497
 
 https://go-review.googlesource.com/c/go/+/665796
 
-このままいけば`Go 1.25`で`GOEXPERIMENT`付きで試せるようになり、問題なければ`Go 1.26`で実装という感じでしょうか。
+すでに`go1.25rc1`で`GOEXPERIMENT`付きで試せるようになっています。
+`iterator`のように問題なく進めば`Go 1.26`で正式実装になるでしょう。
 
 筆者は以下の記事などで何度か`encoding/json/v2`について触れていますが
 
@@ -37,6 +28,25 @@ https://zenn.dev/ngicks/articles/go-json-undefined-or-null-v2
 何が変わったかなどをついてこの記事で述べていきたいと思います。この記事は結構焼き増しです！！！
 
 以後特にほかに述べられないとき`v1`とは`encoding/json`のことをさし、`v2`とは`encoding/json/v2`のことをさします。
+
+## EDIT LOG
+
+:::details edit logs
+
+### 2025-06-12
+
+`go1.25rc1`がリリースされたのでそれに合わせて変更しました。
+
+### 2025-05-23
+
+- [v2.Marshal / v2.Unmarshal](#v2.marshal-%2F-v2.unmarshal)を追加しました。一番ふつうの使い方です。
+
+### 2025-05-14
+
+- [v1からの顕著な変更](#v1からの顕著な変更)部分を増量しました。
+- [jsontext.Decoder.StackPointer](#jsontext.decoder.stackpointer)部分もうちょい凝った処理にしました。
+- [tee-ing版](#tee-ing版)増設して`*jsontext.Decoder`で読んだ内容を2つにteeする方法を述べました。
+  :::
 
 ## サンプル
 
@@ -48,10 +58,14 @@ https://github.com/ngicks/go-play-encoding-json-v2
 
 ```
 $ go version
-go version devel go1.25-0e17905793 Fri Apr 18 08:24:07 2025 -0700 linux/amd64
+go version go1.25rc1 linux/amd64
 ```
 
-## gotipで開発できるようにする
+## (いらなくなったので省略)gotipで開発できるようにする
+
+`go 1.25rc1`がリリースされて不要になりました。
+
+:::details gotipで開発できるようにする
 
 ```
 go install golang.org/dl/gotip@latest
@@ -71,6 +85,43 @@ gotoolchain追加後は現在呼び出された`go`コマンドよりも`go.mod`
 このtoolchainは現在存在しませんからダウンロードしようとするところでエラーになります。
 
 最後に`GOEXPERIMENT`を設定しておきます。
+
+:::
+
+## プロジェクトを作成
+
+```
+$ GOTOOLCHAIN=go1.25rc1 go mod init github.com/ngicks/go-play-encoding-json-v2
+go: creating new go.mod: module github.com/ngicks/go-play-encoding-json-v2
+$ ls
+go.mod
+$ cat go.mod
+module github.com/ngicks/go-play-encoding-json-v2
+
+go 1.25rc1
+```
+
+プロジェクトを実行したり、goplsを起動するには若干面倒ですが下記の手順が必要です
+
+```
+$ export GOEXPERIMENT=
+$ export PATH=$(GOTOOLCHAIN=go1.25rc1 go env GOROOT)/bin:$PATH
+$ export GOEXPERIMENT=jsonv2
+$ go version
+go version go1.25rc1 linux/amd64
+```
+
+こうしないと`go`がパニックします。多分ですが`go` commandがビルドされた時点で存在していた`GOEXPERIMENT`以外が存在していることが条件です。
+`PATH`で指定される`go`が`go1.24.4`とかだと`GOEXPERIMENT=jsonv2`が存在しません。
+
+既存のプロジェクトに追加して遊ぶ場合は
+
+```
+//go:build (go1.25 && goexperiment.jsonv2) || go1.26
+```
+
+をファイルの先頭に付け足します。このbuild constraintによって、`go1.25`かつ`GOEXPERIMENT=jsonv2`のときのみコンパイル対象になります。
+`go1.26`以降に`GOEXPERIMENT`なしになっているのは希望的観測なのですが多分大丈夫でしょう。
 
 ## 経緯
 
@@ -249,6 +300,8 @@ https://github.com/golang/go/issues/71497#issuecomment-2626483666
 こうしておくほうが若干パフォーマンスが良いです。
 
 ```go
+//go:build (go1.25 && goexperiment.jsonv2) || go1.26
+
 package main
 
 import (

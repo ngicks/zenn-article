@@ -6,6 +6,10 @@ topics: ["go"]
 published: true
 ---
 
+## EDIT2025-06-12: GOEXPERIMENTAL=jsonv2でstd入りしたので書き直しました
+
+https://zenn.dev/ngicks/articles/go-json-undefined-or-null-v2-2
+
 # はじめに
 
 以前書いた[Goのstruct fieldでJSONのundefinedとnullを表現する](https://zenn.dev/ngicks/articles/go-json-that-can-be-t-null-or-undefined)では、[jsoniter](https://github.com/json-iterator/go)の [Extension](https://pkg.go.dev/github.com/json-iterator/go#Extension) を駆使していろいろ頑張ることで`undefined | null | T`を出し分けることが実現できることを確認しました。記事中では同様に、`encoding/json/v2`でstdライブラリとして同様のことができるようになるかもしれないということも触れました。

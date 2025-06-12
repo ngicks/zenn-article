@@ -160,7 +160,8 @@ go version go1.24.2 linux/amd64
 
 - genericsは[Go 1.18]で実装されました
 - iteratorは[Go 1.23]で実装されました
-- `?`構文は[dicussion](https://github.com/golang/go/discussions/71460)に入ってるので1～2年以内に実装されるかも！
+- ~~`?`構文は[dicussion](https://github.com/golang/go/discussions/71460)に入ってるので1～2年以内に実装されるかも！~~
+  - [The Go Blog: \[ On \| No \] syntactic support for error handling](https://go.dev/blog/error-syntax)で説明される通り、コンセンサスを得られるproposalがないためそもそもerror handling周りの構文変更自体しばらくしない(proposalが出ても即閉じられる)という決定になったらしいです。ないならないでよし！
 
 ### A Tour of Go
 
@@ -828,7 +829,7 @@ github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7O
 ```
 
 実際にプロジェクト内で使われるようになったので`// indirect`が外れます。
-さらに`go get`時には追加されていなかった依存先の依存先も`go.sum`に記録されています。 
+さらに`go get`時には追加されていなかった依存先の依存先も`go.sum`に記録されています。
 
 `go mod tidy`を行うと`go.sum`の内容が整理されたり、使われなくなった外部moduleが削除されたりします。`VCS`にプッシュする前には`go mod tidy`を実行しておくほうがよいでしょう。
 
