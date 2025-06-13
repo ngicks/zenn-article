@@ -6,7 +6,7 @@ topics: ["go"]
 published: true
 ---
 
-## gotipでencoding/json/v2を試す
+## ~~gotip~~go1.25rc1でencoding/json/v2を試す
 
 長いこと[discussion](https://github.com/golang/go/discussions/63397)にあった`encoding/json/v2`ですが2025-01-31に以下のproposalに移行しました。
 
