@@ -647,7 +647,7 @@ https://github.com/ngicks/go-fsys-helper/blob/dd69bbd94d5c28ce6d557906cfd3e5d454
   - そもそもsparseのあるファイルを取り扱わないかも
   - 現状[archive/tar]自身もsparse fileの書き込みでholeを作る実装になっていません([#22735](https://github.com/golang/go/issues/22735))ので問題ないといえばないです。
 - ~~symlink supportを加える~~加えました([69ddd3691ee](https://github.com/ngicks/go-fsys-helper/commit/69ddd3691ee1876028b8318f9c0b94c015fb9b29), [d80e27dd28a](https://github.com/ngicks/go-fsys-helper/commit/d80e27dd28a2c806372a24df6e3527e2b306750c), [60f73cb8c5c](https://github.com/ngicks/go-fsys-helper/commit/60f73cb8c5cc8ad5ac9af9c2ff7c0df46cb7840b), [981b498c87b](https://github.com/ngicks/go-fsys-helper/commit/981b498c87b8cb06c0b4ee715a16f21b2beda485))。
-  - [#49580](https://github.com/golang/go/issues/49580)より(おそらく)`Go1.25`から`fs.ReadLinkFS`が追加され、さらに
+  - [#49580](https://github.com/golang/go/issues/49580)より~~(おそらく)~~(マージ済みです)`Go1.25`から`fs.ReadLinkFS`が追加され、さらに
   - [#67002](https://github.com/golang/go/issues/67002)より`Go1.25`から[\*os.Root]に`MkdirAll`や`Symlink`など`Go1.24`では実装が見送られたmethod群が実装されますので、これと組み合わせて使えるようにする意図もあります。
 
 [Go]: https://go.dev/
