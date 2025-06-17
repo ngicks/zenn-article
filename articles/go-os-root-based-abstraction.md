@@ -10,6 +10,14 @@ published: false
 
 こんにちは。
 
+`go1.25rc1`がリリースされましたね。
+
+https://x.com/golang/status/1932876844849594525
+
+DRAFT RELEASE NOTEは以下となります。
+
+https://tip.golang.org/doc/go1.25
+
 今回は[Go 1.24]で追加され、[Go 1.25]で残りのメソッドが実装されることになる[*os.Root]を意識したfilesystem abstraction libraryと、逆にfilesystem abstraction libraryどれに対しても使えるようなヘルパーの作り方の提案を行います。
 
 ## Overview
@@ -49,22 +57,66 @@ published: false
 - てことはこの[*os.Root]の持ってるcapabilityはベースと考えてもいいのでは・・・？
 - そういうわけで、[*os.Root]の持っているmethod setを基本としたfilesystem abstraction libraryを作ってみます。
 - できました: https://github.com/ngicks/go-fsys-helper/tree/main/vroot
-- 逆に`type OpenFileFs\[File any\] interface { 	OpenFile(name string, flag int, perm fs.FileMode) (File, error) }`みたいに具体的なファイルの型をtype paramにすればライブラリに縛られないヘルパーが定義できますね
+- 逆に`type OpenFileFs[File any] interface { OpenFile(name string, flag int, perm fs.FileMode) (File, error) }`みたいに具体的なファイルの型をtype paramにすればライブラリに縛られないヘルパーが定義できますね
 - つくり中です: https://github.com/ngicks/go-fsys-helper/tree/main/fsutil
 
-`Go1.24`で
+## 環境
 
-https://github.com/golang/go/issues/67002
+```
+$ go version
+go version go1.25rc1 linux/amd64
+```
 
-すでに`go1.25rc1`がリリースされています。
+```
+export GOTOOLCHAIN=go1.25rc1
+```
 
-https://x.com/golang/status/1932876844849594525
+の環境変数を設定することで、`go.mod`の内容にかかわらず`go1.25rc1`で実行できます！
 
-Release Noteは以下です。
+## issue
 
-https://tip.golang.org/doc/go1.25
+先に述べておきますが、[*os.Root]にはまだバグがあります。
 
-<!-- other languages referenced -->
+- [#73868](https://github.com/golang/go/issues/73868)
+  - `OpenRoot` -> `*os.Root.OpenRoot` -> `*os.Root.OpenRoot`で開いた子root、孫rootで開いたファイルに対して`Readdir`系のメソッドを呼び出すと`ENOENT`が返ってくるというもの。
+  - 書いてありますが`*os.Root.OpenRoot`が原因であるので、落としてきたsdkを手動で修正すればうまく動作します。
+  - `lstat`が呼ばれるときのprefixがちゃんとわたっていないことが問題ですが、今回の[*os.Root]の追加で各プラットフォーム向けの`lstatat`(開いてるFD/FileHandleからの相対パスでlstat)が追加されているのでそっちを使うように変更になるんじゃないかなあ？って思います。というのも、prefixで管理するとRenameとかでfdが移動したとき一貫性を保てませんから、おかしくなってしまいますよね。
+  - とりあえず`rc2`を待ちましょう。
+- [#69509](https://github.com/golang/go/issues/69509)
+  - `wasip1`でパスの取り扱いがおかしいというもの。
+
+以下はバグではなくenhancementですがこれは[#67002](https://github.com/golang/go/issues/67002)の中で述べられていた、各プラットフォーム向けの最適なAPIを使用することで最適な実装を行おうというものです。
+
+- [#73076](https://github.com/golang/go/issues/73076)
+  - 各プラットフォーム向けに最適な実装をしようというもの
+  - 多分、ファイルに対するIO操作のほうがよほど時間がかかるのでこの最適化がされなくても十分な実行速度を持てると思いますが、std libraryはあらゆるものから使われるわけですからメンテナンス性を確保できている限り、速ければ速いほどいいですよね。
+
+## はじめに
+
+`Go`には[Go 1.16]で追加された[fs.FS]があります。
+
+これはread-only filesystemで、`/`で区切られたパスによってファイルを開いて読めるだけ・・・というものです。
+
+特定のディレクトリの下に特定の構造があり、それを期待して読み込んだり書き込んだりするようなプログラムを書くことは、筆者としてはたびたびあります。
+ディレクトリ自体は設定ファイルなりなんなりで自由に変えることができるが、どのディレクトリに書き込んでいるかはプログラムの関心から外したいという欲求が筆者にはよくありますし、実際に[fs.FS]が実装されたのはそういった欲求は広く存在するからだと思います。
+
+[fs.FS]は単にinterfaceであるため、それさえ満たせばdata sourceは何でもよいことになります。
+当然、どこかのディレクトリ以下でもいいし、samba/nfsなどのネットワークファイルシステム, tar/zipなどのアーカイブファイル、なんならin-memoryの構造でもかまいません。
+
+同様に書き込みに関しても似たように、書き込み先は何でもよいということがあります。
+
+[fs.FS]のように、書き込めるfilesystemのinterfaceも実装しようというproposalは上がりましたが、[プラットフォーム間の挙動を埋めるためのコードを書き、それをstdに取り込むことはできるがそうする強い動機は見つからない](https://github.com/golang/go/issues/45757#issuecomment-1675157698)ということでcloseされています。コミュニティーの中でいろいろな形が模索されたのち、数年後にまた検討しようとのことです。
+
+stdには取り込まれませんが、コミュニティーの中でいくつもwritableなfilesystem abstraction libaryが開発されています。
+筆者が知ってる限りの例で有名なものを挙げると
+
+- [github.com/spf13/afero]
+- [github.com/go-git/go-billy]
+- [github.com/hack-pad/hackpadfs]
+
+この中では[afero]が一番有名で現在imported by: 7,666で最多となります。これはあくまでgo proxyに記録されている[afero]をimportしているgo moduleの数なので実際にはもっとたくさんのgo moduleが利用していると思われます。
+
+  <!-- other languages referenced -->
 
 [Java]: https://www.java.com/
 [TypeScript]: https://www.typescriptlang.org/
