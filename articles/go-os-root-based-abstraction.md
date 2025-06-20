@@ -424,7 +424,7 @@ type Unrooted struct {
 }
 ```
 
-#### WalkDir
+### WalkDir
 
 `fs.WalkDir`と互換なものとして`vroot.WalkDir`を定義しておきます。
 
@@ -449,7 +449,7 @@ https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d3
 それぞれユニークな値を取得します。
 とりあえず`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`では見た限り正しく固有な値をとれているようですが、`plan9`や`wasip1`ではどうなのか全くわかっていないため、当面はサポート外としています。
 
-#### to/from fs.FS
+### to/from fs.FS
 
 `fs.FS`と`vroot`の相互変換を定義します。
 
@@ -461,7 +461,7 @@ https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d3
 
 https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_to.go#L72-L81
 
-#### ReadOnly
+### ReadOnly
 
 `Rooted`/`Unrooted`を`read-only`になるようにラップする仕組みも欲しいため作っておきます。
 これは間違って書かないようにするための安全策としてあったほうが良いですね
@@ -470,7 +470,7 @@ https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d3
 
 https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/readonly.go#L114-L120
 
-#### overlay
+### overlay
 
 これが一番欲しかったものかもしれない。
 
@@ -621,7 +621,7 @@ func Example_overlay_symlink() {
 whilte outを管理する`MetadataStore`の実装はほぼAIが出してきたものそのままですがああしろこうしろと指図してようやく今の形になっています。
 どうやったらうまく動いてくれるのか模索中ですが重要で面倒なロジックさえ書けばあとは全部やってくれるので現時点でもだいぶ楽ですね。
 
-#### synthfs(=in-memory fs)
+### synthfs(=in-memory fs)
 
 以下の記事で書いたsynthetic filesystemの`vroot`版です。
 
@@ -637,6 +637,12 @@ https://github.com/ngicks/go-fsys-helper/blob/84ed803754b44067aa0449f832b753b1b1
 
 作った動機は上記の記事内で説明していますが、実はそれ以外にも理由があって、
 [afero]の`MemMapFs`がパスの取り扱いが正しくなく、`fs.FS`に変換して`fs.Walk`をかけたとに在るのにパスが見つからない、というのが発生していたため、`trie`による管理に変えることで原理的にそれが起こらなくしたというのもあります。
+
+### memfs
+
+in-memory filesystemです。上記の`synthfs`へのショートハンドです。
+
+https://github.com/ngicks/go-fsys-helper/blob/84ed803754b44067aa0449f832b753b1b19083c1/vroot/memfs/mem.go#L1-L27
 
 ## tarfs
 
