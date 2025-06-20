@@ -323,17 +323,107 @@ type Rooted interface {
 
 #### osfs
 
-#### Walk
+とりあえず[*os.Root]からinterfaceを生成できないとほとんど意味がないのでとりあえずこれは必要です。
+
+```go
+type Rooted struct {
+	root *os.Root
+}
+
+type Unrooted struct {
+	root string // absolute path to the root directory
+}
+```
+
+`os`パッケージが`errPathEscapes`をエクスポートしないため
+
+https://github.com/golang/go/blob/go1.25rc1/src/os/file.go#L421
+
+文字列を見てエラーを差し替える部分を作っておきます。
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/osfs/rooted.go#L45-L58
+
+文字列比較はやらないでいいならやりたくないですが、こうしないと`errors.Is(err, ErrPathEscapes)`でテストをかけないので仕方なくやっています。
+
+#### WalkDir
+
+`fs.WalkDir`と互換なものとして`vroot.WalkDir`を定義しておきます。
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/walk.go#L79
+
+interfaceがsymlinkの存在をもとから考慮に入れているので`fs.WalkDir`と違ってsymlinkをresolveしてたどってもよいことにしてあります。
 
 #### to/from fs.FS
 
+`fs.FS`と`vroot`の相互変換を定義します。
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_from.go#L27-L43
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_from.go#L174-L186
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_to.go#L21-L30
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_to.go#L72-L81
+
 #### ReadOnly
+
+`read-only`なinterfaceも欲しいので作っておきます。これは間違って書かないようにするための安全策としてあったほうが良いですね
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/readonly.go#L12-L20
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/readonly.go#L114-L120
 
 #### overlay
 
 これが一番欲しかったものかもしれない。
 
-#### synthfs
+`overlay fs`です。複数の`vroot.Rooted`を重ね合わせて一つのfsに見せかけます。
+
+https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/overlay/overlay.go#L32-L79
+
+- 書き込みはすべて`top layer`にのみ起こるようになっています。
+- 下層のレイヤー群はすべてread-onlyかつstaticという前提があります。
+- 下層のレイヤーにしかないファイルに書き込もうとした場合、`top layer`にまずコピーします。
+  - コピーは`chmod`などでアトリビュートを変えるか、write modeでファイルを開いたときにおこります。
+  - 本当はファイルに対して初めて`Write`が呼ばれたときにコピーが起きるようにしたかったのですが、タイミングの制御があまりにも難しいので開いた瞬間になっています
+- 下層にあるファイルを消さないまま消えたように見せるために、white out listを別口管理します。そのために`MetadataStore` interfaceの実装が必要です。
+  - これはこのissueを参考にしています: https://github.com/opencontainers/image-spec/issues/24
+  - 今`vroot`に入っている実装は単にwhite outされたファイルの名前をリストにしたテキストファイルに書き出すシンプルな実装のもののみです。
+  - 実際にはtrieを保存できるオブジェクトストレージとかSQLiteとかで実装したほうがいいとは思いますが、依存するモジュールを増やしたくなかったので簡単に作れそうなこれになっています。
+    - 多分ファイルが少ないうちはこの実装方法で困ることはないです。
+
+余談ですがinterfaceとコメントで何するかの説明だけしてclaude codeにあとは実装よろしくってやったらちっともうまくいかなかったので人がほとんど書き直しています。
+`MetadataStore`の実装はほぼAIが出してきたものそのままです。
+
+#### synthfs(=in-memory fs)
+
+以下の記事で書いたsynthetic filesystemの`vroot`版です。
+
+https://zenn.dev/ngicks/articles/go-virtual-mesh-fs-for-os-copyfs
+
+完全にin-memoryなfilesystem+任意のバッキングストレージという組み合わせで成り立つfilesystemで、
+file pathによるtrieを構築し、各ノードには適当なバッキングストレージのファイルを追加できるようにします。
+ファイルのblob以外のメタデータはin-memoryで管理します。
+
+https://github.com/ngicks/go-fsys-helper/blob/84ed803754b44067aa0449f832b753b1b19083c1/vroot/synthfs/fs.go#L21-L55
+
+バッキングストレージをメモリーからのみallocateするようにすると、これが[afero]でいうところの`MemMapFs`になります。
+
+作った動機は上記の記事内で説明していますが、実はそれ以外にも理由があって、
+[afero]の`MemMapFs`がパスの取り扱いが正しくなく、`fs.FS`に変換して`fs.Walk`をかけたとに在るのにパスが見つからない、というのが発生していたため、`trie`による管理に変えることで原理的にそれが起こらなくしたというのもあります。
+
+## tarfs
+
+`vroot`とは直接は関係ないですが、以下の記事で作った`tarfs`にsymlinkとhardlinkの取り扱いを加え、さらに、`vroot`と組み合わせるのを意識して「symlink解決時にsub-rootより上の階層に移動するか」の設定を追加しました。
+
+https://zenn.dev/ngicks/articles/go-tar-reader-implement-reader-at
+
+https://github.com/ngicks/go-fsys-helper/tree/84ed803754b44067aa0449f832b753b1b19083c1/tarfs
+
+symlinkを無視するのがデフォルト挙動ですが、デフォルトでハンドルしたほうがいい気もするので(破壊的に変更になりますが)そのように変えるかもしれません。
+symlinkありのtarでも普通に動いているので使えそうな感じですが、世にどんなエッジケースがあるのかよくわからないのでしばらくタグをつけずに様子見します。
+
+ちなみに`fstest.TestFS`がsymlinkを考慮するのは`go1.25`以降であるようなので、このモジュールのテストを`go1.24`で動かすとfailします。
 
 ## fsutil: filesystem-abstraction-library-agnostic helpers
 
@@ -342,7 +432,7 @@ https://github.com/ngicks/go-fsys-helper/tree/main/fsutil
 多分どのfilesystem abstraction libraryでも動作するようなヘルパーを書いてるけど、interfaceがそれぞれ違うせいでどれかでしか使えないっていうことがあるともったいないですよね？
 ということで、逆の発想としてどのライブラリでも使えるようにヘルパーを作る仕組みを考えてみます。
 
-見ますといっても簡単で、`File`の部分をtype parameterにしてinterfaceを再定義し、これを引数となるようなジェネリック関数を作ればよいだけです。
+「考えてみます」といっても簡単で、`File`の部分をtype parameterにしてinterfaceを再定義し、これを引数となるようなジェネリック関数を作ればよいだけです。
 
 つまり、`Fs`, `File`のinterfaceを以下のように、method単位で細かく切り分け、
 
@@ -491,7 +581,80 @@ func OpenFileRandom[FS OpenFileFs[File], File any](fsys FS, dir string, pattern 
 という感じになります。
 `os.O_RDWR|os.O_CREATE|os.O_EXCL`でファイルを開ければよく、`File`自体には触りませんから、そこは`any`よい、という感じです。
 
+逆に`File`が書けるのを期待するようなとき、例えば上記の`OpenFileRandom`でファイルを開いてからそこに内容を書き込み、最後に`Rename`することで最終的な名前にすることで、中途半端な状態が見えないようにする`SafeWrite`を考えてみます。
+
+`OpenFileRandom`できて、writeできてcloseできて書き込み終わったらsyncできないとだめなので・・・という感じで以下のようになります。
+
+```go
+type safeWriteFile interface {
+	WriteFile
+	CloseFile
+	NameFile
+	SyncFile
+}
+
+type safeWriteFsys[File safeWriteFile] interface {
+	OpenFileFs[File]
+	RenameFs
+	RemoveFs
+}
+
+func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.Reader, perm fs.FileMode) error {
+	dir := filepath.Dir(name)
+
+	randomFile, err := OpenFileRandom(fsys, dir, "*.tmp", perm.Perm())
+	if err != nil {
+		return err
+	}
+
+	randomFileName := filepath.Join(dir, filepath.Base(randomFile.Name()))
+	defer func() {
+		_ = randomFile.Close()
+		if err != nil {
+			fsys.Remove(randomFileName)
+		}
+	}()
+
+	bufP := bufpool.GetBytes()
+	defer bufpool.PutBytes(bufP)
+
+	buf := *bufP
+	_, err = io.CopyBuffer(randomFile, r, buf)
+	if err != nil {
+		return err
+	}
+
+	err = randomFile.Sync()
+	if err != nil {
+		return err
+	}
+
+	err = fsys.Rename(randomFileName, filepath.Clean(name))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+```
+
+大したことはないですが、こんな感じですね。
+ワンポイントアドバイスとして、`File`の`Name`メソッドを信用しないというのがあります。上記スニペット中では`filepath.Base`でbase nameだけとって、他は無視しています。
+これまた[afero]の話になりますが、[afero]の`BasePathFs`は文字通りbase paseにpathを結合してから下層のfsys、例えば`os.Create`などを呼び出していました。`File`の`Name`メソッドは`Open`などに渡されたパスをそのまま返す、とあります。[afero]の`BasePathFs`経由で得られた`File`の`Name`はbase pathを結合した後のパスを返してくるわけです。ということで自分が渡したパスが必ず`Name`から帰ってくるわけではないので、base name部分以外は信用しないつくりになっています。逆にbase nameが正しく帰ってこない場合はinterfaceの規約を満たしていないとみなすよりほかないでしょう。
+
 ## おわりに
+
+- コンセプトとして[*os.Root]準拠のfilesystem abstractionを考えてみました。
+  - これは[afero], [go-billy], [hackpadfs]などでのinterfaceのつらみを解消しつつ、[*os.Root]的なroot外へのsymlinkへの脱出をエラー扱いするものです。
+- 逆に、filesystem-abstraction-library-agnosticなutilityについても提案しました。
+
+今後は
+
+- 自作ライブラリ内で使ってたたきにたたきます。
+  - [この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info)や、[この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info-cloner)で触れている、code generatorのファイル書き込み部分に`overlay`を使用し、トップレイヤを`synthfs`のin-memory filesystemにしておき、`packages.Config`のOverlayにメモリコンテンツを渡すことで書き出し前に型チェックをかけることをひそかに構想しています。
+- `rc2`を待ちます(`rc1`のバグによってGitHub Actions上のテストが通過しないため)
+- `vroot-adapter`という別の名前のモジュールを作成し、[afero], [go-billy]と相互に変換がかけられるようにします。
+  - ただし[afero]に関してはベストエフォートになります。
 
 <!-- other languages referenced -->
 
