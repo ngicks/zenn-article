@@ -117,7 +117,7 @@ type File interface {
 ディレクトリ自体は設定ファイルなりなんなりで自由に変えることができるが、どのディレクトリに書き込んでいるかはプログラムの関心から外したいという欲求が筆者にはよくありますし、実際に[fs.FS]が実装されたのはそういった欲求は広く存在するからだと思います。
 
 [fs.FS]は単にinterfaceであるため、それさえ満たせばdata sourceは何でもよいことになります。
-当然、どこかのディレクトリ以下でもいいし、samba/nfsなどのネットワークファイルシステム, tar/zipなどのアーカイブファイル、なんならin-memoryの構造でもかまいません。
+当然、どこかのディレクトリ以下でもいいし、`smb`/`nfs`などのネットワークファイルシステム, `tar`/`zip`などのアーカイブファイル、なんならin-memoryの構造でもかまいません。
 
 同様に書き込みに関しても似たように、書き込み先は何でもよいということがあります。
 
@@ -233,7 +233,7 @@ func (r *os.Root) Symlink(oldname string, newname string) error
 func (r *os.Root) WriteFile(name string, data []byte, perm os.FileMode) error
 ```
 
-`Truncate`を除いたsymlinkやhardlink作成機能も含まれており、ファイルシステム操作に必要なほぼすべての機能が揃っています。
+`Truncate`を除いたsymlinkやhardlink作成機能も含まれており、ファイルシステム操作に必要なすべての機能が揃っています。
 
 ### \*os.Rootの仕組み
 
@@ -536,13 +536,13 @@ func tree(fsys vroot.Fs) error {
 			}
 			switch {
 			case d.Mode().IsRegular():
-				fmt.Printf("%s\n", path)
+				fmt.Printf("%s\n", filepath.ToSlash(path))
 			case d.Mode()&os.ModeSymlink != 0:
 				linkTarget, err := fsys.ReadLink(path)
 				if err != nil {
 					return err
 				}
-				fmt.Printf("%s -> %s\n", path, linkTarget)
+				fmt.Printf("%s -> %s\n", filepath.ToSlash(path), filepath.ToSlash(linkTarget))
 			}
 			return nil
 		},
@@ -604,8 +604,8 @@ func Example_overlay_symlink() {
 
 	fmt.Println()
 
-	bin := must2(vroot.ReadFile(fsys, filepath.FromSlash("a/b/file")))
-	fmt.Printf("%q: %s\n", "a/b/file", string(bin))
+	bin := must2(vroot.ReadFile(fsys, filepath.FromSlash("a/b/c/link1")))
+	fmt.Printf("%q: %s\n", "a/b/c/link1", string(bin))
 
 	// Output:
 	// layer1/data/a/b/file
@@ -613,13 +613,9 @@ func Example_overlay_symlink() {
 	// layer2/data/a/link3 -> ./b/file
 	// layer3/data/a/b/link2 -> ../link3
 	//
-	// "a/b/file": foobar
+	// "a/b/c/link1": foobar
 }
 ```
-
-余談ですがinterfaceとコメントで何するかの説明だけしてclaude codeにあとは実装よろしくってやったらちっともうまくいかなかったので人がほとんど書き直しています。
-whilte outを管理する`MetadataStore`の実装はほぼAIが出してきたものそのままですがああしろこうしろと指図してようやく今の形になっています。
-どうやったらうまく動いてくれるのか模索中ですが重要で面倒なロジックさえ書けばあとは全部やってくれるので現時点でもだいぶ楽ですね。
 
 ### synthfs(=in-memory fs)
 
@@ -901,6 +897,27 @@ func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.R
 
 :::
 
+## 雑感: Claude Code使ってました
+
+- 型とdoc comment、テストケースを細かく分けて何をするかをdoc commentで書いておいて、あとよろしく！で完成するのでかなり便利です。
+- といいつつ中身を見てると無駄なことをすることがあるので手動で若干直す必要があります。
+- `strings.Split`を使うコードを出してくるところを`strings.SplitSeq`を使うように指示すると、一旦全部sliceに受けるようなコードにしてきたりして手で直さざるを得ないところがありました。
+  - 新しめなAPIは学習されてないらしく、使われ方のパターンを把握していない感じがありますね。
+- `*overlay.Overlay`のコードはだいぶダメだったのでほぼ人が書いてます。
+  - 何をどうするかをコメントで自己説明すればもっといい感じに出力してくれたかもしれませんが、それほぼ英語の自然言語でコーディングしてるだけなのでコードを手で書けばいいやって思って人間が書きました。
+- 逆に`*synthfs.Fs`は`tarfs`を参考にしてっていうとほぼokなものが出ました。
+  - ただしロック周りのロジックは結構手で直しました。
+  - ぱっとみよさそうなんですが、もしかしたらあとで人が書き直すかもしれないです
+- 似たようなコードを若干変えて特別な考慮を加える、みたいなタスクは得意そうですね。
+- `gh`コマンド経由でGitHub Actionsの結果をみて修正をさせようと試みましたが急に見当違いなことを言い出しました。こういう使い方は厳しいようです。
+  - というのも、claudeは`print debug`や、実験コードを一旦生成して仮説検証したり、実際に動く環境があることを活かすので、実行環境がないとその方法が通じなく、あてずっぽうなことを言うしかなくなるのかなと思います。
+- バグを見つけてくるのはすごい得意です。ここうまく動かないけどなんでかな？と聞いたら、人がするような、debugを仕込んで実行して状態を観測したら原因を推測して・・・というループを行って発見してきます。
+  - **このループを回すのがものすごい高速なので人がデバッグする速度じゃ追いつけません**
+  - 複数のモジュールにまたがって起きるバグはこの方法が通用しませんが、`Go`のコンパイルオプションにはoverlayというモジュールの一部を差し替えるものがありますから、何かしらのmcpツールで元のソースを編集してoverlayに渡してコンパイルさせられるように環境を整えたらこのデバッグ方法を行ってもらえるかもしれません。そうなってくると人間のデバッグ力じゃ追いつけなくなる可能性があります。
+  - REST APIやgRPCをまたぐとそれでも通用しないです。
+  - 前述した[#73868](https://github.com/golang/go/issues/73868)はclaudeが見つけて指摘してきました。誰も報告してなければ報告しようかと思いましたがすでにされていましたね。貢献失敗！
+- ちなみにこの記事は一部AIに書かせましたが、丁寧でざっくりしすぎてしまい、筆者の文書ににじみ出る雑味が消えてしまったので、ほとんどの変更をrevertして人力で書き直しています。
+
 ## おわりに
 
 - コンセプトとして[*os.Root]準拠のfilesystem abstractionを考えてみました。
@@ -910,8 +927,7 @@ func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.R
 今後は
 
 - `rc2`を待ちます(`rc1`のバグによってGitHub Actions上のテストが通過しないため)
-- AIが書いたテストやコードをレビューしてない部分があるのでちゃんと読んでリファクタするなりあします。
-  - ちなみにこの記事は一部AIに書かせましたが、丁寧でざっくりしすぎてしまい、筆者の文書ににじみ出る雑味が消えてしまったのでほぼ人力で書いています。
+- AIが書いたテストやコードをレビューしてない部分があるのでちゃんと読んでリファクタするなりをします。
 - 自作ライブラリ内で使ってたたきにたたきます。
   - [この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info)や、[この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info-cloner)で触れている、code generatorのファイル書き込み部分に`overlay`を使用し、トップレイヤを`synthfs`のin-memory filesystemにしておき、`packages.Config`のOverlayにメモリコンテンツを渡すことで書き出し前に型チェックをかけることをひそかに構想しています。
 - `vroot-adapter`という別の名前のモジュールを作成し、[afero], [go-billy]と相互に変換がかけられるようにします。
