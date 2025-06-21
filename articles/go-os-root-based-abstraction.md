@@ -42,14 +42,12 @@ Goは[Docker]や[Podman]などのコンテナ基盤で広く使用されてお�
 
 ### \*os.Rootの登場と意義
 
-[Go 1.24]で一部、[Go 1.25]で完全実装される[*os.Root]は、この課題への標準ライブラリとしての解答です。
+[Go 1.24]で一部、[Go 1.25]で完全実装される[*os.Root]は、`secure-join`と似たような課題に対して取り組むために提案されました。
 
 [*os.Root]の特徴：
 
 - 特定のサブディレクトリ以下のみにアクセスを制限
 - path traversal攻撃とsymlink escapeの両方を防止
-- Goがサポートするすべてのプラットフォームで動作
-- [包括的なファイルシステム操作メソッド](https://pkg.go.dev/os@master#Root)（`Truncate`以外）を提供
 
 ### 本記事の提案
 
@@ -60,9 +58,8 @@ Goは[Docker]や[Podman]などのコンテナ基盤で広く使用されてお�
    - 標準ライブラリとの将来的な互換性を確保
    - 統一されたセキュリティモデルの提供
 
-2. **fsutil**: Genericsを活用した、どのfilesystem abstraction libraryでも使えるヘルパー関数群
-   - 既存ライブラリとの相互運用性を実現
-   - ライブラリ移行時のコストを削減
+2. **fsutil**: Genericsを活用した、filesystem-abstraction-library-agnostic helpers
+   - ヘルパーが特定のfilesystem abstraction libraryにくっつかないようにgenericsでもとから剥がしとこうよという提案
 
 ## 環境
 
@@ -71,11 +68,11 @@ $ go version
 go version go1.25rc1 linux/amd64
 ```
 
+`GOTOOLCHAIN`環境変数を設定すれば問答無用で`go1.25rc1`の`sdk`を落としてそれで実行できるようになります。
+
 ```
 export GOTOOLCHAIN=go1.25rc1
 ```
-
-の環境変数を設定することで、`go.mod`の内容にかかわらず`go1.25rc1`で実行できます！
 
 ## issue
 
@@ -85,7 +82,7 @@ export GOTOOLCHAIN=go1.25rc1
   - `OpenRoot` -> `*os.Root.OpenRoot` -> `*os.Root.OpenRoot`で開いた子root、孫rootで開いたファイルに対して`Readdir`系のメソッドを呼び出すと`ENOENT`が返ってくるというもの。
   - 書いてありますが`*os.Root.OpenRoot`が原因であるので、落としてきたsdkを手動で修正すればうまく動作します。
   - `lstat`が呼ばれるときのprefixがちゃんとわたっていないことが問題です。`lstatat`が存在していればこんなバグも起こらなかったんでしょうが、どうもPOSIX APIには存在しないようです。
-  - とりあえず`rc2`を待ちましょう。
+  - これを機に`Readdir`も[fstatat(3p)](https://man7.org/linux/man-pages/man3/fstatat.3p.html)を使おうみたいな話の流れになるんですかね？
 - [#69509](https://github.com/golang/go/issues/69509)
   - `wasip1`でパスの取り扱いがおかしいというもの。
 
@@ -94,6 +91,8 @@ export GOTOOLCHAIN=go1.25rc1
 - [#73076](https://github.com/golang/go/issues/73076)
   - 各プラットフォーム向けに最適な実装をしようというもの
   - 多分、ファイルに対するIO操作のほうがよほど時間がかかるのでこの最適化がされなくても十分な実行速度を持てると思いますが、std libraryはあらゆるものから使われるわけですからメンテナンス性を確保できている限り、速ければ速いほどいいですよね。
+
+とりあえず`Readdir`は直ってくれないとこっちで書いてるテストが通らなくてGitHub Actionsがfailしてpushするたびメールが来るので`rc2`を待ちましょう。修正自体は軽微なはずなので、`neild`が取り組みに筆者自身で`gerrit`に登録してCLを送ってしまったほうが入かもしれません。
 
 ## はじめに
 
@@ -254,7 +253,7 @@ symlinkが見つかった場合には`readlinkat`を使って読み取ります�
 
 https://github.com/ngicks/go-fsys-helper/tree/main/vroot
 
-まだめちゃくちゃWIPですがここにホストて置いています。
+まだめちゃくちゃWIPですがここにホストしてあります。
 
 前述通り、[Go 1]から特にファイル操作APIは増えたり変わったりしていないため、このinterfaceは安定しているとみなすことができます。前述のmajor version多すぎ問題も起きないはずです。
 
@@ -268,31 +267,31 @@ https://github.com/ngicks/go-fsys-helper/tree/main/vroot
 ```go
 // Fs represents capablities [*os.Root] has as an interface.
 type Fs interface {
-	Chmod(name string, mode fs.FileMode) error
-	Chown(name string, uid int, gid int) error
-	Chtimes(name string, atime time.Time, mtime time.Time) error
-	// Close closes Fs.
-	// Callers should not use Fs after return of this method but
-	// it is still possible that the method is just a no-op.
-	Close() error
-	Create(name string) (File, error)
-	Lchown(name string, uid int, gid int) error
-	Link(oldname string, newname string) error
-	Lstat(name string) (fs.FileInfo, error)
-	Mkdir(name string, perm fs.FileMode) error
-	MkdirAll(name string, perm fs.FileMode) error
-	// Name returns name for the Fs.
-	// For osfs, it reutnrs the name of the directory presented to OpenRoot.
-	Name() string
-	Open(name string) (File, error)
-	OpenFile(name string, flag int, perm fs.FileMode) (File, error)
-	OpenRoot(name string) (Rooted, error)
-	ReadLink(name string) (string, error)
-	Remove(name string) error
-	RemoveAll(name string) error
-	Rename(oldname string, newname string) error
-	Stat(name string) (fs.FileInfo, error)
-	Symlink(oldname string, newname string) error
+    Chmod(name string, mode fs.FileMode) error
+    Chown(name string, uid int, gid int) error
+    Chtimes(name string, atime time.Time, mtime time.Time) error
+    // Close closes Fs.
+    // Callers should not use Fs after return of this method but
+    // it is still possible that the method is just a no-op.
+    Close() error
+    Create(name string) (File, error)
+    Lchown(name string, uid int, gid int) error
+    Link(oldname string, newname string) error
+    Lstat(name string) (fs.FileInfo, error)
+    Mkdir(name string, perm fs.FileMode) error
+    MkdirAll(name string, perm fs.FileMode) error
+    // Name returns name for the Fs.
+    // For osfs, it reutnrs the name of the directory presented to OpenRoot.
+    Name() string
+    Open(name string) (File, error)
+    OpenFile(name string, flag int, perm fs.FileMode) (File, error)
+    OpenRoot(name string) (Rooted, error)
+    ReadLink(name string) (string, error)
+    Remove(name string) error
+    RemoveAll(name string) error
+    Rename(oldname string, newname string) error
+    Stat(name string) (fs.FileInfo, error)
+    Symlink(oldname string, newname string) error
 }
 ```
 
@@ -303,55 +302,59 @@ type Fs interface {
 - 実際のファイルとは限らないので`Chdir`は消します。
 - `ReadFrom`, `WriteTo`は[io.Copy]向けの最適な実装を提供するextension interfaceなので強制ではなくします。
 - `SetDeadline`, `SetReadDeadline`, `SetWriteDeadline`はソケットなど一部ファイル向けなので強制ではなくします。
-- `Fd`は大抵のケースで不要に思いますが、後述の`WalkDir`のために必須としてあります。
-  - filesystemを*walk*するときはたいてい、bind mountによるループが起きていないかのチェックが必要です。
-  - unix系のplatformでは[stat(2)](https://man7.org/linux/man-pages/man2/stat.2.html)などを通じて[struct stat](https://man7.org/linux/man-pages/man3/stat.3type.html)を得ることで、inodeとdev numberの組み合わせでファイル固有の値を得ることができますが、
-  - windowsプラットフォームでは[GetFileInformationByHandle](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)を用います。
-    - これには`fd`・・・というか`FileHandle`の値が必要です。
+- `Fd`は大抵のケースで不要に思いますが、
+  - `file lock`の実装に必要です。
+    - `Fd`がvalidな値(=`^(uintptr(0))`以外)のとき、[fctl(2)](https://man7.org/linux/man-pages/man2/fcntl.2.html)(unix)/[LockFile](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-lockfile)(windows)などを用いてロックし、そうでないときは`Fs`固有の方法でロックすればよいでしょう。
+    - record lockingを`vroot`上で再実装するのは骨が折れそうなので、こういう形で余白を残しつつ放置する作戦です。
+  - 後述の`WalkDir`のために必須としてあります。
+    - filesystemを*walk*するときはたいてい、bind mountによるループが起きていないかのチェックが必要です。
+    - unix系のplatformでは[stat(2)](https://man7.org/linux/man-pages/man2/stat.2.html)などを通じて[struct stat](https://man7.org/linux/man-pages/man3/stat.3type.html)を得ることで、inodeとdev numberの組み合わせでファイル固有の値を得ることができますが、
+    - windowsプラットフォームでは[GetFileInformationByHandle](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)を用います。
+      - これには`fd`・・・というか`FileHandle`の値が必要です。
 
 ```go
 // File is basically same as [*os.File]
 // but some system dependent methods are removed.
 type File interface {
-	// Chdir() error
+    // Chdir() error
 
-	Chmod(mode fs.FileMode) error
-	Chown(uid int, gid int) error
-	Close() error
+    Chmod(mode fs.FileMode) error
+    Chown(uid int, gid int) error
+    Close() error
 
-	// Fd returns internal detail of file handle.
-	// Only os-backed File should reutrn this value.
-	// Otherwise, return ^(uintptr(0)) to indicate this is invalid value.
-	Fd() uintptr
+    // Fd returns internal detail of file handle.
+    // Only os-backed File should reutrn this value.
+    // Otherwise, return ^(uintptr(0)) to indicate this is invalid value.
+    Fd() uintptr
 
-	Name() string
-	Read(b []byte) (n int, err error)
-	ReadAt(b []byte, off int64) (n int, err error)
-	ReadDir(n int) ([]fs.DirEntry, error)
+    Name() string
+    Read(b []byte) (n int, err error)
+    ReadAt(b []byte, off int64) (n int, err error)
+    ReadDir(n int) ([]fs.DirEntry, error)
 
-	// File might implement ReaderFrom but is not necessary.
-	// ReadFrom(r io.Reader) (n int64, err error)
+    // File might implement ReaderFrom but is not necessary.
+    // ReadFrom(r io.Reader) (n int64, err error)
 
-	Readdir(n int) ([]fs.FileInfo, error)
-	Readdirnames(n int) (names []string, err error)
-	Seek(offset int64, whence int) (ret int64, err error)
+    Readdir(n int) ([]fs.FileInfo, error)
+    Readdirnames(n int) (names []string, err error)
+    Seek(offset int64, whence int) (ret int64, err error)
 
-	// SetDeadline(t time.Time) error
-	// SetReadDeadline(t time.Time) error
-	// SetWriteDeadline(t time.Time) error
+    // SetDeadline(t time.Time) error
+    // SetReadDeadline(t time.Time) error
+    // SetWriteDeadline(t time.Time) error
 
-	Stat() (fs.FileInfo, error)
-	Sync() error
+    Stat() (fs.FileInfo, error)
+    Sync() error
 
-	// SyscallConn() (syscall.RawConn, error)
+    // SyscallConn() (syscall.RawConn, error)
 
-	Truncate(size int64) error
-	Write(b []byte) (n int, err error)
-	WriteAt(b []byte, off int64) (n int, err error)
-	WriteString(s string) (n int, err error)
+    Truncate(size int64) error
+    Write(b []byte) (n int, err error)
+    WriteAt(b []byte, off int64) (n int, err error)
+    WriteString(s string) (n int, err error)
 
-	// File might implement WriterTo but is not necessary.
-	// WriteTo(w io.Writer) (n int64, err error)
+    // File might implement WriterTo but is not necessary.
+    // WriteTo(w io.Writer) (n int64, err error)
 }
 ```
 
@@ -366,17 +369,17 @@ type File interface {
 // Unrooted is like [Rooted] but allow escaping root by sysmlink.
 // Path traversals are still not allowed.
 type Unrooted interface {
-	Fs
-	Unrooted()
-	OpenUnrooted(name string) (Unrooted, error)
+    Fs
+    Unrooted()
+    OpenUnrooted(name string) (Unrooted, error)
 }
 
 // Rooted indicates the implementation is rooted,
 // which means escaping root by path traversal or symlink
 // is not allowed.
 type Rooted interface {
-	Fs
-	Rooted()
+    Fs
+    Rooted()
 }
 ```
 
@@ -385,14 +388,14 @@ type Rooted interface {
 
 - それこそ`/etc/passwd`へのsymlinkが必要な場面
 - `/etc/smb.conf`が別のマウントポイントへのsymlinkになっている
-- プログラミング言語向けのpackage managerがsymlinkによって依存ファイルを管理している
+- `Volta`(についてくる`npm`)や`pnpm`のようなpackage managerがsymlinkによって依存ファイルを管理している
 
 などなどでしょうか？
 そういったケースにおいてsymlinkを解決してroot外へのアクセスをさせたいことは普通にあると思うので`Unrooted`も同時に定義しておきます。
 
 `Unrooted`はTOCTOUにも弱いつくりになっていることが想定されます(これは[afero]の`BasePathFs`と同じです)。
 そのため`Unrooted`から`Rooted`を開くことは(もちろん不安全だが)できるようになっていますが、その逆はできません。
-前述のとおり、[*os.Root]は`fd`からの相対的なパス操作によってpath escapeを防ぎます。この`fd`が指し示すディレクトリは開いた後に`rename`などによって移動されていることは十分にあり得ます。`fd`からパスへの正確な変換方法は知り及ぶ限りありませんし、それがTOCTOU raceに強いとも思えません。そのため`Rooted`から`Unrooted`への変換は定義上作ることができない、ということになります。
+前述のとおり、[*os.Root]は`fd`からの相対的なパス操作によってpath escapeを防ぎます。この`fd`が指し示すディレクトリは開いた後に`rename`などによって移動されていることは十分にあり得ます。`fd`からパスへの正確な変換方法は筆者の知り及ぶ限りありませんし、それがTOCTOU raceに強いとも思えません。そのため`Rooted`から`Unrooted`への変換は定義上作ることができない、ということになります。
 
 ## 実装
 
@@ -400,11 +403,7 @@ type Rooted interface {
 
 とりあえず[*os.Root]から`Rooted`へ変換できるようにします。
 
-```go
-type Rooted struct {
-	root *os.Root
-}
-```
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/osfs/rooted.go#L16-L21
 
 `os`パッケージが`errPathEscapes`をエクスポートしないため
 
@@ -412,39 +411,36 @@ https://github.com/golang/go/blob/go1.25rc1/src/os/file.go#L421
 
 文字列を見てエラーを差し替える部分を作っておきます。
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/osfs/rooted.go#L45-L58
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/osfs/rooted.go#L45-L58
 
 文字列比較はやらないでいいならやりたくないですが、こうしないと`errors.Is(err, ErrPathEscapes)`でテストをかけないので仕方なくやっています。
 
 [afero]の`BasePathFs`とほぼ同じものとして`osfs`の`Unrooted`を作ります。
 
-```go
-type Unrooted struct {
-	root string // absolute path to the root directory
-}
-```
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/osfs/unrooted.go#L19-L26
 
 ### WalkDir
 
 `fs.WalkDir`と互換なものとして`vroot.WalkDir`を定義しておきます。
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/walk.go#L79
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/walk.go#L85
 
 interfaceがsymlinkの存在をもとから考慮に入れているので`fs.WalkDir`と違ってsymlinkをresolveしてたどってもよいことにしてあります。
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/walk.go#L16
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/walk.go#L17
 
-`fs.WalkDirFunc`とは違い、`vroot.WalkDirFunc`はsymlinkを解決した後にrealPathも受け取るようになっています。ただしこれは`ReadLink`と`Lstat`を組み合わせてパスをレキシカルに操作するだけのとても単純な仕組みであるため、TOCTOU raceには非常に弱いです。(現状まったくdoc commentが書けていませんが)root外のsymlinkの解決は`Unrooted`でもできない(root外のパスに対して`ReadLink`を呼ぶ必要があるため)ので、その場合はrealPathには`""`が渡されることになります。
+`fs.WalkDirFunc`とは違い、`vroot.WalkDirFunc`はsymlinkを解決した後にrealPathも受け取るようになっています。ただしこれは`ReadLink`と`Lstat`を組み合わせてパスをレキシカルに操作するだけのとても単純な仕組みであるため、TOCTOU raceには弱いです。
+(現状まったくdoc commentが書けていませんが)root外のrealPathの取得は`Rooted`はもちろん`Unrooted`でもできない(root外のパスに対して`ReadLink`を呼ぶ必要があるため)ので、その場合はrealPathには`""`が渡されることになります。
 
 また、`WalkDir`がbind mountによるfilesystem loopによって無限ループに陥らないようにするために、可能であればファイルからユニークな値を取り出します。
 
 unix系では`stat`から
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/walk_unix.go#L1-L16
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/walk_unix.go#L1-L17
 
 windowsでは`GetFileInformationByHandle`から
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/walk_windows.go#L1-L29
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/walk_windows.go#L1-L29
 
 それぞれユニークな値を取得します。
 とりあえず`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`では見た限り正しく固有な値をとれているようですが、`plan9`や`wasip1`ではどうなのか全くわかっていないため、当面はサポート外としています。
@@ -453,169 +449,159 @@ https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d3
 
 `fs.FS`と`vroot`の相互変換を定義します。
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_from.go#L27-L43
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/iofs_from.go#L28-L49
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_from.go#L174-L186
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/iofs_from.go#L187-L204
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_to.go#L21-L30
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/iofs_to.go#L17-L30
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/iofs_to.go#L72-L81
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/iofs_to.go#L68-L81
 
 ### ReadOnly
 
 `Rooted`/`Unrooted`を`read-only`になるようにラップする仕組みも欲しいため作っておきます。
 これは間違って書かないようにするための安全策としてあったほうが良いですね
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/readonly.go#L12-L20
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/readonly.go#L13-L21
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/readonly.go#L114-L120
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/readonly.go#L113-L121
 
-### overlay
+### overlayfs
 
 これが一番欲しかったものかもしれない。
 
-`overlay fs`です。複数の`vroot.Rooted`を重ね合わせて一つのfsに見せかけます。
+`overlay filesystem`です。複数の`vroot.Rooted`を重ね合わせて一つのfsに見せかけます。
 
-https://github.com/ngicks/go-fsys-helper/blob/9e840465a3445f79c554d3757ce1b4a0d33e877c/vroot/overlay/overlay.go#L32-L79
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/overlayfs/overlay.go#L34-L81
 
 - 書き込みはすべて`top layer`にのみ起こるようになっています。
 - 下層のレイヤー群はすべてread-onlyかつstaticという前提があります。
 - 下層のレイヤーにしかないファイルに書き込もうとした場合、`top layer`にまずコピーします。
   - コピーは`chmod`などでアトリビュートを変えるか、write modeでファイルを開いたときにおこります。
-  - 本当はファイルに対して初めて`Write`が呼ばれたときにコピーが起きるようにしたかったのですが、タイミングの制御があまりにも難しいので開いた時点でコピーするようにしてあります。
+  - 本当はファイルに対して初めて`Write`が呼ばれたときにコピーが起きるようにしたかったのですが、タイミングとロックの制御があまりにも難しいので開いた時点でコピーするようにしてあります。
 - 下層にあるファイルを消さないまま消えたように見せるために、white out listを別口管理します。そのために`MetadataStore` interfaceの実装が必要です。
   - white outは下層にあるファイルを消したことを示すためのメタデータのことです
   - これはこのissueを参考にしています: https://github.com/opencontainers/image-spec/issues/24
   - 今`vroot`に入っている実装は単にwhite outされたファイルの名前をリストにしたテキストファイルに書き出すシンプルな実装のもののみです。
-  - 実際にはtrieを保存できるオブジェクトストレージとかSQLiteとかで実装したほうがいいとは思いますが、依存するモジュールを増やしたくなかったので簡単に作れそうなこれになっています。
+  - 実際にはtrieを保存できるオブジェクトストレージとか`SQLite`とかで実装したほうがいいとは思いますが、依存するモジュールを増やしたくなかったので簡単に作れそうなこれになっています。
     - 多分ファイルが少ないうちはこの実装方法で困ることはないです。
 
 layerの重ね合わせはsymlinkも考慮に加えます。
 あるlayerにあるsymlinkのlink targetは別のlayerをさしていてもよく、あればそちらに向けて解決されます。
 つまり、下記exampleのように動作します。
 
+[example](https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/overlayfs/example_symlink_test.go)
+
 ```go
-package overlay_test
+package overlayfs_test
 
 import (
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"strconv"
+    "fmt"
+    "io/fs"
+    "os"
+    "path/filepath"
+    "strconv"
 
-	"github.com/ngicks/go-fsys-helper/vroot"
-	"github.com/ngicks/go-fsys-helper/vroot/osfs"
-	"github.com/ngicks/go-fsys-helper/vroot/overlay"
+    "github.com/ngicks/go-fsys-helper/vroot"
+    "github.com/ngicks/go-fsys-helper/vroot/osfs"
+    "github.com/ngicks/go-fsys-helper/vroot/overlayfs"
 )
 
 func must1(err error) {
-	if err != nil {
-		panic(err)
-	}
+    // ...省略...
 }
 
 func must2[V any](v V, err error) V {
-	if err != nil {
-		panic(err)
-	}
-	return v
+    // ...省略...
 }
 
 func tree(fsys vroot.Fs) error {
-	return vroot.WalkDir(
-		fsys,
-		".",
-		&vroot.WalkOption{ResolveSymlink: false},
-		func(path, realPath string, d fs.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if path == "." || d.IsDir() {
-				return nil
-			}
-			switch {
-			case d.Mode().IsRegular():
-				fmt.Printf("%s\n", filepath.ToSlash(path))
-			case d.Mode()&os.ModeSymlink != 0:
-				linkTarget, err := fsys.ReadLink(path)
-				if err != nil {
-					return err
-				}
-				fmt.Printf("%s -> %s\n", filepath.ToSlash(path), filepath.ToSlash(linkTarget))
-			}
-			return nil
-		},
-	)
+    // ...省略...
 }
 
 func Example_overlay_symlink() {
-	tempDir := must2(os.MkdirTemp("", ""))
+    tempDir := must2(os.MkdirTemp("", ""))
 
-	for i := range 4 {
-		layer := filepath.Join(tempDir, "layer"+strconv.FormatInt(int64(i), 10))
-		must1(os.MkdirAll(filepath.Join(layer, "meta"), fs.ModePerm))
-		must1(os.MkdirAll(filepath.Join(layer, "data"), fs.ModePerm))
-	}
+    for i := range 4 {
+        layer := filepath.Join(tempDir, "layer"+strconv.FormatInt(int64(i), 10))
+        must1(os.MkdirAll(filepath.Join(layer, "meta"), fs.ModePerm))
+        must1(os.MkdirAll(filepath.Join(layer, "data"), fs.ModePerm))
+    }
 
-	// create leyred file system like this.
-	//
-	//                    +-------+
-	// LAYER3:            | link2 |<-----+
-	//                    +-------+      |
-	//                      |            |
-	//         +-------+    |        +-------+
-	// LAYER2: | link3 |<---+        | link1 |
-	//         +-------+             +-------+
-	//             |
-	//             |      +------+
-	// LAYER1:     +----->| file |
-	//                    +------+
+    // create leyred file system like this.
+    //
+    //                    +-------+
+    // LAYER3:            | link2 |<-----+
+    //                    +-------+      |
+    //                      |            |
+    //         +-------+    |        +-------+
+    // LAYER2: | link3 |<---+        | link1 |
+    //         +-------+             +-------+
+    //             |
+    //             |      +------+
+    // LAYER1:     +----->| file |
+    //                    +------+
 
-	must1(os.MkdirAll(filepath.Join(tempDir, "layer3", "data", filepath.FromSlash("a/b/")), fs.ModePerm))
-	must1(os.Symlink("../link3", filepath.Join(tempDir, "layer3", "data", filepath.FromSlash("a/b/link2"))))
+    must1(os.MkdirAll(filepath.Join(tempDir, "layer3", "data", filepath.FromSlash("a/b/")), fs.ModePerm))
+    must1(os.Symlink("../link3", filepath.Join(tempDir, "layer3", "data", filepath.FromSlash("a/b/link2"))))
 
-	must1(os.MkdirAll(filepath.Join(tempDir, "layer2", "data", filepath.FromSlash("a/b/c")), fs.ModePerm))
-	must1(os.Symlink("../link2", filepath.Join(tempDir, "layer2", "data", filepath.FromSlash("a/b/c/link1"))))
-	must1(os.Symlink("./b/file", filepath.Join(tempDir, "layer2", "data", filepath.FromSlash("a/link3"))))
+    must1(os.MkdirAll(filepath.Join(tempDir, "layer2", "data", filepath.FromSlash("a/b/c")), fs.ModePerm))
+    must1(os.Symlink("../link2", filepath.Join(tempDir, "layer2", "data", filepath.FromSlash("a/b/c/link1"))))
+    must1(os.Symlink("./b/file", filepath.Join(tempDir, "layer2", "data", filepath.FromSlash("a/link3"))))
 
-	must1(os.MkdirAll(filepath.Join(tempDir, "layer1", "data", filepath.FromSlash("a/b/")), fs.ModePerm))
-	must1(os.WriteFile(filepath.Join(tempDir, "layer1", "data", filepath.FromSlash("a/b/file")), []byte("foobar"), fs.ModePerm))
+    must1(os.MkdirAll(filepath.Join(tempDir, "layer1", "data", filepath.FromSlash("a/b/")), fs.ModePerm))
+    must1(os.WriteFile(filepath.Join(tempDir, "layer1", "data", filepath.FromSlash("a/b/file")), []byte("foobar"), fs.ModePerm))
 
-	composeLayer := func(i int) overlay.Layer {
-		meta := overlay.NewMetadataStoreSimpleText(
-			must2(
-				osfs.NewRooted(filepath.Join(tempDir, "layer"+strconv.FormatInt(int64(i), 10), "meta")),
-			),
-		)
-		data := must2(
-			osfs.NewRooted(filepath.Join(tempDir, "layer"+strconv.FormatInt(int64(i), 10), "data")),
-		)
-		return overlay.NewLayer(meta, data)
-	}
+    var closer []func() error
+    defer func() {
+        for _, c := range closer {
+            err := c()
+            if err != nil {
+                fmt.Printf("meta fsys close error = %v\n", err)
+            }
+        }
+    }()
+    composeLayer := func(i int) overlayfs.Layer {
+        metaFsys := must2(
+            osfs.NewRooted(filepath.Join(tempDir, "layer"+strconv.FormatInt(int64(i), 10), "meta")),
+        )
+        closer = append(closer, metaFsys.Close)
 
-	fsys := overlay.NewOverlay(
-		composeLayer(0),
-		[]overlay.Layer{composeLayer(1), composeLayer(2), composeLayer(3)},
-		nil,
-	)
+        meta := overlayfs.NewMetadataStoreSimpleText(metaFsys)
+        data := must2(
+            osfs.NewRooted(filepath.Join(tempDir, "layer"+strconv.FormatInt(int64(i), 10), "data")),
+        )
+        return overlayfs.NewLayer(meta, data)
+    }
 
-	must1(tree(vroot.FromIoFsRooted(os.DirFS(tempDir).(fs.ReadLinkFS), tempDir)))
+    fsys := overlayfs.New(
+        composeLayer(0),
+        []overlayfs.Layer{composeLayer(1), composeLayer(2), composeLayer(3)},
+        nil,
+    )
 
-	fmt.Println()
+    must1(tree(vroot.FromIoFsRooted(os.DirFS(tempDir).(fs.ReadLinkFS), tempDir)))
 
-	bin := must2(vroot.ReadFile(fsys, filepath.FromSlash("a/b/c/link1")))
-	fmt.Printf("%q: %s\n", "a/b/c/link1", string(bin))
+    fmt.Println()
 
-	// Output:
-	// layer1/data/a/b/file
-	// layer2/data/a/b/c/link1 -> ../link2
-	// layer2/data/a/link3 -> ./b/file
-	// layer3/data/a/b/link2 -> ../link3
-	//
-	// "a/b/c/link1": foobar
+    bin, err := vroot.ReadFile(fsys, filepath.FromSlash("a/b/c/link1"))
+    if err != nil {
+        fmt.Printf("err = %v\n", err)
+    } else {
+        fmt.Printf("%q: %s\n", "a/b/c/link1", string(bin))
+    }
+
+    // Output:
+    // layer1/data/a/b/file
+    // layer2/data/a/b/c/link1 -> ../link2
+    // layer2/data/a/link3 -> ./b/file
+    // layer3/data/a/b/link2 -> ../link3
+    //
+    // "a/b/c/link1": foobar
 }
 ```
+
+これ実装中にwindowsでは`ERROR_PATH_NOT_FOUND`, `ERROR_FILE_NOT_FOUND`はほぼ同じもののように扱われ、POSIXの`ENOTDIR`のような概念はないらしいということを知りました。やっぱりマルチプラットフォームなライブラリづくりは面倒ですね。
 
 ### synthfs(=in-memory fs)
 
@@ -627,7 +613,7 @@ https://zenn.dev/ngicks/articles/go-virtual-mesh-fs-for-os-copyfs
 file pathによるtrieを構築し、各ノードには適当なバッキングストレージのファイルを追加できるようにします。
 ファイルのblob以外のメタデータはin-memoryで管理します。
 
-https://github.com/ngicks/go-fsys-helper/blob/84ed803754b44067aa0449f832b753b1b19083c1/vroot/synthfs/fs.go#L21-L55
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/synthfs/fs.go#L21-L55
 
 バッキングストレージをメモリーからのみallocateするようにすると、これが[afero]でいうところの`MemMapFs`になります。
 
@@ -638,7 +624,7 @@ https://github.com/ngicks/go-fsys-helper/blob/84ed803754b44067aa0449f832b753b1b1
 
 in-memory filesystemです。上記の`synthfs`へのショートハンドです。
 
-https://github.com/ngicks/go-fsys-helper/blob/84ed803754b44067aa0449f832b753b1b19083c1/vroot/memfs/mem.go#L1-L27
+https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/memfs/mem.go#L1-L27
 
 ## tarfs
 
@@ -665,22 +651,22 @@ https://github.com/ngicks/go-fsys-helper/tree/main/fsutil
 
 ### interfaceの分割
 
-つまり、`Fs` interfaceを以下のように分割されます。
+つまり、`Fs` interfaceを以下のように分割します。
 
 ```go
 
 // Fs files
 
 type ChmodFs interface {
-	Chmod(name string, mode fs.FileMode) error
+    Chmod(name string, mode fs.FileMode) error
 }
 
 type ChownFs interface {
-	Chown(name string, uid int, gid int) error
+    Chown(name string, uid int, gid int) error
 }
 
 type OpenFileFs[File any] interface {
-	OpenFile(name string, flag int, perm fs.FileMode) (File, error)
+    OpenFile(name string, flag int, perm fs.FileMode) (File, error)
 }
 // ...
 ```
@@ -691,20 +677,20 @@ type OpenFileFs[File any] interface {
 // File interfaces
 
 type ChmodFile interface {
-	Chmod(mode fs.FileMode) error
+    Chmod(mode fs.FileMode) error
 }
 
 type NameFile interface {
-	Name() string
+    Name() string
 }
 
 
 type ReadAtFile interface {
-	ReadAt(b []byte, off int64) (n int, err error)
+    ReadAt(b []byte, off int64) (n int, err error)
 }
 
 type ReadDirFile interface {
-	ReadDir(n int) ([]fs.DirEntry, error)
+    ReadDir(n int) ([]fs.DirEntry, error)
 }
 
 // ...
@@ -717,107 +703,107 @@ type ReadDirFile interface {
 
 ```go
 type OpenFileFs[File any] interface {
-	OpenFile(name string, flag int, perm fs.FileMode) (File, error)
+    OpenFile(name string, flag int, perm fs.FileMode) (File, error)
 }
 
 var (
-	ErrBadPattern = errors.New("bad pattern")
-	ErrMaxRetry   = errors.New("max retry")
+    ErrBadPattern = errors.New("bad pattern")
+    ErrMaxRetry   = errors.New("max retry")
 )
 
 func OpenFileRandom[FS OpenFileFs[File], File any](fsys FS, dir string, pattern string, perm fs.FileMode) (File, error) {
-	return openRandom(
-		fsys,
-		dir,
-		pattern,
-		perm,
-		func(fsys FS, name string, perm fs.FileMode) (File, error) {
-			return fsys.OpenFile(filepath.FromSlash(name), os.O_RDWR|os.O_CREATE|os.O_EXCL, perm|0o200) // at least writable
-		},
-	)
+    return openRandom(
+        fsys,
+        dir,
+        pattern,
+        perm,
+        func(fsys FS, name string, perm fs.FileMode) (File, error) {
+            return fsys.OpenFile(filepath.FromSlash(name), os.O_RDWR|os.O_CREATE|os.O_EXCL, perm|0o200) // at least writable
+        },
+    )
 }
 
 func MkdirRandom[FS interface {
-	OpenFileFs[File]
-	MkdirFs
+    OpenFileFs[File]
+    MkdirFs
 }, File any](fsys FS, dir string, pattern string, perm fs.FileMode) (File, error) {
-	return openRandom(
-		fsys,
-		dir,
-		pattern,
-		perm,
-		func(fsys FS, name string, perm fs.FileMode) (File, error) {
-			err := fsys.Mkdir(name, perm)
-			if err != nil {
-				return *new(File), err
-			}
-			return fsys.OpenFile(name, os.O_RDONLY, 0)
-		},
-	)
+    return openRandom(
+        fsys,
+        dir,
+        pattern,
+        perm,
+        func(fsys FS, name string, perm fs.FileMode) (File, error) {
+            err := fsys.Mkdir(name, perm)
+            if err != nil {
+                return *new(File), err
+            }
+            return fsys.OpenFile(name, os.O_RDONLY, 0)
+        },
+    )
 }
 
 func openRandom[FS, File any](
-	fsys FS,
-	dir string,
-	pattern string,
-	perm fs.FileMode,
-	open func(fsys FS, name string, perm fs.FileMode) (File, error),
+    fsys FS,
+    dir string,
+    pattern string,
+    perm fs.FileMode,
+    open func(fsys FS, name string, perm fs.FileMode) (File, error),
 ) (File, error) {
-	if dir == "" {
-		dir = "." + string(filepath.Separator)
-	}
+    if dir == "" {
+        dir = "." + string(filepath.Separator)
+    }
 
-	if strings.Contains(pattern, string(filepath.Separator)) {
-		return *new(File), fmt.Errorf("%w: %q contains path separators", ErrBadPattern, pattern)
-	}
+    if strings.Contains(pattern, string(filepath.Separator)) {
+        return *new(File), fmt.Errorf("%w: %q contains path separators", ErrBadPattern, pattern)
+    }
 
-	var prefix, suffix string
-	if i := strings.LastIndex(pattern, "*"); i < 0 {
-		prefix = pattern
-	} else {
-		prefix, suffix = pattern[:i], pattern[i+1:]
-	}
+    var prefix, suffix string
+    if i := strings.LastIndex(pattern, "*"); i < 0 {
+        prefix = pattern
+    } else {
+        prefix, suffix = pattern[:i], pattern[i+1:]
+    }
 
-	attempt := 0
-	for {
-		random := randomUint32Padded()
-		name := filepath.Join(dir, prefix+random+suffix)
-		f, err := open(fsys, name, perm.Perm())
-		if err == nil {
-			return f, nil
-		}
-		if errors.Is(err, fs.ErrExist) {
-			attempt++
-			if attempt < 10000 {
-				continue
-			} else {
-				return *new(File), fmt.Errorf(
-					"%w: opening %s",
-					ErrMaxRetry, path.Join(dir, prefix+"*"+suffix),
-				)
-			}
-		} else {
-			return *new(File), err
-		}
-	}
+    attempt := 0
+    for {
+        random := randomUint32Padded()
+        name := filepath.Join(dir, prefix+random+suffix)
+        f, err := open(fsys, name, perm.Perm())
+        if err == nil {
+            return f, nil
+        }
+        if errors.Is(err, fs.ErrExist) {
+            attempt++
+            if attempt < 10000 {
+                continue
+            } else {
+                return *new(File), fmt.Errorf(
+                    "%w: opening %s",
+                    ErrMaxRetry, path.Join(dir, prefix+"*"+suffix),
+                )
+            }
+        } else {
+            return *new(File), err
+        }
+    }
 }
 
 // randomUint32Padded return math/rand/v2.Uint32 as left-0-padded string.
 // The returned string always satisfies len(s) == 10 and '0' <= s[i] <= '9'.
 func randomUint32Padded() string {
-	// os.MkdiTemp does this thing. Just shadowing the behavior.
-	// But there's no strong opinion about this;
-	// It can be longer, or even shorter. We can expand this to
-	// 9999999999 instead of 4294967295.
-	s := strconv.FormatUint(uint64(rand.Uint32()), 10)
-	var builder strings.Builder
-	builder.Grow(len("4294967295"))
-	r := len("4294967295") - len(s)
-	for range r {
-		builder.WriteByte('0')
-	}
-	builder.WriteString(s)
-	return builder.String()
+    // os.MkdiTemp does this thing. Just shadowing the behavior.
+    // But there's no strong opinion about this;
+    // It can be longer, or even shorter. We can expand this to
+    // 9999999999 instead of 4294967295.
+    s := strconv.FormatUint(uint64(rand.Uint32()), 10)
+    var builder strings.Builder
+    builder.Grow(len("4294967295"))
+    r := len("4294967295") - len(s)
+    for range r {
+        builder.WriteByte('0')
+    }
+    builder.WriteString(s)
+    return builder.String()
 }
 ```
 
@@ -832,54 +818,54 @@ func randomUint32Padded() string {
 
 ```go
 type safeWriteFile interface {
-	WriteFile
-	CloseFile
-	NameFile
-	SyncFile
+    WriteFile
+    CloseFile
+    NameFile
+    SyncFile
 }
 
 type safeWriteFsys[File safeWriteFile] interface {
-	OpenFileFs[File]
-	RenameFs
-	RemoveFs
+    OpenFileFs[File]
+    RenameFs
+    RemoveFs
 }
 
 func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.Reader, perm fs.FileMode) error {
-	dir := filepath.Dir(name)
+    dir := filepath.Dir(name)
 
-	randomFile, err := OpenFileRandom(fsys, dir, "*.tmp", perm.Perm())
-	if err != nil {
-		return err
-	}
+    randomFile, err := OpenFileRandom(fsys, dir, "*.tmp", perm.Perm())
+    if err != nil {
+        return err
+    }
 
-	randomFileName := filepath.Join(dir, filepath.Base(randomFile.Name()))
-	defer func() {
-		_ = randomFile.Close()
-		if err != nil {
-			fsys.Remove(randomFileName)
-		}
-	}()
+    randomFileName := filepath.Join(dir, filepath.Base(randomFile.Name()))
+    defer func() {
+        _ = randomFile.Close()
+        if err != nil {
+            fsys.Remove(randomFileName)
+        }
+    }()
 
-	bufP := bufpool.GetBytes()
-	defer bufpool.PutBytes(bufP)
+    bufP := bufpool.GetBytes()
+    defer bufpool.PutBytes(bufP)
 
-	buf := *bufP
-	_, err = io.CopyBuffer(randomFile, r, buf)
-	if err != nil {
-		return err
-	}
+    buf := *bufP
+    _, err = io.CopyBuffer(randomFile, r, buf)
+    if err != nil {
+        return err
+    }
 
-	err = randomFile.Sync()
-	if err != nil {
-		return err
-	}
+    err = randomFile.Sync()
+    if err != nil {
+        return err
+    }
 
-	err = fsys.Rename(randomFileName, filepath.Clean(name))
-	if err != nil {
-		return err
-	}
+    err = fsys.Rename(randomFileName, filepath.Clean(name))
+    if err != nil {
+        return err
+    }
 
-	return nil
+    return nil
 }
 ```
 
@@ -899,11 +885,13 @@ func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.R
 
 ## 雑感: Claude Code使ってました
 
+このライブラリの実装にClaude Codeを大いに活用したため雑感を記します。
+
 - 型とdoc comment、テストケースを細かく分けて何をするかをdoc commentで書いておいて、あとよろしく！で完成するのでかなり便利です。
 - といいつつ中身を見てると無駄なことをすることがあるので手動で若干直す必要があります。
 - `strings.Split`を使うコードを出してくるところを`strings.SplitSeq`を使うように指示すると、一旦全部sliceに受けるようなコードにしてきたりして手で直さざるを得ないところがありました。
   - 新しめなAPIは学習されてないらしく、使われ方のパターンを把握していない感じがありますね。
-- `*overlay.Overlay`のコードはだいぶダメだったのでほぼ人が書いてます。
+- `*overlayfs.Fs`のコードはだいぶダメだったのでほぼ人が書いてます。
   - 何をどうするかをコメントで自己説明すればもっといい感じに出力してくれたかもしれませんが、それほぼ英語の自然言語でコーディングしてるだけなのでコードを手で書けばいいやって思って人間が書きました。
 - 逆に`*synthfs.Fs`は`tarfs`を参考にしてっていうとほぼokなものが出ました。
   - ただしロック周りのロジックは結構手で直しました。
@@ -913,7 +901,7 @@ func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.R
   - というのも、claudeは`print debug`や、実験コードを一旦生成して仮説検証したり、実際に動く環境があることを活かすので、実行環境がないとその方法が通じなく、あてずっぽうなことを言うしかなくなるのかなと思います。
 - バグを見つけてくるのはすごい得意です。ここうまく動かないけどなんでかな？と聞いたら、人がするような、debugを仕込んで実行して状態を観測したら原因を推測して・・・というループを行って発見してきます。
   - **このループを回すのがものすごい高速なので人がデバッグする速度じゃ追いつけません**
-  - 複数のモジュールにまたがって起きるバグはこの方法が通用しませんが、`Go`のコンパイルオプションにはoverlayというモジュールの一部を差し替えるものがありますから、何かしらのmcpツールで元のソースを編集してoverlayに渡してコンパイルさせられるように環境を整えたらこのデバッグ方法を行ってもらえるかもしれません。そうなってくると人間のデバッグ力じゃ追いつけなくなる可能性があります。
+  - 複数のモジュールにまたがって起きるバグはこの方法が通用しませんが、`Go`のコンパイルオプションにはoverlayというモジュールの一部を差し替えるものがありますから、何かしらのmcpツールで元のソースを編集してoverlayに渡してコンパイルさせられるように環境を整えたらこのデバッグ方法を行ってもらえるかもしれません。そうなってくると人間のデバッグ力じゃもうすでに追いつけないものになりますね。
   - REST APIやgRPCをまたぐとそれでも通用しないです。
   - 前述した[#73868](https://github.com/golang/go/issues/73868)はclaudeが見つけて指摘してきました。誰も報告してなければ報告しようかと思いましたがすでにされていましたね。貢献失敗！
 - ちなみにこの記事は一部AIに書かせましたが、丁寧でざっくりしすぎてしまい、筆者の文書ににじみ出る雑味が消えてしまったので、ほとんどの変更をrevertして人力で書き直しています。
@@ -929,7 +917,7 @@ func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.R
 - `rc2`を待ちます(`rc1`のバグによってGitHub Actions上のテストが通過しないため)
 - AIが書いたテストやコードをレビューしてない部分があるのでちゃんと読んでリファクタするなりをします。
 - 自作ライブラリ内で使ってたたきにたたきます。
-  - [この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info)や、[この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info-cloner)で触れている、code generatorのファイル書き込み部分に`overlay`を使用し、トップレイヤを`synthfs`のin-memory filesystemにしておき、`packages.Config`のOverlayにメモリコンテンツを渡すことで書き出し前に型チェックをかけることをひそかに構想しています。
+  - [この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info)や、[この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info-cloner)で触れている、code generatorのファイル書き込み部分に`overlayfs`を使用し、トップレイヤを`synthfs`のin-memory filesystemにしておき、`packages.Config`のOverlayにメモリコンテンツを渡すことで書き出し前に型チェックをかけることをひそかに構想しています。
 - `vroot-adapter`という別の名前のモジュールを作成し、[afero], [go-billy]と相互に変換がかけられるようにします。
   - ただし[afero]に関してはベストエフォートになります。
 - `vroot-adapter`下にいろんなアダプターをおいておきたいと思っています。例えば
@@ -940,6 +928,7 @@ func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.R
   - etc, etc.
 - `vroot over stream`, `stream over gRPC`で、`gRPC`経由で相互にファイルシステムを公開しあえないかなと思っています。
   - 同一マシン内でIPCするときに適切にファイルシステムを共有する方法をずっと探っていたので、それに対する答えとしてこれを考えています。
+  - `tar`を送り付けあってもいいんですがそれだとあまりにオーバーヘッドが大きいので。
   - もしかしたら`NFS over gRPC`にしたほうが最適な実装は得られるかもしれないです
 
 <!-- other languages referenced -->
