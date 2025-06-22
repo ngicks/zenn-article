@@ -55,8 +55,10 @@ Goは[Docker]や[Podman]などのコンテナ基盤で広く使用されてお�
 
 1. **vroot**: [*os.Root]のメソッドセットを基盤としたfilesystem abstraction library
 
-   - 標準ライブラリとの将来的な互換性を確保
-   - 統一されたセキュリティモデルの提供
+   - `os`パッケージで定義されるファイル操作のすべてを網羅
+   - 新たなAPIの基調
+     - rootおよびsub-rootからsymlink escapeさせない
+     - 絶対パスを受け付けない
 
 2. **fsutil**: Genericsを活用した、filesystem-abstraction-library-agnostic helpers
    - ヘルパーが特定のfilesystem abstraction libraryにくっつかないようにgenericsでもとから剥がしとこうよという提案
@@ -80,9 +82,13 @@ export GOTOOLCHAIN=go1.25rc1
 
 - [#73868](https://github.com/golang/go/issues/73868)
   - `OpenRoot` -> `*os.Root.OpenRoot` -> `*os.Root.OpenRoot`で開いた子root、孫rootで開いたファイルに対して`Readdir`系のメソッドを呼び出すと`ENOENT`が返ってくるというもの。
-  - 書いてありますが`*os.Root.OpenRoot`が原因であるので、落としてきたsdkを手動で修正すればうまく動作します。
+  - 書いてありますが`*os.Root.OpenRoot`が新しい`*os.Root`を開くときにnameを適切に渡しそこなっているのが原因です。
+  - `Go`はstdを編集してコンパイルしなおすと普通に変更が反映されるので`sdk`を直接修正すれば次回以降の`go test`などはうまく動作するようになります。
+  - 実はReaddirによって[`[]fs.FileInfo`を取得する際には`os.Lstat`を用います](https://github.com/golang/go/blob/go1.25rc1/src/os/dir_unix.go#L151)。
   - `lstat`が呼ばれるときのprefixがちゃんとわたっていないことが問題です。`lstatat`が存在していればこんなバグも起こらなかったんでしょうが、どうもPOSIX APIには存在しないようです。
   - これを機に`Readdir`も[fstatat(3p)](https://man7.org/linux/man-pages/man3/fstatat.3p.html)を使おうみたいな話の流れになるんですかね？
+  - と思ってstdを読み直すと[`os.Lstat`はすでにfstatatを使用しています](https://github.com/golang/go/blob/go1.25rc1/src/syscall/syscall_linux_amd64.go#L68-L70)のでもしかしたら使えない理由があってやっていないのかも・・・
+  - windowsでは起きません。
 - [#69509](https://github.com/golang/go/issues/69509)
   - `wasip1`でパスの取り扱いがおかしいというもの。
 
@@ -92,7 +98,7 @@ export GOTOOLCHAIN=go1.25rc1
   - 各プラットフォーム向けに最適な実装をしようというもの
   - 多分、ファイルに対するIO操作のほうがよほど時間がかかるのでこの最適化がされなくても十分な実行速度を持てると思いますが、std libraryはあらゆるものから使われるわけですからメンテナンス性を確保できている限り、速ければ速いほどいいですよね。
 
-とりあえず`Readdir`は直ってくれないとこっちで書いてるテストが通らなくてGitHub Actionsがfailしてpushするたびメールが来るので`rc2`を待ちましょう。修正自体は軽微なはずなので、`neild`が取り組みに筆者自身で`gerrit`に登録してCLを送ってしまったほうが入かもしれません。
+とりあえず`rc2`を待ちましょう。
 
 ## はじめに
 
@@ -113,7 +119,7 @@ type File interface {
 ```
 
 特定のディレクトリの下に特定の構造があり、それを期待して読み込んだり書き込んだりするようなプログラムを書くことは、筆者としてはたびたびあります。
-ディレクトリ自体は設定ファイルなりなんなりで自由に変えることができるが、どのディレクトリに書き込んでいるかはプログラムの関心から外したいという欲求が筆者にはよくありますし、実際に[fs.FS]が実装されたのはそういった欲求は広く存在するからだと思います。
+ディレクトリ自体は設定ファイルなりなんなりで自由に変えることができるため、どのディレクトリに読み込んでいるのかはプログラムの関心から外したいという欲求が筆者にはよくありますし、実際に[fs.FS]が実装されたのはそういった欲求は広く存在するからだと思います。
 
 [fs.FS]は単にinterfaceであるため、それさえ満たせばdata sourceは何でもよいことになります。
 当然、どこかのディレクトリ以下でもいいし、`smb`/`nfs`などのネットワークファイルシステム, `tar`/`zip`などのアーカイブファイル、なんならin-memoryの構造でもかまいません。
