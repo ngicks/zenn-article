@@ -84,7 +84,7 @@ export GOTOOLCHAIN=go1.25rc1
   - `OpenRoot` -> `*os.Root.OpenRoot` -> `*os.Root.OpenRoot`で開いた子root、孫rootで開いたファイルに対して`Readdir`系のメソッドを呼び出すと`ENOENT`が返ってくるというもの。
   - 書いてありますが`*os.Root.OpenRoot`が新しい`*os.Root`を開くときにnameを適切に渡しそこなっているのが原因です。
   - `Go`はstdを編集してコンパイルしなおすと普通に変更が反映されるので`sdk`を直接修正すれば次回以降の`go test`などはうまく動作するようになります。
-  - 実はReaddirによって[`[]fs.FileInfo`を取得する際には`os.Lstat`を用います](https://github.com/golang/go/blob/go1.25rc1/src/os/dir_unix.go#L151)。
+  - 実はReaddirによって[`[]fs.FileInfo`を取得される際には`os.Lstat`が用いられます](https://github.com/golang/go/blob/go1.25rc1/src/os/dir_unix.go#L151)。
   - `lstat`が呼ばれるときのprefixがちゃんとわたっていないことが問題です。`lstatat`が存在していればこんなバグも起こらなかったんでしょうが、どうもPOSIX APIには存在しないようです。
   - これを機に`Readdir`も[fstatat(3p)](https://man7.org/linux/man-pages/man3/fstatat.3p.html)を使おうみたいな話の流れになるんですかね？
   - と思ってstdを読み直すと[`os.Lstat`はすでにfstatatを使用しています](https://github.com/golang/go/blob/go1.25rc1/src/syscall/syscall_linux_amd64.go#L68-L70)のでもしかしたら使えない理由があってやっていないのかも・・・
@@ -244,7 +244,7 @@ func (r *os.Root) WriteFile(name string, data []byte, perm os.FileMode) error
 
 [*os.Root]は[openat(2)](https://man7.org/linux/man-pages/man2/openat.2.html)などの、`fd`からの相対パス開きができるAPIに依存しています。
 [*os.Root]の各methodにパスが渡されるとパスセパレータ(`/`か`\`)でパスコンポーネントに分割し、`OBJ_DONT_REPARSE`(windows)/`O_NOFOLLOW`(unix)付きで`NtCreateFile`/`openat`を呼び出し、ディレクトリを1つずつ開いていきます。
-symlinkが見つかった場合には`readlinkat`を使って読み取りますが、この場合には読み込まれたリンクでパスコンポーネントを置き換え(`a/b/c`で`b -> ../d`だった場合`a/../d/c`で)、rootからパスをたどりなおします。これは`openat(dirFd, "..")`をしてしまうと、`dirFd`が開いているファイルが`rename`なで移動された際のTOCTOU(Time Of Check, Time Of Use) raceによって間違ったパスをたどらないようにするための対策のようです。
+symlinkが見つかった場合には`readlinkat`を使って読み取りますが、この場合には読み込まれたリンクでパスコンポーネントを置き換え(`a/b/c`で`b -> ../d`だった場合`a/../d/c`で)、rootからパスをたどりなおします。これは`openat(dirFd, "..")`をしてしまうと、`dirFd`が開いているファイルが`rename`などで移動された際のTOCTOU(Time Of Check, Time Of Use) raceによって間違ったパスをたどってしあむため、そうならないようにするための対策のようです。
 
 ## vroot: \*os.Root-based filesystem abstraction
 
