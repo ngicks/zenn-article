@@ -875,19 +875,161 @@ func SafeWrite[File safeWriteFile](fsys safeWriteFsys[File], name string, r io.R
 }
 ```
 
-:::details ワンポイントアドバイス: FileのNameメソッドは信用しない
+### 実際に複数ライブラリ相手に使ってみる
 
-- 上記スニペット中では`filepath.Base`でbase nameだけとって、他は無視しています。
-- `*os.File`における`Name`の挙動は`os.Open`に渡されたパスを返すことですが、ライブラリ、例えば[afero]などでは`Open`に渡したのとは別のものが返ってくることがあります。
-- 前述通り、[afero]の`OsFs`は`os.Open`などへのショートハンドですので、特定のサブディレクトリ以下のみを操作したいときは`BasePathFs`と組み合わせて使います。
-- `BasePathFs`はbase paseにpathを結合してから下層のfsys、例えば`OsFs`などを呼び出します。特に結果をラップしたりせずそのまま`File`を返します。
-- つまり、`BasePathFs`経由で`File`が生成されると`os.Open`にはbase pathと結合したパスが渡されます。
-- `Name`メソッドはfsys interfaceの`Open`に渡されたものよりも長い名前を返すようになります。
-- 実装によってはパスの変換などを行っているかもしれないため、base name以外を信用するのは危険です。
-- もしくはinterface規約として「`Name`は正しく`Open`に渡されたパスを返さなければならない」としてもいいですし、acceptance testとしてinterfaceに対するテストをそのように実装しても構わないでしょう。
-- ただそうなると`Fs`のラッパーがファイルをラップする必要がある場面が増えるため、「base nameだけ正しければいい」としておくのがいい具合の緩さかなと思います。
+実際に複数のfilesystem abstraction libraryに対して動かしてみます。
+(このsnippetは`vroot`が`go1.25rc1`指定なので`Go Playground`では動きません！`Go dev branch`モードは`go 1.25`扱いになるからです！)
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "io/fs"
+    "os"
+    "path/filepath"
+
+    billyosfs "github.com/go-git/go-billy/v5/osfs"
+    "github.com/ngicks/go-fsys-helper/fsutil"
+    vrootosfs "github.com/ngicks/go-fsys-helper/vroot/osfs"
+    "github.com/spf13/afero"
+)
+
+func main() {
+    tempDir, err := os.MkdirTemp("", "")
+    if err != nil {
+        panic(err)
+    }
+    defer func() {
+        os.RemoveAll(tempDir)
+    }()
+
+    aferoBase := filepath.Join(tempDir, "afero")
+    err = os.Mkdir(aferoBase, fs.ModePerm)
+    if err != nil {
+        panic(err)
+    }
+    aferoFsys := afero.NewBasePathFs(afero.NewOsFs(), aferoBase)
+    {
+        f, err := fsutil.OpenFileRandom(aferoFsys, "", "*.tmp", fs.ModePerm)
+        if err != nil {
+            panic(err)
+        }
+        fmt.Printf("afero file name = %q\n", f.Name())
+        _ = f.Close()
+    }
+
+    goBillyBase := filepath.Join(tempDir, "go-billy")
+    err = os.Mkdir(goBillyBase, fs.ModePerm)
+    if err != nil {
+        panic(err)
+    }
+    billyFsys := billyosfs.New(goBillyBase, billyosfs.WithBoundOS())
+    {
+        f, err := fsutil.OpenFileRandom(billyFsys, "", "*.tmp", fs.ModePerm)
+        if err != nil {
+            panic(err)
+        }
+        fmt.Printf("billy file name = %q\n", f.Name())
+        _ = f.Close()
+    }
+
+    vrootBase := filepath.Join(tempDir, "vroot")
+    err = os.Mkdir(vrootBase, fs.ModePerm)
+    if err != nil {
+        panic(err)
+    }
+    vrootFsys, err := vrootosfs.NewRooted(vrootBase)
+    if err != nil {
+        panic(err)
+    }
+    defer vrootFsys.Close()
+    {
+        f, err := fsutil.OpenFileRandom(vrootFsys, "", "*.tmp", fs.ModePerm)
+        if err != nil {
+            panic(err)
+        }
+        fmt.Printf("vroot file name = %q\n", f.Name())
+        _ = f.Close()
+    }
+
+    var seen []string
+    fs.WalkDir(os.DirFS(tempDir), ".", func(path string, d fs.DirEntry, err error) error {
+        if err != nil || path == "." || d.IsDir() {
+            return err
+        }
+        if d.Type().IsRegular() {
+            seen = append(seen, path)
+        }
+        return nil
+    })
+
+    bin, _ := json.MarshalIndent(seen, "", "    ")
+    fmt.Printf("seen path = %s\n", string(bin))
+}
+```
+
+実行してみるとこんな感じ。動いてますね。
+
+```
+$ go run .
+afero file name = "/0121404083.tmp"
+billy file name = "/tmp/1301612191/go-billy/0632349466.tmp"
+vroot file name = "/tmp/1301612191/vroot/3571826966.tmp"
+seen path = [
+    "afero/0121404083.tmp",
+    "go-billy/0632349466.tmp",
+    "vroot/3571826966.tmp"
+]
+```
+
+こうしてみてみると[afero]の`BasePathFs`の挙動はだいぶいただけないです。`/`-prefixも削除されていたら文句なかったんですが。
+
+:::details dangling symlinkの存在チェックはできるならしたほうがいいかも
+
+[#73702](https://github.com/golang/go/issues/73702)より、[Go 1.24.4から](https://github.com/golang/go/issues?q=milestone%3AGo1.24.4+label%3ACherryPickApproved)`OpenFile`のパスがdangling symlinkで`flag`が`os.O_CREATE|os.O_EXCL`の場合常にエラーを返すようになっています。
+windowsのみに影響するふるまいの変更なのでunix系でばかり開発している場合は気にならない変更かもしれないですが、今の今までそのまんまにされていた挙動なので、考慮に入れてない実装は多いんじゃないかなあ。
 
 :::
+
+### Interoperabilityへのアドバイス
+
+思いつく限りのInteroperabilityへのアドバイスをリストしていきます。見つけ次第追記していくかも。なんか思い当たるものがあったら教えてください。
+
+#### FileのNameメソッドは信用しない
+
+- `*os.File`における`Name`の挙動は`os.Open`に渡されたパスを返すことですが、ライブラリ、例えば[afero]などでは`Open`に渡したのとは別のものが返ってくることがあります。
+- ライブラリによってこの挙動に差があります:
+  - [afero]の`OsFs`+`BasePathFs`では、`BasePathFs`の挙動としてsubpathとして指定されたpath prefixを`Name`から削除する挙動があります。
+  - [go-billy]の`osfs`(`BoundOS`)は素直に[*os.File]の`Name`の返り血を返すのでフルパスが返ります。
+  - `vroot`の`osfs`も[go-billy]と同様にフルパスが返ります。(単なる[*os.Root]のラッパーなので、それの挙動が透けています。)
+- これらはinterfaceですので、どのような実装になっているかは定かではありません。
+  - 実装によっては下層の実装は`osfs`なんだけどパスの変換などを行っているかもしれません
+- ですのでInteroperabilityを重視するならばbase name以外を信用するのは危険です。
+
+#### 親ディレクトリの存在チェックをする
+
+- 親ディレクトリの有無で挙動差が生まれることがよくあるようです:
+  - [go-billy]\: 勝手に作る
+    - 前述通り、親ディレクトリがなかったらとりあえず作ってしまいます。
+  - [afero]\: 実装による
+    - `MemMapFs`では親ディレクトリがなくてもファイルが作れます
+    - `OsFs`では勝手に作られません。
+  - `vroot`: 親ディレクトリは勝手に作られません
+    - 明確に書かれていませんがinterface規約として親ディレクトリがないのにファイル作成が成功してはいけないというものがあります。
+      - `acceptancetest`によって親ディレクトリがない時のファイル作成がエラーする挙動がテストされています。
+- windowsでは「親ディレクトリがない」と「パスにファイルが含まれる」が一緒
+  - POSIX APIにおける`ENOTDIR`の概念がないようです。
+  - 試しに適当な`go module`で`os.Open(".\\go.mod\\foo)`とか呼び出してみるとわかりますが、`ERROR_PATH_NOT_FOUND`が返ってきます。
+- 親ディレクトリがない時エラーになってほしいなら存在チェックをしたほうがよいです。
+- パスコンポーネント上にファイルがあるときに特別な処理を行いたいときは存在チェックをしたほうが良いです。
+
+#### Renameで上書きは常に通じるわけではない
+
+- `sftp`でマウントしている環境だとマウント設定によってはrenameで上書きしようとするとエラーでした。
+
+なんかfilesystem abstraction libraryの話ではなくなってしまってますが・・・
 
 ## 雑感: Claude Code使ってました
 
