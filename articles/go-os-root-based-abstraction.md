@@ -191,7 +191,6 @@ stdには取り込まれませんが、コミュニティーの中でいくつ�
 
 `Go`は[Docker], [podman]など、コンテナ基盤で盛んに使われています。
 コンテナは実装によりますが、基本的には[pivot_root(2)](https://man7.org/linux/man-pages/man2/pivot_root.2.html)、[unsahre(2)](https://man7.org/linux/man-pages/man2/unshare.2.html)その他もろもろで隔離された名前空間のなかで動作するプロセスやらroot fsやらのことをさします。
-実装にもよりますが、というのは始祖に近いdockerはデフォルトでは上記のように名前空間による隔離でコンテナを動かします([runc](https://github.com/opencontainers/runc))が、[Open Container Initiative Runtime Specification](https://github.com/opencontainers/runtime-spec)でcontainer runtimeが仕様化されているため、相互に取り換え可能な別の動作方式のものも多数存在することをさしています。例えば、guest kernelを動かしたり([gVisor](https://gvisor.dev/))、軽量KVMで分離されていたり([libkrun](https://github.com/containers/libkrun))、QEMUマシンの中で動いていたり([Kata Containers](https://katacontainers.io/)), windowsのHyper-V上で動いていたり([runhcs](https://learn.microsoft.com/ja-jp/virtualization/windowscontainers/deploy-containers/containerd#hcs))といろいろあるためです。
 
 [#20126](https://github.com/golang/go/issues/20126)でかつてsecure-joinというpath traversalを防ぎながらjoinを行うAPIの追加がproposeされましたが、完全な実装の難しさからcloseされています。しかし、[github.com/cyphar/filepath-securejoin](https://github.com/cyphar/filepath-securejoin)の[dependencies](https://pkg.go.dev/github.com/cyphar/filepath-securejoin?tab=importedby)を見れば、`k8s.io`の各種パッケージからインポートされていることがわかります。こちらは`/proc`の下などをコンテナの名前空間を見せたりするのに使う安全策を組み込んでいるような記述があります。
 
@@ -244,13 +243,13 @@ func (r *os.Root) WriteFile(name string, data []byte, perm os.FileMode) error
 
 [*os.Root]は[openat(2)](https://man7.org/linux/man-pages/man2/openat.2.html)などの、`fd`からの相対パス開きができるAPIに依存しています。
 [*os.Root]の各methodにパスが渡されるとパスセパレータ(`/`か`\`)でパスコンポーネントに分割し、`OBJ_DONT_REPARSE`(windows)/`O_NOFOLLOW`(unix)付きで`NtCreateFile`/`openat`を呼び出し、ディレクトリを1つずつ開いていきます。
-symlinkが見つかった場合には`readlinkat`を使って読み取りますが、この場合には読み込まれたリンクでパスコンポーネントを置き換え(`a/b/c`で`b -> ../d`だった場合`a/../d/c`で)、rootからパスをたどりなおします。これは`openat(dirFd, "..")`をしてしまうと、`dirFd`が開いているファイルが`rename`などで移動された際のTOCTOU(Time Of Check, Time Of Use) raceによって間違ったパスをたどってしあむため、そうならないようにするための対策のようです。
+symlinkが見つかった場合には`readlinkat`を使って読み取りますが、この場合には読み込まれたリンクでパスコンポーネントを置き換え(`a/b/c`で`b -> ../d`だった場合`a/../d/c`で)、rootからパスをたどりなおします。これは`openat(dirFd, "..")`をしてしまうと、`dirFd`が開いているファイルが`rename`などで移動された際のTOCTOU(Time Of Check, Time Of Use) raceによって間違ったパスをたどってしまうため、そうならないようにするための対策のようです。
 
 ## vroot: \*os.Root-based filesystem abstraction
 
 [*os.Root]が標準を示したことでfilesystem abstraction libraryの持つべきベーシックなinterfaceが定まりました。
 ・・・っていっても`os`パッケージ内での基本的なファイル操作APIは[Go 1]から特に追加も変更もなかったためずっと前から定まっていたんですが、
-特定のサブディレクトリから脱出しないとか、絶対パスは使わせないというAPI constraintの基調がさらに追加されました。
+特定のサブディレクトリから脱出しないとか、絶対パスは使わせないというAPI constraintのベースラインがさらに追加されました。
 
 [*os.Root]がstdに入っちゃったらこれとうまくやれないfilesystem abstraction libraryはつらい思いをするのは目に見えています。
 現状[afero]は`/`から始まるパスでも動作してしまうためこのsubtleな違いが実装を入れ替えたときに微妙なエラーを引き起こすことが考えられます。(そもそも前述通り筆者は`afero`の`MemMapFs`のsubtletiesでテストが動かなかったことがあるわけですが)
@@ -1002,7 +1001,7 @@ windowsのみに影響するふるまいの変更なのでunix系でばかり開
 - `*os.File`における`Name`の挙動は`os.Open`に渡されたパスを返すことですが、ライブラリ、例えば[afero]などでは`Open`に渡したのとは別のものが返ってくることがあります。
 - ライブラリによってこの挙動に差があります:
   - [afero]の`OsFs`+`BasePathFs`では、`BasePathFs`の挙動としてsubpathとして指定されたpath prefixを`Name`から削除する挙動があります。
-  - [go-billy]の`osfs`(`BoundOS`)は素直に[*os.File]の`Name`の返り血を返すのでフルパスが返ります。
+  - [go-billy]の`osfs`(`BoundOS`)は素直に[*os.File]の`Name`の返り値を返すのでフルパスが返ります。
   - `vroot`の`osfs`も[go-billy]と同様にフルパスが返ります。(単なる[*os.Root]のラッパーなので、それの挙動が透けています。)
 - これらはinterfaceですので、どのような実装になっているかは定かではありません。
   - 実装によっては下層の実装は`osfs`なんだけどパスの変換などを行っているかもしれません
