@@ -266,11 +266,11 @@ https://github.com/ngicks/go-fsys-helper/tree/main/vroot
 
 [*os.Root]のmethod setを直訳してinterfaceを作ります。
 
-- 1点だけ違うところとして、`Readlink`ではなく`ReadLink`と名前が変えてあります。
-  - これは`Go 1.25`で追加される`fs.ReadLinkFS`のinterfaceと合わせるためにこうなっています。
-
 ```go
 // Fs represents capablities [*os.Root] has as an interface.
+//
+// Methods are encouraged to return [*os.LinkError] wrapping an appropriate error for Rename, Link and Symlink,
+// [*fs.PathError] for others.
 type Fs interface {
     Chmod(name string, mode fs.FileMode) error
     Chown(name string, uid int, gid int) error
@@ -300,22 +300,12 @@ type Fs interface {
 }
 ```
 
+- 1点だけ[*os.Root]と違うところ: `Readlink`ではなく`ReadLink`と名前が変えてあります。
+  - これは`Go 1.25`で追加される`fs.ReadLinkFS`のinterfaceと合わせるためにこうなっています。
+
 ### File
 
 [*os.File]を直訳して`File` interfaceを定義します。
-
-- 実際のファイルとは限らないので`Chdir`は消します。
-- `ReadFrom`, `WriteTo`は[io.Copy]向けの最適な実装を提供するextension interfaceなので強制ではなくします。
-- `SetDeadline`, `SetReadDeadline`, `SetWriteDeadline`はソケットなど一部ファイル向けなので強制ではなくします。
-- `Fd`は大抵のケースで不要に思いますが、
-  - `file lock`の実装に必要です。
-    - `Fd`がvalidな値(=`^(uintptr(0))`以外)のとき、[fctl(2)](https://man7.org/linux/man-pages/man2/fcntl.2.html)(unix)/[LockFile](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-lockfile)(windows)などを用いてロックし、そうでないときは`Fs`固有の方法でロックすればよいでしょう。
-    - record lockingを`vroot`上で再実装するのは骨が折れそうなので、こういう形で余白を残しつつ放置する作戦です。
-  - 後述の`WalkDir`のために必須としてあります。
-    - filesystemを*walk*するときはたいてい、bind mountによるループが起きていないかのチェックが必要です。
-    - unix系のplatformでは[stat(2)](https://man7.org/linux/man-pages/man2/stat.2.html)などを通じて[struct stat](https://man7.org/linux/man-pages/man3/stat.3type.html)を得ることで、inodeとdev numberの組み合わせでファイル固有の値を得ることができますが、
-    - windowsプラットフォームでは[GetFileInformationByHandle](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)を用います。
-      - これには`fd`・・・というか`FileHandle`の値が必要です。
 
 ```go
 // File is basically same as [*os.File]
@@ -363,6 +353,20 @@ type File interface {
 }
 ```
 
+- 実際のファイルとは限らないので`Chdir`は消します。
+- `ReadFrom`, `WriteTo`は[io.Copy]向けの最適な実装を提供するextension interfaceなので強制ではなくします。
+- `SetDeadline`, `SetReadDeadline`, `SetWriteDeadline`はソケットなど一部ファイル向けなので強制ではなくします。
+- `SyscallConn`も同様に消します。
+- `Fd`は大抵のケースで不要に思いますが、
+  - `file lock`の実装に必要です。
+    - `Fd`がvalidな値(=`^(uintptr(0))`以外)のとき、[fctl(2)](https://man7.org/linux/man-pages/man2/fcntl.2.html)(unix)/[LockFile](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-lockfile)(windows)などを用いてロックし、そうでないときは`Fs`固有の方法でロックすればよいでしょう。
+    - record lockingを`vroot`上で再実装するのは骨が折れそうなので、こういう形で余白を残しつつ放置する作戦です。
+  - 後述の`WalkDir`のために必須としてあります。
+    - filesystemを*walk*するときはたいてい、bind mountによるループが起きていないかのチェックが必要です。
+    - unix系のplatformでは[stat(2)](https://man7.org/linux/man-pages/man2/stat.2.html)などを通じて[struct stat](https://man7.org/linux/man-pages/man3/stat.3type.html)を得ることで、inodeとdev numberの組み合わせでファイル固有の値を得ることができますが、
+    - windowsプラットフォームでは[GetFileInformationByHandle](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle)を用います。
+      - これには`fd`・・・というか`FileHandle`の値が必要です。
+
 ### RootedとUnrooted
 
 `vroot`は二つの中心的interfaceが存在します。
@@ -408,7 +412,7 @@ type Rooted interface {
 
 とりあえず[*os.Root]から`Rooted`へ変換できるようにします。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/osfs/rooted.go#L16-L21
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/osfs/rooted.go#L16-L21
 
 `os`パッケージが`errPathEscapes`をエクスポートしないため
 
@@ -416,60 +420,64 @@ https://github.com/golang/go/blob/go1.25rc1/src/os/file.go#L421
 
 文字列を見てエラーを差し替える部分を作っておきます。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/osfs/rooted.go#L45-L58
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/osfs/rooted.go#L45-L58
 
 文字列比較はやらないでいいならやりたくないですが、こうしないと`errors.Is(err, ErrPathEscapes)`でテストをかけないので仕方なくやっています。
 
 [afero]の`BasePathFs`とほぼ同じものとして`osfs`の`Unrooted`を作ります。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/osfs/unrooted.go#L19-L26
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/osfs/unrooted.go#L19-L26
 
 ### WalkDir
 
 `fs.WalkDir`と互換なものとして`vroot.WalkDir`を定義しておきます。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/walk.go#L85
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/walk.go#L12-L25
 
 interfaceがsymlinkの存在をもとから考慮に入れているので`fs.WalkDir`と違ってsymlinkをresolveしてたどってもよいことにしてあります。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/walk.go#L17
-
-`fs.WalkDirFunc`とは違い、`vroot.WalkDirFunc`はsymlinkを解決した後にrealPathも受け取るようになっています。ただしこれは`ReadLink`と`Lstat`を組み合わせてパスをレキシカルに操作するだけのとても単純な仕組みであるため、TOCTOU raceには弱いです。
+`fs.WalkDirFunc`とは違い、`vroot.WalkDirFunc`はsymlinkを解決した後にrealPathも受け取るようになっています。ただしこれは`ReadLink`と`Lstat`を組み合わせてパスをレキシカルに解決するだけのとても単純な仕組みであるため、TOCTOU raceには弱いです。
 (現状まったくdoc commentが書けていませんが)root外のrealPathの取得は`Rooted`はもちろん`Unrooted`でもできない(root外のパスに対して`ReadLink`を呼ぶ必要があるため)ので、その場合はrealPathには`""`が渡されることになります。
+なので基本的にrealPathに`""`が来てなおかつディレクトリの場合は、`SkipDir`を返してstepするのをやめたほうが良いですね。
 
 また、`WalkDir`がbind mountによるfilesystem loopによって無限ループに陥らないようにするために、可能であればファイルからユニークな値を取り出します。
 
 unix系では`stat`から
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/walk_unix.go#L1-L17
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/walk_unix.go#L1-L22
+
+(`plan9`)
+
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/walk_plan9.go#L1-L22
 
 windowsでは`GetFileInformationByHandle`から
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/walk_windows.go#L1-L29
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/walk_windows.go#L1-L37
 
 それぞれユニークな値を取得します。
-とりあえず`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`では見た限り正しく固有な値をとれているようですが、`plan9`や`wasip1`ではどうなのか全くわかっていないため、当面はサポート外としています。
+とりあえず`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`では見た限り正しく固有な値をとれているようです。
+`plan9`や`wasip1`などではとりあえずコンパイルできますが、実装的に正しいのか検証はできていません。
 
 ### to/from fs.FS
 
 `fs.FS`と`vroot`の相互変換を定義します。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/iofs_from.go#L28-L49
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/iofs_from.go#L32-L53
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/iofs_from.go#L187-L204
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/iofs_from.go#L192-L209
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/iofs_to.go#L17-L30
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/iofs_to.go#L18-L31
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/iofs_to.go#L68-L81
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/iofs_to.go#L69-L82
 
 ### ReadOnly
 
 `Rooted`/`Unrooted`を`read-only`になるようにラップする仕組みも欲しいため作っておきます。
 これは間違って書かないようにするための安全策としてあったほうが良いですね
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/readonly.go#L13-L21
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/readonly.go#L13-L21
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/readonly.go#L113-L121
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/readonly.go#L113-L121
 
 ### overlayfs
 
@@ -477,8 +485,11 @@ https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc118
 
 `overlay filesystem`です。複数の`vroot.Rooted`を重ね合わせて一つのfsに見せかけます。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/overlayfs/overlay.go#L34-L81
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/overlayfs/overlay.go#L35-L82
 
+- 複数の`vroot.Rooted`を重ねて一つに見せます。
+- ファイルは「上側」レイヤーにあるが優先され「下側」は無視されます。
+- ディレクトリは重ねあわされ、すべてのレイヤーのコンテンツが1つのディレクトリに入っているかのように見えます。
 - 書き込みはすべて`top layer`にのみ起こるようになっています。
 - 下層のレイヤー群はすべてread-onlyかつstaticという前提があります。
 - 下層のレイヤーにしかないファイルに書き込もうとした場合、`top layer`にまずコピーします。
@@ -495,7 +506,7 @@ layerの重ね合わせはsymlinkも考慮に加えます。
 あるlayerにあるsymlinkのlink targetは別のlayerをさしていてもよく、あればそちらに向けて解決されます。
 つまり、下記exampleのように動作します。
 
-[example](https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/overlayfs/example_symlink_test.go)
+[example](https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/overlayfs/example_symlink_test.go)
 
 ```go
 package overlayfs_test
@@ -616,20 +627,21 @@ https://zenn.dev/ngicks/articles/go-virtual-mesh-fs-for-os-copyfs
 
 完全にin-memoryなfilesystem+任意のバッキングストレージという組み合わせで成り立つfilesystemで、
 file pathによるtrieを構築し、各ノードには適当なバッキングストレージのファイルを追加できるようにします。
-ファイルのblob以外のメタデータはin-memoryで管理します。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/synthfs/fs.go#L21-L55
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/synthfs/fs.go#L22-L56
+
+バッキングストレージは、ほかの`vroot.Fs`(`fs.FS`から変換してもよい)、memoryなど、何でもよいです。
 
 バッキングストレージをメモリーからのみallocateするようにすると、これが[afero]でいうところの`MemMapFs`になります。
 
 作った動機は上記の記事内で説明していますが、実はそれ以外にも理由があって、
-[afero]の`MemMapFs`がパスの取り扱いが正しくなく、`fs.FS`に変換して`fs.Walk`をかけたとに在るのにパスが見つからない、というのが発生していたため、`trie`による管理に変えることで原理的にそれが起こらなくしたというのもあります。
+[afero]の`MemMapFs`がパスの取り扱いが正しくなく、`fs.FS`に変換して`fs.Walk`をかけたとにあるのにパスが見つからない、というのが発生していたため、`trie`による管理に変えることで原理的にそれが起こらなくしたかったというのもあります。
 
 ### memfs
 
-in-memory filesystemです。上記の`synthfs`へのショートハンドです。
+in-memory filesystemです。上記の`synthfs`のショートハンドです。
 
-https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc1183ce859/vroot/memfs/mem.go#L1-L27
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/memfs/mem.go#L1-L27
 
 ## tarfs
 
@@ -637,12 +649,12 @@ https://github.com/ngicks/go-fsys-helper/blob/c571252c561ee558aaca86d65eb73cc118
 
 https://zenn.dev/ngicks/articles/go-tar-reader-implement-reader-at
 
-https://github.com/ngicks/go-fsys-helper/tree/84ed803754b44067aa0449f832b753b1b19083c1/tarfs
+https://github.com/ngicks/go-fsys-helper/tree/2adb17618ef755813afd6fa49910134eb94d3ceb/tarfs
 
 symlinkを無視するのがデフォルト挙動ですが、デフォルトでハンドルしたほうがいい気もするので(破壊的に変更になりますが)そのように変えるかもしれません。
 symlinkありのtarでも普通に動いているので使えそうな感じですが、世にどんなエッジケースがあるのかよくわからないのでしばらくタグをつけずに様子見します。
 
-ちなみに`fstest.TestFS`がsymlinkを考慮するのは`go1.25`以降であるようなので、このモジュールのテストを`go1.24`で動かすとfailします。
+ちなみに`fstest.TestFS`がsymlinkを考慮するのは`go1.25`以降であるようなのでsymlink/hardlinkありのアーカイブを使ったテストは`//go:build go1.25`で`Go 1.25`以降でないと実行されないように制限してあります。リリースされたら`CI`が常に`go1.25`を使うように変更しようかなと。
 
 ## fsutil: filesystem-abstraction-library-agnostic helpers
 
@@ -688,7 +700,6 @@ type ChmodFile interface {
 type NameFile interface {
     Name() string
 }
-
 
 type ReadAtFile interface {
     ReadAt(b []byte, off int64) (n int, err error)
@@ -996,6 +1007,40 @@ windowsのみに影響するふるまいの変更なのでunix系でばかり開
 
 思いつく限りのInteroperabilityへのアドバイスをリストしていきます。見つけ次第追記していくかも。なんか思い当たるものがあったら教えてください。
 
+#### 全プラットフォームでgo vetしよう
+
+下記のbashscriptで`GOOS=android`, `GOOS=ios`を除いた全OS/ARCHの組み合わせに対して`go vet ./...`がかけられます。
+
+```bash
+#!/bin/bash
+
+supported_list=$(go tool dist list)
+
+IFS=$'\n'
+for os_arch in $supported_list; do
+  IFS='/' read -r os arch <<< $os_arch
+  if [[ $os == "android" ]] || [[ $os == "ios" ]]; then
+    continue
+  fi
+  echo ${os_arch}:
+  GOOS=${os} GOARCH=${arch} go vet ./...
+  echo
+done
+```
+
+エラーが表示されなければとりあえず全プラットフォームでコンパイルまではする、というのがわかります。
+
+#### エラーは再定義するしかない
+
+`syscall.ELOOP`など、大部分のエラーが`plan9`にはありません。そもそも`plan9`にsymlinkはありません。
+全プラットフォームで(`GOOS=ios`, `GOOS=android`を除く)でコンパイルできる程度にするためには、この辺のエラーを再定義する必要があります。
+
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/fsutil/errdef/err.go#L1-L12
+
+`plan9`側では適当にエラーを定義します。
+
+https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/fsutil/errdef/err_plan9.go#L1-L30
+
 #### FileのNameメソッドは信用しない
 
 - `*os.File`における`Name`の挙動は`os.Open`に渡されたパスを返すことですが、ライブラリ、例えば[afero]などでは`Open`に渡したのとは別のものが返ってくることがあります。
@@ -1046,11 +1091,13 @@ windowsのみに影響するふるまいの変更なのでunix系でばかり開
 - 似たようなコードを若干変えて特別な考慮を加える、みたいなタスクは得意そうですね。
 - `gh`コマンド経由でGitHub Actionsの結果をみて修正をさせようと試みましたが急に見当違いなことを言い出しました。こういう使い方は厳しいようです。
   - というのも、claudeは`print debug`や、実験コードを一旦生成して仮説検証したり、実際に動く環境があることを活かすので、実行環境がないとその方法が通じなく、あてずっぽうなことを言うしかなくなるのかなと思います。
+  - なんとなくですが、エラーの文章が発生する環境=自分が今動いている環境と思うようなバイアスがあるような感じがします。
 - バグを見つけてくるのはすごい得意です。ここうまく動かないけどなんでかな？と聞いたら、人がするような、debugを仕込んで実行して状態を観測したら原因を推測して・・・というループを行って発見してきます。
   - **このループを回すのがものすごい高速なので人がデバッグする速度じゃ追いつけません**
   - 複数のモジュールにまたがって起きるバグはこの方法が通用しませんが、`Go`のコンパイルオプションにはoverlayというモジュールの一部を差し替えるものがありますから、何かしらのmcpツールで元のソースを編集してoverlayに渡してコンパイルさせられるように環境を整えたらこのデバッグ方法を行ってもらえるかもしれません。そうなってくると人間のデバッグ力じゃもうすでに追いつけないものになりますね。
   - REST APIやgRPCをまたぐとそれでも通用しないです。
   - 前述した[#73868](https://github.com/golang/go/issues/73868)はclaudeが見つけて指摘してきました。誰も報告してなければ報告しようかと思いましたがすでにされていましたね。貢献失敗！
+- コードベース読んで説明するのも同様に得意そうです。
 - ちなみにこの記事は一部AIに書かせましたが、丁寧でざっくりしすぎてしまい、筆者の文書ににじみ出る雑味が消えてしまったので、ほとんどの変更をrevertして人力で書き直しています。
 
 ## おわりに
@@ -1064,7 +1111,7 @@ windowsのみに影響するふるまいの変更なのでunix系でばかり開
 - `rc2`を待ちます(`rc1`のバグによってGitHub Actions上のテストが通過しないため)
 - AIが書いたテストやコードをレビューしてない部分があるのでちゃんと読んでリファクタするなりをします。
 - 自作ライブラリ内で使ってたたきにたたきます。
-  - [この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info)や、[この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info-cloner)で触れている、code generatorのファイル書き込み部分に`overlayfs`を使用し、トップレイヤを`synthfs`のin-memory filesystemにしておき、`packages.Config`のOverlayにメモリコンテンツを渡すことで書き出し前に型チェックをかけることをひそかに構想しています。
+  - [この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info)や、[この記事](https://zenn.dev/ngicks/articles/go-code-generation-from-ast-and-type-info-cloner)で触れている、code generatorのファイル書き込み部分に`overlayfs`を使用し、トップレイヤを`synthfs`のin-memory filesystemにしておき、`packages.Config`のOverlayにメモリコンテンツを渡すことで書き出し前に型チェックをかけることをひそかに構想しています。だから`go1.25`をずっと待っていたんです。
 - `vroot-adapter`という別の名前のモジュールを作成し、[afero], [go-billy]と相互に変換がかけられるようにします。
   - ただし[afero]に関してはベストエフォートになります。
 - `vroot-adapter`下にいろんなアダプターをおいておきたいと思っています。例えば
@@ -1077,6 +1124,7 @@ windowsのみに影響するふるまいの変更なのでunix系でばかり開
   - 同一マシン内でIPCするときに適切にファイルシステムを共有する方法をずっと探っていたので、それに対する答えとしてこれを考えています。
   - `tar`を送り付けあってもいいんですがそれだとあまりにオーバーヘッドが大きいので。
   - もしかしたら`NFS over gRPC`にしたほうが最適な実装は得られるかもしれないです
+- [github.com/natefinch/lumberjack](https://github.com/natefinch/lumberjack)や[github.com/cavaliergopher/grab](https://github.com/cavaliergopher/grab)のfsys interfaceに書き出す版が欲しいとずっと思っていたので、そのへんを`fsutil`下に実装するかも。
 
 <!-- other languages referenced -->
 
