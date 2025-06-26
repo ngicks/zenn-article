@@ -488,7 +488,7 @@ https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb9
 https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/overlayfs/overlay.go#L35-L82
 
 - 複数の`vroot.Rooted`を重ねて一つに見せます。
-- ファイルは「上側」レイヤーにあるが優先され「下側」は無視されます。
+- ファイルは「上側」レイヤーにあるものが優先され「下側」は無視されます。
 - ディレクトリは重ねあわされ、すべてのレイヤーのコンテンツが1つのディレクトリに入っているかのように見えます。
 - 書き込みはすべて`top layer`にのみ起こるようになっています。
 - 下層のレイヤー群はすべてread-onlyかつstaticという前提があります。
