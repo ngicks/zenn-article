@@ -366,7 +366,7 @@ type File interface {
 - `SyscallConn`も同様に消します。
 - `Fd`は大抵のケースで不要に思いますが、
   - `file lock`の実装に必要です。
-    - `Fd`がvalidな値(=`^(uintptr(0))`以外)のとき、[fctl(2)](https://man7.org/linux/man-pages/man2/fcntl.2.html)(unix)/[LockFile](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-lockfile)(windows)などを用いてロックし、そうでないときは`Fs`固有の方法でロックすればよいでしょう。
+    - `Fd`がvalidな値(=`^(uintptr(0))`以外)のとき、[fcntl(2)](https://man7.org/linux/man-pages/man2/fcntl.2.html)(unix)/[LockFile](https://learn.microsoft.com/ja-jp/windows/win32/api/fileapi/nf-fileapi-lockfile)(windows)などを用いてロックし、そうでないときは`Fs`固有の方法でロックすればよいでしょう。
     - record lockingを`vroot`上で再実装するのは骨が折れそうなので、こういう形で余白を残しつつ放置する作戦です。
   - 後述の`WalkDir`のために必須としてあります。
     - filesystemを*walk*するときはたいてい、bind mountによるループが起きていないかのチェックが必要です。
