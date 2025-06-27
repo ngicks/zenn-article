@@ -260,7 +260,14 @@ https://github.com/ngicks/go-fsys-helper/tree/main/vroot
 
 まだめちゃくちゃWIPですがここにホストしてあります。
 
-前述通り、[Go 1]から特にファイル操作APIは増えたり変わったりしていないため、このinterfaceは安定しているとみなすことができます。前述のmajor version多すぎ問題も起きないはずです。
+- major versionは基本的に上がることはないはず:
+  - 前述通り、[Go 1]から特にファイル操作APIは増えたり変わったりしていないため、このinterfaceは安定しているとみなすことができます。
+- intefaceのcomposabilityは一切捨てます。
+  - ファイルシステムは書き込み先の事情でいきなりいろいろ変わるのでinterface上のmethodのある/なしで何かを判断し分ける必要はそもそもないと思っています。
+    - 例えば、残り容量の足りなくなってきたfilesystemがremountされてread-onlyに突然なったりです。
+    - `sftp`, `nfs`, `smb`などのネットワークストレージは相手サーバーの設定変更でできることが変わってきます。
+  - もしかしたら`Capability` extension interfaceを通じてcapabilityのチェックができるようにするかもしれませんが現状では何も考えていません。
+    - これは[statvfs(3)](https://man7.org/linux/man-pages/man3/statvfs.3.html)によるmount flagのチェックと対応します。
 
 ### Fs
 
@@ -995,13 +1002,6 @@ seen path = [
 ```
 
 こうしてみてみると[afero]の`BasePathFs`の挙動はだいぶいただけないです。`/`-prefixも削除されていたら文句なかったんですが。
-
-:::details dangling symlinkの存在チェックはできるならしたほうがいいかも
-
-[#73702](https://github.com/golang/go/issues/73702)より、[Go 1.24.4から](https://github.com/golang/go/issues?q=milestone%3AGo1.24.4+label%3ACherryPickApproved)`OpenFile`のパスがdangling symlinkで`flag`が`os.O_CREATE|os.O_EXCL`の場合常にエラーを返すようになっています。
-windowsのみに影響するふるまいの変更なのでunix系でばかり開発している場合は気にならない変更かもしれないですが、今の今までそのまんまにされていた挙動なので、考慮に入れてない実装は多いんじゃないかなあ。
-
-:::
 
 ### Interoperabilityへのアドバイス
 
