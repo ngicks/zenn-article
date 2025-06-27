@@ -267,7 +267,7 @@ https://github.com/ngicks/go-fsys-helper/tree/main/vroot
     - 例えば、残り容量の足りなくなってきたfilesystemがremountされてread-onlyに突然なったりです。
     - `sftp`, `nfs`, `smb`などのネットワークストレージは相手サーバーの設定変更でできることが変わってきます。
   - もしかしたら`Capability` extension interfaceを通じてcapabilityのチェックができるようにするかもしれませんが現状では何も考えていません。
-    - これは[statvfs(3)](https://man7.org/linux/man-pages/man3/statvfs.3.html)によるmount flagのチェックと対応します。
+    - これは[statvfs(3)](https://man7.org/linux/man-pages/man3/statvfs.3.html)によるmount flagのチェックと対応するためそこまでおかしく感じないんじゃないかと思います。
 
 ### Fs
 
