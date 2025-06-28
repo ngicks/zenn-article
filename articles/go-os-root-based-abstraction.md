@@ -3,7 +3,7 @@ title: "[Go]*os.Rootベースのファイルシステム抽象化とライブラ
 emoji: "📂"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## \*os.Rootベースのファイルシステム抽象化とライブラリ非依存ヘルパーの提案
@@ -62,6 +62,8 @@ Goは[Docker]や[Podman]などのコンテナ基盤で広く使用されてお�
 
 2. **fsutil**: Genericsを活用した、filesystem-abstraction-library-agnostic helpers
    - ヘルパーが特定のfilesystem abstraction libraryにくっつかないようにgenericsでもとから剥がしとこうよという提案
+
+あとの内容は目次を見てください。
 
 ## 環境
 
