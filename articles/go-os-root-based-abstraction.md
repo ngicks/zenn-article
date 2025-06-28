@@ -495,19 +495,24 @@ https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb9
 https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/overlayfs/overlay.go#L35-L82
 
 - 複数の`vroot.Rooted`を重ねて一つに見せます。
-- ファイルは「上側」レイヤーにあるものが優先され「下側」は無視されます。
-- ディレクトリは重ねあわされ、すべてのレイヤーのコンテンツが1つのディレクトリに入っているかのように見えます。
-- 書き込みはすべて`top layer`にのみ起こるようになっています。
-- 下層のレイヤー群はすべてread-onlyかつstaticという前提があります。
-- 下層のレイヤーにしかないファイルに書き込もうとした場合、`top layer`にまずコピーします。
-  - コピーは`chmod`などでアトリビュートを変えるか、write modeでファイルを開いたときにおこります。
-  - 本当はファイルに対して初めて`Write`が呼ばれたときにコピーが起きるようにしたかったのですが、タイミングとロックの制御があまりにも難しいので開いた時点でコピーするようにしてあります。
-- 下層にあるファイルを消さないまま消えたように見せるために、white out listを別口管理します。そのために`MetadataStore` interfaceの実装が必要です。
-  - white outは下層にあるファイルを消したことを示すためのメタデータのことです
+- ディレクトリの内容は統合され、
+- ファイル(ディレクトリ以外)の場合は最も「上側」のレイヤーのものが選ばれます。
+- Copy-On-Writeの挙動があります。
+  - `chmod`などでファイルのメタデータを変更したときか、
+  - write modeでファイルを開くとコピーが起きます。
+    - 本当はファイルに対して初めて`Write`が呼ばれたときにコピーが起きるようにしたかったのですが、ロックの取り方やrace conditionの懸念から単純なこの挙動になっています。
+    - 実用上それで困らないと思ってます。
+- 書き込みはすべて`top layer`にのみ起きます。
+- 下層にあるファイルを消えたように見せるために、white out listという形で消えたパスを管理します。
   - これはこのissueを参考にしています: https://github.com/opencontainers/image-spec/issues/24
-  - 今`vroot`に入っている実装は単にwhite outされたファイルの名前をリストにしたテキストファイルに書き出すシンプルな実装のもののみです。
-  - 実際にはtrieを保存できるオブジェクトストレージとか`SQLite`とかで実装したほうがいいとは思いますが、依存するモジュールを増やしたくなかったので簡単に作れそうなこれになっています。
-    - 多分ファイルが少ないうちはこの実装方法で困ることはないです。
+
+ユースケースはいくつかあって
+
+- 複数のディレクトリの内容を仮想的に重ねて見せたい
+  - ビルド成果物を共有フォルダなどに格納するとき、オペレーションでミスりたくないから`WORM`(Write Once Read Many)にしておいてばらばらのディレクトリに格納しておくが実際には1つのディレクトリのように見せたい。
+- code genratorなどの成果物をoverlayに書き出し、top layerのコンテンツを[packages.ConfigのOverlay](https://pkg.go.dev/golang.org/x/tools/go/packages#Config)に渡すことで書き出す前に型チェックをかける。
+- cache
+  - `copy-on-write`がread-onlyで開いたときにも起きるようにすればcacheとして使用できます。
 
 layerの重ね合わせはsymlinkも考慮に加えます。
 あるlayerにあるsymlinkのlink targetは別のlayerをさしていてもよく、あればそちらに向けて解決されます。
@@ -637,12 +642,19 @@ file pathによるtrieを構築し、各ノードには適当なバッキング�
 
 https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb94d3ceb/vroot/synthfs/fs.go#L22-L56
 
-バッキングストレージは、ほかの`vroot.Fs`(`fs.FS`から変換してもよい)、memoryなど、何でもよいです。
+バッキングストレージは、ほかの`vroot.Fs`(`fs.FS`から変換してもよい)、memoryなど、何でもよいです。メモリーからのみallocateするようにすると、これが[afero]でいうところの`MemMapFs`になります。
 
-バッキングストレージをメモリーからのみallocateするようにすると、これが[afero]でいうところの`MemMapFs`になります。
+作った動機は上記の記事内で説明していますが、
 
-作った動機は上記の記事内で説明していますが、実はそれ以外にも理由があって、
-[afero]の`MemMapFs`がパスの取り扱いが正しくなく、`fs.FS`に変換して`fs.Walk`をかけたとにあるのにパスが見つからない、というのが発生していたため、`trie`による管理に変えることで原理的にそれが起こらなくしたかったというのもあります。
+- ほかの[fs.FS]の内容から`sha256sum`などをとったメタデータを**データと同じディレクトリに**追加し、(一旦書き出しを経ずに)`CopyFS`とか`AddFS`に直接渡す。
+- in-memory fsでパスを何かしらの木構造で持つものが欲しかった:
+  - in-memory fsは`map[string]data`をベースに実装されること多いようである。
+    - [afero]しかり、[hackpadfs]しかり
+  - [afero]の`MemMapFs`でおきたパスの取り扱いが間違っている問題が起こらないようにする。
+  - sub-fsysを取得するとき、全体ロックを取得しなくていいようにする。
+- 権限のみを差し替えるようなラッパーが欲しかった
+  - 例えば[embed.FS]は内容物のpermission bitが必ず`0o444`(ファイル)と`0o555`(ディレクトリ)になります([\[1\]](https://github.com/golang/go/blob/go1.24.4/src/embed/embed.go#L336),[\[2\]](https://github.com/golang/go/blob/go1.24.4/src/embed/embed.go#L389),[\[3\]](https://github.com/golang/go/blob/go1.24.4/src/embed/embed.go#L227-L232))。
+  - そのため、`AddFS`がpermissionを広げない場合に狭いファイルが書かれることがあります。
 
 ### memfs
 
@@ -1188,6 +1200,7 @@ https://github.com/ngicks/go-fsys-helper/blob/2adb17618ef755813afd6fa49910134eb9
 <!-- references to sdk library -->
 
 [panic]: https://pkg.go.dev/builtin@go1.24.4#panic
+[embed.FS]: https://pkg.go.dev/embed@go1.24.4#FS
 [errors.New]: https://pkg.go.dev/errors@go1.24.4#New
 [errors.Is]: https://pkg.go.dev/errors@go1.24.4#Is
 [errors.As]: https://pkg.go.dev/errors@go1.24.4#As
