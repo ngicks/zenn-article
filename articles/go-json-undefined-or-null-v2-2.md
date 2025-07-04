@@ -33,6 +33,10 @@ https://zenn.dev/ngicks/articles/go-json-undefined-or-null-v2
 
 :::details edit logs
 
+### 2025-06-30
+
+[CL683897](https://go-review.googlesource.com/c/go/+/683897)で`UnusedBuffer`が`AvailableBuffer`に改名されるようです
+
 ### 2025-06-12
 
 `go1.25rc1`がリリースされたのでそれに合わせて変更しました。
@@ -69,7 +73,7 @@ go version go1.25rc1 linux/amd64
 
 ```
 go install golang.org/dl/gotip@latest
-go download 665796
+gotip download 665796
 export PATH=$(gotip env GOROOT)/bin/:$PATH
 export GOEXPERIMENT=jsonv2
 ```
@@ -363,7 +367,7 @@ func main() {
 
 が取得できます。
 
-`UnusedBuffer`で`encoderState`に紐づくバッファーが利用できるので、これを利用するとよいというAPIのようです。内部のコメントを見ると`encoderState`のバッファーの未使用の部分をsliceで返すような実装をしていたけどやめたようなことがコメントで書かれています。見た限りずっとこのコメントが残されています。proposalになる時点でもこのmethod名が変わらなかったので実装されるときもこのままかもしれないですね。
+~~`UnusedBuffer`~~([CL683897](https://go-review.googlesource.com/c/go/+/683897)で`AvailableBuffer`に改名するようです)で`encoderState`に紐づくバッファーが利用できるので、これを利用するとよいというAPIのようです。内部のコメントを見ると`encoderState`のバッファーの未使用の部分をsliceで返すような実装をしていたけどやめたようなことがコメントで書かれています。見た限りずっとこのコメントが残されています。proposalになる時点でもこのmethod名が変わらなかったので実装されるときもこのままかもしれないですね。
 
 [sninnet](https://github.com/ngicks/go-play-encoding-json-v2/blob/main/play/encoder_test.go)
 
