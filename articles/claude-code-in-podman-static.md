@@ -164,7 +164,7 @@ events_logger="file"
 helper_binaries_dir=["/home/ngicks/.local/containers/bin", "/home/ngicks/.local/containers/lib/podman"]
 ```
 
-- `cgroup_manager`: `cgroupfs`にしているとsystemdのない環境でも動作します。ある環境では基本的に`systemd`(デフォルト値)にしておいたほうがいいと思います(が私が想定している環境ではないことも多々あるため基本`cgroupfs`にしてあります)
+- `cgroup_manager`: `cgroupfs`にしているとsystemdのない環境でも動作するんだと思います。ある環境では基本的に`systemd`(デフォルト値)にしておいたほうがいいと思います(が私が想定している環境ではないことも多々あるため基本`cgroupfs`にしてあります)
 - `conmon_path`: 普通は`$PATH`から探されるみたいですが普通の探索の範囲に入れないので設定が必要です。ドキュメントされていませんがソース読む限り`$HOME`は解決してくれるみたいです。
 - `helper_binaries_dir`: 同じくです。ただこちらは環境変数の展開が起きるとドキュメントされておらず、実際にも展開されないため固定の設定が必要です。
   - 仕方ないので`$HOME`を絶対パスに置き換えるスクリプトを書くことにしました。
