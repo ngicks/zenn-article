@@ -122,7 +122,7 @@ sudo make singlearch-tar
 
 `tar-all`でほかのアーキテクチャ、プラットフォーム向けのビルドができるようです。
 
-ビルド青果物を全部`~/.local/containers`以下に突っ込みます。
+ビルド成果物を全部`~/.local/containers`以下に突っ込みます。
 
 ```
 uid=$(id -u)
