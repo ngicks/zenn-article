@@ -57,7 +57,7 @@ sandbox化には[devcontainer](https://containers.dev/)を使う方法など別�
 
 podman-staticがdockerでビルドするのを前提としているので入れます。
 じゃあdockerでclaude-code動かせばよくないですか？と思ったそこのあなた。その通りです。
-諸般の事情によりstaticなバイナリでdaemonlessでroot権限を一切必要とせずにコンテナを動かしたい場合はpodmanのほうが多分いいです。
+ただ、諸般の事情によりstaticなバイナリでdaemonlessでroot権限を一切必要とせずにコンテナを動かしたい場合はpodmanのほうが多分いいです。
 
 以下をやるだけです。
 
@@ -256,6 +256,8 @@ dotfilesに含んでいるのが自然に感じるのかはわかりませんが
 - Volta - Node.js
 - uv - CPython
 - rbenv - ruby
+
+が現状だとインストールされます。
 
 ```dockerfile
 # syntax=docker/dockerfile:1.4
