@@ -1,9 +1,9 @@
 ---
-title: "podman-staticのsandboxでclaude-codeを動かす: とりあえずご動かすところまで"
+title: "podman-staticのsandboxでclaude-codeを動かす"
 emoji: "⛓️"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["claude-code", "podman"]
-published: false
+published: true
 ---
 
 ## podman-staticのsandboxでclaude-codeを動かす
