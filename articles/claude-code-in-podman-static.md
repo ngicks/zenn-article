@@ -420,4 +420,3 @@ podman run -it --rm --init\
   - ホスト側のiptablesをいじって禁止するかのどちらかでやることになるでしょう。
 - `secomp.json`をもうちょい詰めます。
 - [libkrun](https://github.com/containers/libkrun)を用いてkernelごと分離して動作させてみます。
-  - これもstaticにビルドできるといいですね。
