@@ -447,7 +447,7 @@ pinentry-program /path/to/wrapper.sh
 
 ## おわりに
 
-これでX11アプリをサポートしない環境からSSHで開発環境に入ってneovimを起動してtoggle term経由のlazygitでpinentry-cursesが呼び出された場合に起こるterminal stateの破壊を防ぐできるようになって快適になりました。
+これでX11アプリをサポートしない環境からSSHで開発環境に入ってneovimを起動してtoggle term経由のlazygitでpinentry-cursesが呼び出された場合に起こるterminal stateの破壊を防ぐことができるようになって快適になりました。
 
 ググった限りではtmux popupをpinentryのフロントエンドに使うなにかを見たことがなかったので作ってみました。
 多分見つけてないだけでだれかしているとは思いますが、まあここまでくると頑張って探すより自分で作ったほうが早そうだったので作ってしまいました。
