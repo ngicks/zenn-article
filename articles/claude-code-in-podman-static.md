@@ -2,7 +2,7 @@
 title: "podman-staticのsandboxでclaude-codeを動かす"
 emoji: "⛓️"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: ["claude-code", "podman"]
+topics: ["claudecode", "podman"]
 published: true
 ---
 
