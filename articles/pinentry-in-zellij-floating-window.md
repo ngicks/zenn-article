@@ -70,7 +70,7 @@ tmuxと違って
 - 分割されたpaneが小さくなると自動的にstackされる
 - wasmでプラグインが書ける(!)
 - ブラウザからsessionに接続できる(!)
-- hookがない(っぽい)
+- tmuxのhookにあたるものがない(っぽい)
 - `zellij run`で新しいpaneでコマンドを実行するとき、`tmux popup`の`-e`オプションのような環境変数を渡すオプションがない
   - [#4031](https://github.com/zellij-org/zellij/issues/4031)
 
@@ -82,7 +82,7 @@ tmuxと違って
   - `zellij run`で新しいpaneで`${command}`を実行します。
   - floating modeはtmux popupみたいなものだと思えばよいです。実際にはいろいろ挙動が違いそうです。
   - session内から実行する場合は`--session`オプションは不要です
-  - 試してみたところ(当然ではありますが)個別のptyが振られていました。
+  - 試してみたところ表示されたterminalには(当然ではありますが)個別のptyが振られていました。
   - 前の記事で述べた通り、`pinentry-curses`はttyのコントロールをとって画面を表示します
 - floating windowの中で、[tty(1)](https://man7.org/linux/man-pages/man1/tty.1.html)を実行して、その結果をpinentry呼び出し元に送る
   - `pass`などを経由してgpg-agentを呼び出すのは例えば[lazygit](https://github.com/jesseduffield/lazygit)などであるので、floating windowの内部で実行することはありあえません。
@@ -90,7 +90,7 @@ tmuxと違って
   - `pinentry`は[Assuan protocol](https://www.gnupg.org/documentation/manuals/assuan/Introduction.html)でpinentry呼び出し元 <--> pientryのIPCを行います。
     - これでタイトルとか、プロンプトに表示されるメッセージとか、キャンセルボタンを表示するかとか、リトライ回数とかを制御します。
   - 基本的にstdin/stdoutを介して行います。
-  - [GPG_TTY](https://man.archlinux.org/man/gpg-agent.1#DESCRIPTION)を設定しておくと、pinentryはそのttyをコントロールしてプロンプトを表示します。
+  - [GPG_TTY](https://man.archlinux.org/man/gpg-agent.1#DESCRIPTION)を設定しておくと、pinentryは`Assuan protocol`でそのttyをコントロールする設定を行います。
     - 常に設定しておけと言われていますね。
   - floating windowのttyをこれに指定したいわけですが、
     - （厳密に言って）floating windowが表示されるまでどのデバイスがallocateされるかはわかりませんし、
@@ -99,6 +99,7 @@ tmuxと違って
     - stdin経由のIPCでこれを設定する弊害です。
 - `PINENTRY_USER_DATA`のフォーマットを`ZELLIJ_POPUP:$(which zellij):${ZELLIJ_SESSION_NAME}`とする
   - [documentに示される通り](https://github.com/gpg/gnupg/blob/gnupg-2.5.8/doc/gpg.texi#L4208-L4211)この環境変数はgpg-agentを経由しても渡されることが保証されています。
+  - `ZELLIJ_POPUP`: この値を参照して呼び出すべきpinentry実装をスイッチするようにラッパースクリプトを組みます。
   - `$(which zellij)`: `zellij`が標準的なパスにない時に必要。筆者は何も考えず`cargo install`で入れているので必須です。
   - `${ZELLIJ_SESSION_NAME}`: セッション外から呼びす場合は指定が必要です。
 - 最大限、前回のtmux版のソースコードを再利用する
