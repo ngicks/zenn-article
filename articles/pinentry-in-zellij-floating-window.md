@@ -22,12 +22,33 @@ https://zenn.dev/ngicks/articles/pinentry-in-tmux-popup
 
 で説明したとおりですが、要するに
 
-- GUIのない環境からsshでログインしたときにもpinetnryをいい感じに表示したい
+- いろんな環境から開発環境に入れるようにするためにzellijを使う。
+  - [tailscale](https://tailscale.com/)などのVPNソリューションを使って仮想的LAN内にお互いがある状態にし、端末から開発環境にsshします。
+- zellijはterminal multiplexer/session managerであり、作成したterminal sessionに複数のクライアントからログインできるようにします。
+- 開発すればgit commitもします。commitには基本的に鍵を使ってsignを行います。
+- signする際に[pinentry](https://www.gnupg.org/related_software/pinentry/index.html)を利用して、鍵自体にかかっているパスワード(passphrase)を入力します。
+- pinentryにはx11やwaylandのGUIを利用するものとttyを利用するものがあります。
+- ttyを使うものは、TUI持つアプリと衝突して表示を壊すことがあります。
+- ではGUIを使うpinentryのみを使っておけばよいかと思うかもしれませんが、GUIのない環境からもログインすることが増えました。
   - androidタブレットの[termux](https://github.com/termux/termux-app)などです
+- zellijのfloating windowにpinentryのプロンプトを表示すれば、terminal stateを壊さず、かつGUIなしでいい感じに入力できる。
 
 ってことです
 
-zellijそのものはtmuxより画面上とっつきやすいのと、開発言語が[Rust](https://www.rust-lang.org/)なので中身を読むのが`C`よりハードルが低いと思われやすい（たぶん・・・）ので他人にお勧めしやすいかなって思ってこっちも使いこなしてみようとしてます。`Rust`なので`Rust`のライブラリ/ツールでよく見るフォーマットのドキュメントサイトもあって`man tmux`するよりドキュメントもとっつきやすいんじゃないかなと思います（たぶん・・・）
+筆者は半年ほどtmuxをカスタマイズしながら利用していました。別にtmuxに全く不満はないのですが、zellijに乗り換えたのは、もしかしたらzellijのほうが他人にお勧めしやすいかなと思ったからです。
+
+- 画面を見ただけで操作がわかりやすい
+  - tmuxは(素では)操作をすべて覚えてなんぼのつくり
+  - zellijはある程度の操作を画面上に表示する
+- 開発言語が新し目で読みやすい
+  - tmuxはCですが、
+  - zellijは[Rust](https://www.rust-lang.org/)です。ビルド環境がばらけにくく、供給な機能もあるため、Cに慣れてなくて読みやすいです(たぶん・・・)。
+- ドキュメントが読みやすい
+  - tmuxはでけえマニュアル([tmux(1)](https://man7.org/linux/man-pages/man1/tmux.1.html))が出てきてグワーッてなりますが、
+  - zellijは`Rust`のライブラリ/ツールでよく見るフォーマットのドキュメントサイトがあって読みやすい
+
+ということで、zellijも使いこなせるようになっておこうかと思った次第です。
+前の記事で行ったようなカスタマイズがzellijにもないと辛かったため、こうして作成しました。
 
 ## Zellijとは
 
@@ -53,7 +74,7 @@ tmuxと違って
 - `zellij run`で新しいpaneでコマンドを実行するとき、`tmux popup`の`-e`オプションのような環境変数を渡すオプションがない
   - [#4031](https://github.com/zellij-org/zellij/issues/4031)
 
-もっといろいろありそうだけどこんなもんで。触ってると結構tmuxとは違ってて全く同じことができるわけでもないみたいですが、おもろいんですごいです。
+もっといろいろありそうだけどこんなもんで。触ってると結構tmuxとは違ってて全く同じことができるわけでもないみたいですが、よくできてておもろくてすごいです。
 
 ## 設計方針(前回との重複あり)
 
@@ -105,175 +126,175 @@ floating windowを表示するコマンドがそれぞれ別のものになり�
 package popup
 
 import (
-	"bufio"
-	"context"
-	"errors"
-	"fmt"
-	"log/slog"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"sync"
-	"syscall"
-	"time"
+    "bufio"
+    "context"
+    "errors"
+    "fmt"
+    "log/slog"
+    "os"
+    "os/exec"
+    "path/filepath"
+    "strings"
+    "sync"
+    "syscall"
+    "time"
 )
 
 func CallPinentry(
-	ctx context.Context,
-	logger *slog.Logger,
-	tempdir string,
-	buildPopUpCmd func(ttyFifo, doneFifo string) (cmd string, args []string),
-	validateTtyStr func(string) (string, error),
-	pinentryPath string,
-	pinentryArgs []string,
+    ctx context.Context,
+    logger *slog.Logger,
+    tempdir string,
+    buildPopUpCmd func(ttyFifo, doneFifo string) (cmd string, args []string),
+    validateTtyStr func(string) (string, error),
+    pinentryPath string,
+    pinentryArgs []string,
 ) (err error) {
-	ttyFifo := filepath.Join(tempdir, "tty")
-	doneFifo := filepath.Join(tempdir, "done")
+    ttyFifo := filepath.Join(tempdir, "tty")
+    doneFifo := filepath.Join(tempdir, "done")
 
-	for _, s := range []string{ttyFifo, doneFifo} {
-		err = syscall.Mknod(s, syscall.S_IFIFO|0o600, 0)
-		if err != nil {
-			panic(err)
-		}
-	}
+    for _, s := range []string{ttyFifo, doneFifo} {
+        err = syscall.Mknod(s, syscall.S_IFIFO|0o600, 0)
+        if err != nil {
+            panic(err)
+        }
+    }
 
-	logger.Debug("tty fifo created")
+    logger.Debug("tty fifo created")
 
-	popupCmdPath, popupArgs := buildPopUpCmd(ttyFifo, doneFifo)
+    popupCmdPath, popupArgs := buildPopUpCmd(ttyFifo, doneFifo)
 
-	// Launch tmux popup in background
-	popupCmd := exec.CommandContext(
-		ctx,
-		popupCmdPath, popupArgs...,
-	)
-	popupCmd.Cancel = func() error {
-		return popupCmd.Process.Signal(syscall.SIGTERM)
-	}
-	go func() {
-		<-ctx.Done()
-		popupCmd.Process.Kill()
-	}()
+    // Launch tmux popup in background
+    popupCmd := exec.CommandContext(
+        ctx,
+        popupCmdPath, popupArgs...,
+    )
+    popupCmd.Cancel = func() error {
+        return popupCmd.Process.Signal(syscall.SIGTERM)
+    }
+    go func() {
+        <-ctx.Done()
+        popupCmd.Process.Kill()
+    }()
 
-	logger.Debug("popup starting")
-	err = popupCmd.Start()
-	if err != nil {
-		return fmt.Errorf("popup failed: %w", err)
-	}
-	defer func() {
-		logger.Debug("waiting to done fifo")
-		done, err := os.OpenFile(doneFifo, os.O_RDWR, 0)
-		if err != nil {
-			panic(err)
-		}
-		defer done.Close()
-		done.SetWriteDeadline(time.Now().Add(time.Second))
-		done.Write([]byte("done\n"))
-	}()
+    logger.Debug("popup starting")
+    err = popupCmd.Start()
+    if err != nil {
+        return fmt.Errorf("popup failed: %w", err)
+    }
+    defer func() {
+        logger.Debug("waiting to done fifo")
+        done, err := os.OpenFile(doneFifo, os.O_RDWR, 0)
+        if err != nil {
+            panic(err)
+        }
+        defer done.Close()
+        done.SetWriteDeadline(time.Now().Add(time.Second))
+        done.Write([]byte("done\n"))
+    }()
 
-	logger.Debug("opening tty fifo")
-	f, err := os.OpenFile(ttyFifo, os.O_RDWR, 0)
-	if err != nil {
-		return fmt.Errorf("failed to open tty: %w", err)
-	}
-	defer f.Close()
+    logger.Debug("opening tty fifo")
+    f, err := os.OpenFile(ttyFifo, os.O_RDWR, 0)
+    if err != nil {
+        return fmt.Errorf("failed to open tty: %w", err)
+    }
+    defer f.Close()
 
-	f.SetReadDeadline(time.Now().Add(20 * time.Second))
+    f.SetReadDeadline(time.Now().Add(20 * time.Second))
 
-	scanner := bufio.NewScanner(f)
+    scanner := bufio.NewScanner(f)
 
-	logger.Debug("waiting tty notification")
-	scanner.Scan()
-	t := scanner.Text()
-	if scanner.Err() != nil {
-		return fmt.Errorf("scan failed: %w", scanner.Err())
-	}
+    logger.Debug("waiting tty notification")
+    scanner.Scan()
+    t := scanner.Text()
+    if scanner.Err() != nil {
+        return fmt.Errorf("scan failed: %w", scanner.Err())
+    }
 
-	targetTty, err := validateTtyStr(t)
-	if err != nil {
-		return err
-	}
+    targetTty, err := validateTtyStr(t)
+    if err != nil {
+        return err
+    }
 
-	logger.Debug("tmux popup started")
+    logger.Debug("tmux popup started")
 
-	if targetTty == "" {
-		return fmt.Errorf("popup return an empty tty")
-	}
+    if targetTty == "" {
+        return fmt.Errorf("popup return an empty tty")
+    }
 
-	logger.Debug("got TTY from popup")
+    logger.Debug("got TTY from popup")
 
-	// Run pinentry-curses with stdin interception
-	cmd := exec.CommandContext(ctx, pinentryPath, pinentryArgs...)
-	cmd.Cancel = func() error {
-		return cmd.Process.Signal(syscall.SIGTERM)
-	}
+    // Run pinentry-curses with stdin interception
+    cmd := exec.CommandContext(ctx, pinentryPath, pinentryArgs...)
+    cmd.Cancel = func() error {
+        return cmd.Process.Signal(syscall.SIGTERM)
+    }
 
-	p, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
+    p, err := cmd.StdinPipe()
+    if err != nil {
+        return err
+    }
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
 
-	err = cmd.Start()
-	if err != nil {
-		return fmt.Errorf("%s failed to start: %w", pinentryPath, err)
-	}
+    err = cmd.Start()
+    if err != nil {
+        return fmt.Errorf("%s failed to start: %w", pinentryPath, err)
+    }
 
-	logger.Debug("pinentry-curses started")
+    logger.Debug("pinentry-curses started")
 
-	// Intercept stdin and replace ttyname
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer p.Close()
+    // Intercept stdin and replace ttyname
+    var wg sync.WaitGroup
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        defer p.Close()
 
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			line := scanner.Text()
+        scanner := bufio.NewScanner(os.Stdin)
+        for scanner.Scan() {
+            line := scanner.Text()
 
-			// Replace ttyname option with the popup's TTY
-			if strings.HasPrefix(line, "OPTION ttyname=") {
-				original := line
-				line = "OPTION ttyname=" + targetTty
-				logger.Debug("replaced ttyname", slog.String("old", original), slog.String("new", line))
-			}
+            // Replace ttyname option with the popup's TTY
+            if strings.HasPrefix(line, "OPTION ttyname=") {
+                original := line
+                line = "OPTION ttyname=" + targetTty
+                logger.Debug("replaced ttyname", slog.String("old", original), slog.String("new", line))
+            }
 
-			logger.Debug("forwarding input", slog.String("line", line))
+            logger.Debug("forwarding input", slog.String("line", line))
 
-			_, err := p.Write([]byte(line + "\n"))
-			if err != nil {
-				logger.Warn("write error", slog.Any("err", err))
-				break
-			}
-		}
+            _, err := p.Write([]byte(line + "\n"))
+            if err != nil {
+                logger.Warn("write error", slog.Any("err", err))
+                break
+            }
+        }
 
-		if err := scanner.Err(); err != nil {
-			logger.Warn("scanner error", slog.Any("err", err))
-		}
-	}()
+        if err := scanner.Err(); err != nil {
+            logger.Warn("scanner error", slog.Any("err", err))
+        }
+    }()
 
-	err = cmd.Wait()
-	if err != nil {
-		var execErr *exec.ExitError
-		if errors.As(err, &execErr) {
-			err = fmt.Errorf("%v: stderr = %s", execErr, string(execErr.Stderr))
-		}
-	}
+    err = cmd.Wait()
+    if err != nil {
+        var execErr *exec.ExitError
+        if errors.As(err, &execErr) {
+            err = fmt.Errorf("%v: stderr = %s", execErr, string(execErr.Stderr))
+        }
+    }
 
-	logger.Debug("pinentry-curses finished", slog.Any("err", err))
+    logger.Debug("pinentry-curses finished", slog.Any("err", err))
 
-	os.Stdin.Close()
+    os.Stdin.Close()
 
-	wg.Wait()
+    wg.Wait()
 
-	if err != nil {
-		return fmt.Errorf("pinentry-curses failed: %w", err)
-	}
+    if err != nil {
+        return fmt.Errorf("pinentry-curses failed: %w", err)
+    }
 
-	return nil
+    return nil
 }
 ```
 
@@ -297,94 +318,94 @@ main packageです。mainはエントリポイントの呼び出し以上のこ�
 package main
 
 import (
-	"cmp"
-	"context"
-	"fmt"
-	"log/slog"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"strings"
-	"syscall"
-	"time"
+    "cmp"
+    "context"
+    "fmt"
+    "log/slog"
+    "os"
+    "os/signal"
+    "path/filepath"
+    "strings"
+    "syscall"
+    "time"
 
-	"github.com/ngicks/run-in-tmux-popup/internal/popup"
+    "github.com/ngicks/run-in-tmux-popup/internal/popup"
 )
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
-	defer stop()
+    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+    defer cancel()
+    ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+    defer stop()
 
-	tempdir, err := os.MkdirTemp("", "")
-	if err != nil {
-		panic(err)
-	}
-	defer func() {
-		_ = os.RemoveAll(tempdir)
-	}()
+    tempdir, err := os.MkdirTemp("", "")
+    if err != nil {
+        panic(err)
+    }
+    defer func() {
+        _ = os.RemoveAll(tempdir)
+    }()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if os.Getenv("TMUX_POPUP_DEBUG") == "1" {
-		logFile, err := os.OpenFile(
-			filepath.Join(tempdir, "log.txt"),
-			os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o700,
-		)
-		if err != nil {
-			panic(err)
-		}
-		defer logFile.Close()
+    logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+    if os.Getenv("TMUX_POPUP_DEBUG") == "1" {
+        logFile, err := os.OpenFile(
+            filepath.Join(tempdir, "log.txt"),
+            os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o700,
+        )
+        if err != nil {
+            panic(err)
+        }
+        defer logFile.Close()
 
-		logger = slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	}
+        logger = slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug}))
+    }
 
-	shellName := cmp.Or(os.Getenv("SHELL"), "bash")
-	zellijPath, sessionName, _ := strings.Cut(
-		strings.TrimPrefix(
-			strings.TrimSpace(
-				os.Getenv("PINENTRY_USER_DATA")),
-			"ZELLIJ_POPUP:",
-		),
-		":",
-	)
-	if len(zellijPath) == 0 || len(sessionName) == 0 {
-		panic(
-			fmt.Errorf(
-				"enviroment variable \"PINENTRY_USER_DATA\" must be"+
-					" formated as \"ZELLIJ_POPUP:zellij_path:session_name\" but is %q",
-				os.Getenv("PINENTRY_USER_DATA"),
-			),
-		)
-	}
+    shellName := cmp.Or(os.Getenv("SHELL"), "bash")
+    zellijPath, sessionName, _ := strings.Cut(
+        strings.TrimPrefix(
+            strings.TrimSpace(
+                os.Getenv("PINENTRY_USER_DATA")),
+            "ZELLIJ_POPUP:",
+        ),
+        ":",
+    )
+    if len(zellijPath) == 0 || len(sessionName) == 0 {
+        panic(
+            fmt.Errorf(
+                "enviroment variable \"PINENTRY_USER_DATA\" must be"+
+                    " formated as \"ZELLIJ_POPUP:zellij_path:session_name\" but is %q",
+                os.Getenv("PINENTRY_USER_DATA"),
+            ),
+        )
+    }
 
-	err = popup.CallPinentry(
-		ctx,
-		logger,
-		tempdir,
-		func(ttyFifo, doneFifo string) (cmd string, args []string) {
-			return zellijPath, []string{
-				"--session=" + sessionName,
-				"run",
-				"--name=pinentry-curses",
-				"--floating",
-				"--close-on-exit",
-				"--pinned=true",
-				"--",
-				shellName,
-				"-c",
-				fmt.Sprintf("echo $(tty) >> %s && read done < %s", ttyFifo, doneFifo),
-			}
-		},
-		func(t string) (string, error) {
-			return strings.TrimSpace(t), nil
-		},
-		"/usr/bin/pinentry-curses",
-		os.Args[1:],
-	)
-	if err != nil {
-		panic(err)
-	}
+    err = popup.CallPinentry(
+        ctx,
+        logger,
+        tempdir,
+        func(ttyFifo, doneFifo string) (cmd string, args []string) {
+            return zellijPath, []string{
+                "--session=" + sessionName,
+                "run",
+                "--name=pinentry-curses",
+                "--floating",
+                "--close-on-exit",
+                "--pinned=true",
+                "--",
+                shellName,
+                "-c",
+                fmt.Sprintf("echo $(tty) >> %s && read done < %s", ttyFifo, doneFifo),
+            }
+        },
+        func(t string) (string, error) {
+            return strings.TrimSpace(t), nil
+        },
+        "/usr/bin/pinentry-curses",
+        os.Args[1:],
+    )
+    if err != nil {
+        panic(err)
+    }
 }
 
 ```
@@ -443,4 +464,7 @@ pinentry-program /home/ngicks/.dotfiles/scripts/pinentry.sh
 ## Caveats
 
 - 既に開いている非表示状態のfloating windowがあるとそれも表示されてしまう。
--
+
+## おわりに
+
+試しにclaude codeに`How can I use zellij floating windows as pinentry front end?`と聞いてもここまでのものは出てこなかったのでやって意味なかったわけでもないかなと思います。
