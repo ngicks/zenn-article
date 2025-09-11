@@ -458,6 +458,18 @@ exec pinentry-qt "$@"
 pinentry-program /home/ngicks/.dotfiles/scripts/pinentry.sh
 ```
 
+### start up scriptでPINENTRY_USER_DATAを設定
+
+`~/.bashrc`や`~/.zshrc`などから読み込まれるスクリプトで下記のように指定します。
+
+```bash
+if [ -n "${TMUX}" ]; then
+  export PINENTRY_USER_DATA="TMUX_POPUP:$(which tmux):${TMUX}"
+elif [ -n "${ZELLIJ}" ]; then
+  export PINENTRY_USER_DATA="ZELLIJ_POPUP:$(which zellij):${ZELLIJ_SESSION_NAME}"
+fi
+```
+
 ## 完成！
 
 敗ということで、gpg-agent経由で呼びだれるとこういう見た目になります。
