@@ -1,12 +1,12 @@
 ---
-title: "zellij floating windowのなかでpinentry-cursesを呼び出す"
+title: "zellij floating windowをpinentry-cursesのフロントエンドにする"
 emoji: "🎉"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go", "zellij"]
 published: true
 ---
 
-## zellij floating windowのなかでpinentry-cursesを呼び出す
+## zellij floating windowをpinentry-cursesのフロントエンドにする
 
 下記記事のzellij版です
 
