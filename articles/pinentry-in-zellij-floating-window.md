@@ -116,7 +116,7 @@ tmuxと違って
 - fifo(named pipe)2つ(tty, done)生成する。
   - tty: これを通じてfloating windowから`pinentry`呼び出し元に`tty(1)`の結果を送る
   - done: floating window内のコマンドを任意のタイミングまでブロックさせるために使う。
-  - `pinentry`成功時などに、呼び出し元が書き込む。
+    - `pinentry`成功時などに、呼び出し元が書き込む。
 - floating window(popup)表示する
   - pinentry終了までfloating windowを表示し続けるため、done fifoの読み込みでブロックしておく。
 - tty取得してfifoに送る
