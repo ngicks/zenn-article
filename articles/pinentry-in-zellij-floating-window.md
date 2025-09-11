@@ -113,8 +113,10 @@ tmuxと違って
 
 [前回記事実装](https://zenn.dev/ngicks/articles/pinentry-in-tmux-popup#go%E3%81%A7tmux-popup%E5%86%85%E3%81%A7pinetnry%E3%82%92%E5%91%BC%E3%81%B3%E5%87%BA%E3%81%99%E3%83%A9%E3%83%83%E3%83%91%E3%83%BC%E3%82%92%E8%A8%98%E8%BF%B0%E3%81%99%E3%82%8B%E3%80%82)の流用可能な部分を切り出します。
 
-- fifo(named pipe)生成する。
-  - tty用、floating window表示しっぱなしようのdoneの二つを作る。
+- fifo(named pipe)2つ(tty, done)生成する。
+  - tty: これを通じてfloating windowから`pinentry`呼び出し元に`tty(1)`の結果を送る
+  - done: floating window内のコマンドを任意のタイミングまでブロックさせるために使う。
+  - `pinentry`成功時などに、呼び出し元が書き込む。
 - floating window(popup)表示する
   - pinentry終了までfloating windowを表示し続けるため、done fifoの読み込みでブロックしておく。
 - tty取得してfifoに送る
