@@ -29,8 +29,10 @@ https://zenn.dev/ngicks/articles/pinentry-in-tmux-popup
 - signする際に[pinentry](https://www.gnupg.org/related_software/pinentry/index.html)を利用して、鍵自体にかかっているパスワード(passphrase)を入力します。
 - pinentryにはx11やwaylandのGUIを利用するものとttyを利用するものがあります。
 - ttyを使うものは、TUI持つアプリと衝突して表示を壊すことがあります。
-- ではGUIを使うpinentryのみを使っておけばよいかと思うかもしれませんが、GUIのない環境からもログインすることが増えました。
-  - androidタブレットの[termux](https://github.com/termux/termux-app)などです
+- ではGUIを使うpinentryのみを使っておけばよいかと思うかもしれませんが、
+  - GUIのない環境からもログインすることが増えました。
+    - androidタブレットの[termux](https://github.com/termux/termux-app)などです
+  - GUIをsshなどを介して転送するのは結構遅くて気になるのでterminalですむならそのほうが良いです。
 - zellijのfloating windowにpinentryのプロンプトを表示すれば、terminal stateを壊さず、かつGUIなしでいい感じに入力できる。
 
 ってことです
@@ -42,7 +44,7 @@ https://zenn.dev/ngicks/articles/pinentry-in-tmux-popup
   - zellijはある程度の操作を画面上に表示する
 - 開発言語が新し目で読みやすい
   - tmuxはCですが、
-  - zellijは[Rust](https://www.rust-lang.org/)です。ビルド環境がばらけにくく、供給な機能もあるため、Cに慣れてなくて読みやすいです(たぶん・・・)。
+  - zellijは[Rust](https://www.rust-lang.org/)です。ビルド環境がばらけにくく、高級な機能もあるため、Cに慣れてなくて読みやすいです(たぶん・・・)。
 - ドキュメントが読みやすい
   - tmuxはでけえマニュアル([tmux(1)](https://man7.org/linux/man-pages/man1/tmux.1.html))が出てきてグワーッてなりますが、
   - zellijは`Rust`のライブラリ/ツールでよく見るフォーマットのドキュメントサイトがあって読みやすい
@@ -86,7 +88,7 @@ tmuxと違って
   - 前の記事で述べた通り、`pinentry-curses`はttyのコントロールをとって画面を表示します
 - floating windowの中で、[tty(1)](https://man7.org/linux/man-pages/man1/tty.1.html)を実行して、その結果をpinentry呼び出し元に送る
   - floating windowのttyのデバイスパスを取得するには、その中で`tty(1)`実行するのが最も手軽です。
-  - pinentryの呼び出しそのものは、floating windowになることはないと思ってよいです。
+  - pinentryの呼び出しそのものは、floating window内で行われることはないと思ってよいです。
     - gpg-agentを呼び出すのは既存のターミナルで表示しているアプリであるからです。
 - pinentryのstdinトラップして取得した`tty`をpinentryのttyとして指定する。
   - `pinentry`は[Assuan protocol](https://www.gnupg.org/documentation/manuals/assuan/Introduction.html)でpinentry呼び出し元 <--> pientryのIPCを行います。
