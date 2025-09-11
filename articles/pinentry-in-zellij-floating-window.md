@@ -312,7 +312,7 @@ main packageです。mainはエントリポイントの呼び出し以上のこ�
 - `tmux popup`は何も指定しないと`$(SHELL) -c`でコマンドを実行する挙動が[ソース上](https://github.com/tmux/tmux/blob/3.5a/job.c#L169-L177)見られ、`&&`やパイプがあるコマンドもなんとなくいい感じに動きますが、
 - `zellij run`では見たところうまく動かなったので、shellで実行するようにします。
   - ソースは軽く追っていますがまだどこがpane実行でコマンド動かす部分なのか読めてないです。
-  - 基本は`$SHELL`で指定されたものを使います。
+- 基本は`$SHELL`で指定されたものを使います。
   - docker containerでENTRYPOINTをシェルにした場合などは、`$SHELL`が設定されていないことがあるため、その場合のために`bash`にフォールバックする挙動を加えておきます。
 - `$PINENTRY_USER_DATA`を解析して`zellij`のパス、zellijのセッション名を取得します。
 - [#4031](https://github.com/zellij-org/zellij/issues/4031)より、`zellij run`で環境変数を渡す方法がないためfifoは渡すコマンドで指定します。
