@@ -3,7 +3,7 @@ title: "zellij floating windowのなかでpinentry-cursesを呼び出す"
 emoji: "🎉"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go", "zellij"]
-published: false
+published: true
 ---
 
 ## zellij floating windowのなかでpinentry-cursesを呼び出す
