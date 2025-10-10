@@ -1,5 +1,5 @@
 ---
-title: "Goのプラクティスまとめ: プロジェクトを始める"
+title: "Goのプラクティスまとめ: プロジェクトを始めるまで"
 emoji: "💪"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
