@@ -19,6 +19,6 @@
   "homepage": "https://github.com/ngicks/zenn-article#readme",
   "devDependencies": {
     "prettier": "^3.0.0",
-    "zenn-cli": "^0.1.161"
+    "zenn-cli": "^0.2.3"
   }
 }
