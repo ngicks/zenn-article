@@ -449,6 +449,7 @@ mise up
 
 ```json
 {
+  "editor.formatOnSave": true,
   // https://github.com/golang/tools/blob/master/gopls/doc/settings.md
   "gopls": {
     "ui.semanticTokens": true,
@@ -512,7 +513,11 @@ go = "latest"
 
 ただし依存先は変わることがあるので[allTools.ts.in](https://github.com/golang/vscode-go/blob/master/extension/tools/allTools.ts.in)の内容から生成したほうがいいかもしれないですね。
 
-#### 設定
+#### goplsの設定
+
+[gopls]は`Go`の言語サーバーです。
+
+言語サーバー(Language Server)は[LSP](https://microsoft.github.io/language-server-protocol/)\(Language Server Protocol\)を実装するサーバーです。この`LSP`というのが「定義に飛ぶ」とか「参照を検索」とかの機能を実装するための通信の取り決めです。この位置のトークンの参照先を全部教えてとjson-rpc2で問い合わせると、参照先の位置のリストが返ってくる、みたいなものをイメージしていただければ大体あっています。
 
 - 適当なpackage managerで[neovim/nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)を`rtp`に加えておく。
   - `require "lspconfig"`してエラーしなければいいということです。
@@ -616,7 +621,7 @@ return {
 
 [golangci-lint](https://golangci-lint.run/)はいろんなlintツールをまとめて実行できるようなもので、デファクトスタンダード化してるのでこの記事としては紙面を割かねばなりません。
 
-`golangci-lint`自体はcliツールですが、[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)というさらなる外部コマンドによって[LSP](https://microsoft.github.io/language-server-protocol/)\(Language Server Protocol=「定義に飛ぶ」とか「参照を検索」とかの機能を実装するための取り決め\)で通信できるサーバーとしてラップできるため、言語サーバー(Language Server Protocolを実装するサーバー)として使用できます。
+`golangci-lint`自体はcliツールですが、[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)というさらなる外部コマンドによって言語サーバーとして使用できます。
 
 基本は`nvim-lspconfig`に設定があるので`mason`で`golangci-lint`,`golangci-lint-langserver`をインストールし、configのどこかから[vim.lsp.enable](<https://neovim.io/doc/user/lsp.html#vim.lsp.enable()>)`("golangci_lint_ls")`を呼び出せばとりあえずは良いです。
 下記です。
@@ -802,53 +807,82 @@ local only, つまりオンラインで公開する気のない場合は`${modul
 
 `Go module`の先頭はドメイン名が使われることが想定されます。そこで、
 
-- `package.local`
+- `package.test`
 - `package.invalid`
 
-などを使用するとよいと思います。
+などを使用するとよいと思います([RFC6761](https://www.rfc-editor.org/rfc/rfc6761))。
 
 :::
 
-#### (サブグループを使用する場合)module nameの末尾に`.git`をつける
+### (private gitかつサブグループを使用する場合)module nameに`.git`をつける
 
 一部の`VCS`, `gitlab`などは通常の`https://${domain}/${organization}/${reponame}`階層構造を超えて、さらにサブグループを作成することができます。
-つまり`https://${domain}/${organization}/${reponame}`
+つまり`https://${domain}/${organization}/${group_name1}/.../${group_nameN}/${reponame}`なるわけですね。
 
-ただし、private `VCS`(=URIが`go tool`に対して既知でない)でサブグループを作成し、サブグループの中でソースを管理する場合、`<<module-name>>`はvcsのsuffixを加えておかないと`go get`時に失敗するかもしれません。
-
-つまり上記と同じ例で行くと
+そのような2階層以上のグループを持ち、privateなgit出る場合、`Go module`の名前の末尾に`.git`とつけなければならないことがあります。
+より正確に言うと、`git clone`しないといけないrepositoryのパスとなる部分に`.git`とつける必要があります。
 
 ```
-# 架空のURLを扱うのでexample.comに変えてあります！
-go mod init example.com/ngicks/subgroup/go-example-basics-revisited.git
+`https://${domain}/${organization}/${group_name1}/.../${group_nameN}/${reponame}.git/path/to/submodule`
 ```
 
-とする必要があるということです。
+:::details gitlabを用いて行った検証
 
-なぜかというと
+privateなので特に明かすことはできませんが、行った検証を記します。
+**publicだと両方`go get`できました。**
 
-- private repositoryを参照できるgo module proxyサーバーが存在しないとき、`go tool`は`git ls-remote`などのvcsコマンドを直接実行します。
-  - これは`direct` modeと呼ばれます。
-- https://pkg.go.dev/cmd/go#hdr-Remote_import_paths より、
-  - module nameに`VCS` suffix(e.g. `.git`, `.hg`, `.svn`) がついていると、このsuffixまでをmodule root pathとする
-  - ない場合、`go tool`に渡されたパスに対して`?go-get=1`付きでHTTP GETを行い、responseからmodule root pathを得ます。
-  - (余談ですがログを見る限り`VCS` suffixがついていても`?go-get=1`付きのHTTP GET自体はされます)
-- `go tool`に渡されるパスはmodule root pathとは限らないため、たとえ`go get module/root/path`をしたとしても、subgroupが含まれているとパスの探索が起こります。
-  - e.g.
-    - `go install`: `<<module-name>>/cmd/command-name`のようにsub-packageにmain packageを作ることが多い。
-    - mono-repo: 1つの`VCS` repositoryに対して複数のgo moduleをホストすることができますのでmodule root = gitなどでcloneする対象とも限りません。
-- (少なくとも)`gitlab`では(おそらく)あらゆるパスに対して`?go-get=1` query paramをつけたHTTP GETが成功します
-  - 返ってくる内容は`go tool`の期待に反してmodule root pathではなく、アクセスされたURLのパスをオウム返しするだけです。
-  - おそらくセキュリティーのためです(後述)。そのためおそらくどのVCSでもこうなっているんじゃないでしょうか
+現在(2025-10-13)gitlabで
 
-というのが理由です。
+- privateのgroup/subgroupを作り、その下にprojectを1つ作ります。
+- projectをcloneし、サブディレクトリを二つ作ります。
+- 片方で`go mod init gitlab.com/${group}/${subgroup}/prj/sub1`とし
+- もう片方で`go mod init gitlab.com/${group}/${subgroup}/prj.git/sub2`とします。
+- プッシュしておきます。
 
-[Go 1.24]まで、`.netrc`を用いる以外に`go tool`にcredentialを渡す方法がなく、そのため`?go-get=1`は認証情報なしでリクエストされることがほとんどだったと思われます。
-少なくとも筆者の環境では`.netrc`を作成していませんがprivate repositoryから`go get`が成功していました。ということは認証なしで`?go-get=1`付きのリクエストはとりあえず成功するようにできていたんだと思います。404とか403みたいにエラー種がパスによって変わるとどういうパス構成なのかが外部からばれてしまうため、"正しい"内容を認証していない状態で返すわけにはいきませんので、こういう挙動になっていたのでしょう。
-`direct` modeで`git`コマンドを直接用いる際には`git`コマンドのcredentialがそのまま利用されますから、ここは広く用いられる方法でcredentialを渡すことができます。
+```
+cd $(mktemp -d)
+go mod init sample.test
+export GOPRIVATE=gitlab.com/${group}
+```
+
+```
+$ go get gitlab.com/${group}/${subgroup}/prj/sub1
+go: module gitlab.com/.../proj/sub1: git ls-remote -q origin in /home/ngicks/.local/go/pkg/mod/cache/vcs/be5b4b9be0c9e04a2fc93d37972ba2206efb91f39ed469c1442b1b1d
+9ee34ab3: exit status 128:
+        remote: The project you were looking for could not be found or you don't have permission to view it.
+        fatal: repository 'https://gitlab.com/.../subgroup.git/' not found
+```
+
+```
+$ go get gitlab.com/${group}/%{subgroup}/prj.git/sub2
+go: downloading gitlab.com/...
+go: downloading gitlab.com/...
+go: added gitlab.com/...
+```
+
+:::
+
+なぜかというと、
+
+前提知識としてgoではpublicではないregistryからmodule fetchを行いたい場合`GOPRIVATE`にpath prefixを指定します。
+その場合、特に指定されていないと[direct access](https://go.dev/ref/mod#private-module-proxy-direct)と言って、`git`などの`VCS`に対応するコマンドを直接使います。
+
+`go tool`はmodule pathを与えられると[module pathに?go-get=1をつけてhttp getすることでmodule metadataを得ようとします。](https://go.dev/ref/mod#vcs-find)
+[Go 1.24]まで、`.netrc`を用いる以外に`go tool`にcredentialを渡す方法がありませんでした。
+`.netrc`は平文で機密情報を書き出す必要があるため、通常の環境では用意されないと思います。
+そのため`?go-get=1`は認証情報なしでリクエストされることがほとんどだったと思われます。
+試してみれば分かりますが、現時点(2025-10-13)でgitlabの存在しないパスに`?go-get=1`をつけてリクエストしてみれば、存在しないメタデータを返してくるのがわかります(できればself-hostしているインスタンスで試して公式のgitlabに迷惑をかけないようにしましょう)
+何かしらのエラーを返したり成功してしまうと、正しく認証を行っていない攻撃者に対して情報を漏らすことになってしまうので、できない、ということになります。
 後方互換性のことを考えるとこの挙動が変わることはまずない気がします。
 
-https://gitlab.com/gitlab-org/api?go-get=1 はPublicですが、これも与えられたパスをオウム返しする挙動であるのでPublicであってもうまく動かないと思われます。このURLが指し示す先はサブグループなので500番台とか400とかを返すのが正しい挙動に思えますね。
+下記のソースより、`gitlab`を含めて`go tool`にとってパスパターンが既知でないものは末尾の`// General syntax`のところにマッチします。
+つまり、`${domain}/${organization}/${project}`だと思って処理されます。ただし、`regexp`を見るとわかる通り`\.(?P<vcs>bzr|fossil|git|hg|svn))`にマッチすればそのパスまでが`VCS`のターゲットだとして処理されます。
+
+https://github.com/golang/go/blob/go1.25.2/src/cmd/go/internal/vcs/vcs.go#L1565-L1627
+
+ということで、privateかつ２階層以上のグループを持つ場合はmodule nameのrepository部分に`.git`をつけましょう。
+
+:::details vcs suffixをつけたくない場合には？
 
 もし仮にmodule nameに`VCS` suffixをつけたくないとしたら、好ましい解決方法は
 
@@ -861,13 +895,13 @@ https://gitlab.com/gitlab-org/api?go-get=1 はPublicですが、これも与え�
 
 - サブグループを使わない:
   - 単純ですが、サブグループを使わないだけでも解決します。
-  - https://github.com/golang/go/blob/go1.24.2/src/cmd/go/internal/vcs/vcs.go#L1523-L1585 などより、`VCS` suffixがない場合、`<<host>>/<<user>>/<<repository>>`というフォーマットとして解釈され、このパスにまず`?go-get=1`付きのHTTP GETが試みられます。前述のとおり少なくとも`gitlab`ではこれは成功するため意図通りに動作すると思われます。
+  - 前述通り`VCS` suffixがない場合、`${domain}/${organaization}/${project}`というフォーマットとして解釈され、このパスにまず`?go-get=1`付きのHTTP GETが試みられます。前述のとおり少なくとも`gitlab`ではこれは成功するため意図通りに動作すると思われます。
 - vanity import pathを返すサーバーを運用する:
   - 例えば[go.uber.org/zap](https://github.com/uber-go/zap)は実際にはgitubでホストされています。
   - `curl https://go.uber.org/zap/zapcore?go-get=1`を実行するとわかりますが、`<meta name="go-import" content="vanity/module/path VCS https://path/to/VCS">`が返ってきます。
   - このようにmodule pathと実際にソースコードがホストされるURLが違う時、module pathをvanity import pathなどと呼ぶのが通例のようです。
   - `?go-get=1`で正しい内容が返りさえすれば(=module root pathが正しく取れれば)あとは成功するでしょうから、これでもうまくいくと思われます。
-  - (余談ですが、mono-repoかつvanity import pathを用いたい場合module proxyを用いなければうまく動作しない気がしています。)
+  - [Go 1.25]からサブパスがmodule rootとなる場合の`go-import`のフォーマットの考慮が追加されたため、mono repo運用をする場合はこれへ追従が必要だと思います。
 - go module proxyを運用する:
   - 最も正道で最も大変な方法と思われます。
   - [module proxy](https://go.dev/ref/mod#module-proxy)は`GOPROXY` protocolを実装したHTTPサーバーです。
@@ -877,6 +911,8 @@ https://gitlab.com/gitlab-org/api?go-get=1 はPublicですが、これも与え�
   - このmodule proxy server自体にauthが必要ですので[GOAUTH]を各clientに設定してもらうか、イントラからしかアクセスできないようにするかする必要があります。これはこれで大変ですね。
 
 module proxyを運用したい別の理由があるなら話は違いますが、`VCS` suffixをつけてしまうのが一番楽です。
+
+:::
 
 ### とりあえずmainを作ってビルドして実行してみる
 
@@ -1808,6 +1844,7 @@ private repositoryから`go get`するのは特に躓いたのでまとめてお
 [Go 1.18]: https://go.dev/doc/go1.18
 [Go 1.23]: https://go.dev/doc/go1.23
 [Go 1.24]: https://go.dev/doc/go1.24
+[Go 1.25]: https://go.dev/doc/go1.25
 
 <!-- Go doc links -->
 
