@@ -431,8 +431,43 @@ mise up
 - JetBrainsの[GoLand](https://www.jetbrains.com/ja-jp/go/)
 - [vim](https://www.vim.org/) / [neovim]
 
+下記で`vscode`と`neovim`の設定を紹介します。
 `GoLand`は使ったことないのと多分入れたら終わりなので特に紹介在りません。
 `vim`版も似たような設定になる気はしますが、筆者は`neovim`しか使っていないので`vim`側の設定の紹介はありません。
+
+[gopls]による言語サーバー支援、format on save, lintの設定をします。
+
+:::details gopls/言語サーバー/LSPとは
+
+[gopls]は`Go`の言語サーバーです。
+
+言語サーバー(Language Server)は[LSP](https://microsoft.github.io/language-server-protocol/)\(Language Server Protocol\)を実装するサーバーです。この`LSP`というのが「定義に飛ぶ」とか「参照を検索」とかの機能を実装するための通信の取り決めです。この位置のトークンの参照先を全部教えてとjson-rpc2で問い合わせると、参照先の位置のリストが返ってくる、みたいなものをイメージしていただければ大体あっています。
+
+:::
+
+:::details lintとは
+
+lintとは静的コード解析のことをさします。
+
+静的、というのは要するにプログラムを構文的に解析するだけで、実行はしないことをさします。
+
+`go test`などで実行できるテストはコードがどのようにふるまうかを検査しますが、lintはコードそのものにフォーカスが当たっています。
+
+linterは言語サーバーに組み込まれていたり、別のコマンドとして実装されていたりします。
+javascriptなら[eslint](https://eslint.org/)や[biome](https://biomejs.dev/)、pythonなら[pylint](https://www.pylint.org/)などがあります。
+`Go`なら[staticcheck](https://staticcheck.dev/)などがあります。
+
+大抵はlint ruleというような呼び方でルールを決めます。
+
+例えば下記のようなものがあります
+
+- [nilness](https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/nilness): 絶対にnilにならない値に対して`if a == nil`のチェックをしている部分に警告
+- [modernize](https://pkg.go.dev/golang.org/x/tools@v0.38.0/go/analysis/passes/modernize): `for i := 0; i < LIMIT; i++`を`for range i`に直すように警告するなど、古い書き方への警告とautofix
+- [lll](https://pkg.go.dev/golang.org/x/tools@v0.38.0/go/analysis/passes/modernize): １行が長すぎると警告
+
+ソースコードの解析のみで分かることについて警告が出せるという雰囲気がわかってもらえたでしょうか。
+
+:::
 
 ### Visual Studio Code
 
@@ -514,10 +549,6 @@ go = "latest"
 ただし依存先は変わることがあるので[allTools.ts.in](https://github.com/golang/vscode-go/blob/master/extension/tools/allTools.ts.in)の内容から生成したほうがいいかもしれないですね。
 
 #### goplsの設定
-
-[gopls]は`Go`の言語サーバーです。
-
-言語サーバー(Language Server)は[LSP](https://microsoft.github.io/language-server-protocol/)\(Language Server Protocol\)を実装するサーバーです。この`LSP`というのが「定義に飛ぶ」とか「参照を検索」とかの機能を実装するための通信の取り決めです。この位置のトークンの参照先を全部教えてとjson-rpc2で問い合わせると、参照先の位置のリストが返ってくる、みたいなものをイメージしていただければ大体あっています。
 
 - 適当なpackage managerで[neovim/nvim-lspconfig](https://github.com/neovim/nvim-lspconfig)を`rtp`に加えておく。
   - `require "lspconfig"`してエラーしなければいいということです。
@@ -628,7 +659,9 @@ return {
 
 https://github.com/neovim/nvim-lspconfig/blob/master/lsp/golangci_lint_ls.lua
 
-ただし、`golangci-lint`にはv1, v2があるんですが、それらはconfigのフォーマットに互換性がありません。v2は比較的最近([2025-03-24](https://github.com/golangci/golangci-lint/releases/tag/v2.0.0))出たので、世間に存在する設定ファイルはv1, v2混在していています。
+ただしこの設定では`golangci-lint`のv1,v2のconfig非互換問題を解決できていません。
+
+`golangci-lint`にはv1, v2があるんですが、それらはconfigのフォーマットに互換性がありません。v2は比較的最近([2025-03-24](https://github.com/golangci/golangci-lint/releases/tag/v2.0.0))出たので、世間に存在する設定ファイルはv1, v2混在していています。
 そこで、configに合わせてv1, v2を切り替えるようにします。
 
 めっちゃ`mise`に依存してます。v1, v2両方入れておきます。
@@ -741,9 +774,14 @@ return {
 
 ## Go moduleの作成
 
-`Go`のプログラムは[Go 1.11]以降1つまたは複数の`Go module`から構成されます。
+`Go`で記述されるプログラムは[Go 1.11]以降1つまたは複数の`Go module`から構成されます。
 
-この項では`Go module`の新規作成方法と
+`Go module`は、`package`に分割できます。個々のディレクトリが`package`となります。
+`package`内では、つまり同一ディレクトリ内ではたとえファイルが分かれていてもnamespaceを共有します。つまり、お互いに記述された関数をimportなしで呼び合うことができますし、同名のシンボルを定義するとエラーとなります。
+
+`main pckage`を定義すると、そこが実行ファイルのエントリポイントとなります。`main`以外の`package`を定義すると、ほかの`package`からインポート可能なライブラリーとなります。言語によってはディレクトリ構造によってエントリポイントを決めるようなものもありますが`Go`では自由に決めることができます。
+
+この項では`Go module`の新規作成方法とその構成方法について説明します。
 
 ### git clone
 
@@ -790,6 +828,8 @@ go mod init github.com/ngicks/go-example-basics-revisited
 
 となります。
 
+`go mod init`によって`go.mod`が作成されます。
+
 これを含めて`VCS`にプッシュすると
 
 ```
@@ -802,7 +842,8 @@ go get github.com/ngicks/go-example-basics-revisited
 
 local only, つまりオンラインで公開する気のない場合は`${module_name}`は基本的にはなんでもよいです。
 
-ただし、std libraryのトップレベルパッケージと同名のものと、[`"mod"`が使用できません](https://github.com/golang/go/blob/go1.25.2/src/cmd/go/internal/load/pkg.go#L849-L856)\(他にもあるかも\)。
+ただし、std libraryのトップレベルパッケージと同名のものと、[`"mod"`](https://github.com/golang/go/blob/go1.25.2/src/cmd/go/internal/load/pkg.go#L849-L856)が使用できません(他にもあるかも)。
+
 `import "fmt"`でstd libraryがインポートできることからわかる通り、これらは特別扱いされます。`"mod"`も似たような理由です。
 
 `Go module`の先頭はドメイン名が使われることが想定されます。そこで、
@@ -817,18 +858,18 @@ local only, つまりオンラインで公開する気のない場合は`${modul
 ### (private gitかつサブグループを使用する場合)module nameに`.git`をつける
 
 一部の`VCS`, `gitlab`などは通常の`https://${domain}/${organization}/${reponame}`階層構造を超えて、さらにサブグループを作成することができます。
-つまり`https://${domain}/${organization}/${group_name1}/.../${group_nameN}/${reponame}`なるわけですね。
+つまり`https://${domain}/${organization}/${group_name1}/.../${group_nameN}/${reponame}`となるわけですね。
 
 そのような2階層以上のグループを持ち、privateなgit出る場合、`Go module`の名前の末尾に`.git`とつけなければならないことがあります。
 より正確に言うと、`git clone`しないといけないrepositoryのパスとなる部分に`.git`とつける必要があります。
 
 ```
-`https://${domain}/${organization}/${group_name1}/.../${group_nameN}/${reponame}.git/path/to/submodule`
+https://${domain}/${organization}/${group_name1}/.../${group_nameN}/${reponame}.git/path/to/submodule
 ```
 
 :::details gitlabを用いて行った検証
 
-privateなので特に明かすことはできませんが、行った検証を記します。
+行った検証を記します。
 **publicだと両方`go get`できました。**
 
 現在(2025-10-13)gitlabで
@@ -862,25 +903,54 @@ go: added gitlab.com/...
 
 :::
 
-なぜかというと、
+:::details どうしてなのかの詳しい話
 
-前提知識としてgoではpublicではないregistryからmodule fetchを行いたい場合`GOPRIVATE`にpath prefixを指定します。
-その場合、特に指定されていないと[direct access](https://go.dev/ref/mod#private-module-proxy-direct)と言って、`git`などの`VCS`に対応するコマンドを直接使います。
+`Go`でpublicではないregistryからmodule fetchを行いたい場合`GOPRIVATE`環境編素にuriのプロトコルスキーム抜きのものを指定します(大抵の場合ドメイン)。
+`GOPROXY`が特に指定されていないと[direct access](https://go.dev/ref/mod#private-module-proxy-direct)と言って、`git`などの`VCS`に対応するコマンドを直接使います。
 
 `go tool`はmodule pathを与えられると[module pathに?go-get=1をつけてhttp getすることでmodule metadataを得ようとします。](https://go.dev/ref/mod#vcs-find)
-[Go 1.24]まで、`.netrc`を用いる以外に`go tool`にcredentialを渡す方法がありませんでした。
-`.netrc`は平文で機密情報を書き出す必要があるため、通常の環境では用意されないと思います。
-そのため`?go-get=1`は認証情報なしでリクエストされることがほとんどだったと思われます。
-試してみれば分かりますが、現時点(2025-10-13)でgitlabの存在しないパスに`?go-get=1`をつけてリクエストしてみれば、存在しないメタデータを返してくるのがわかります(できればself-hostしているインスタンスで試して公式のgitlabに迷惑をかけないようにしましょう)
-何かしらのエラーを返したり成功してしまうと、正しく認証を行っていない攻撃者に対して情報を漏らすことになってしまうので、できない、ということになります。
-後方互換性のことを考えるとこの挙動が変わることはまずない気がします。
+
+```
+$ curl 'https://gitlab.com/ngicks/subgroup-sample/prj/sub1?go-get=1'
+<html>
+  <head>
+    <meta name="go-import" content="gitlab.com/ngicks/subgroup-sample git https://gitlab.com/ngicks/subgroup-sample.git">
+  </head>
+  <body>go get gitlab.com/ngicks/subgroup-sample</body>
+</html>
+```
+
+返答は`<meta name="go-import" content="root-path vcs repo-url [subdirectory]">`のフォーマットが期待されます。
+`go tool`はこの情報を使って`VCS`から特定のバージョンのソースコードを取り出します。
+公開repositoryであればソース情報は`https://proxy.golang.org`にキャッシュされます。
+
+問題はmodule pathがprivateな場合です。
+
+例として以下のようにprivateグループ以下の存在しないパスに対して`?go-get=1`付きでリクエストしたとします。
+
+```
+$ curl 'https://gitlab.com/ngicks-group/aaaa/bbbb?go-get=1'
+<html><head><meta name="go-import" content="gitlab.com/ngicks-group/aaaa git https://gitlab.com/ngicks-group/aaaa.git"></head><body>
+```
+
+このように、存在しないパスに対してリクエストを行った場合、オウム返しのように要求されたパスが埋められた`"go-import"`が返って来ます。
+
+[Go 1.24]まで、[.netrc](https://www.ibm.com/docs/ja/aix/7.2?topic=customization-creating-netrc-file)を用いる以外に`go tool`にcredentialを渡す方法がありませんでした。`.netrc`は平文で機密情報を書き出すフォーマットであるため普通のユーザーの環境では準備されていることはあまりありません。そのため`?go-get=1`は認証情報なしでリクエストされることがほとんどだったと思われます。
+認証がかかっていない状態で正しい`"go-import"`情報を返してしまうのは情報漏洩です。この正しい、というのは、存在しないパスやgo moduleでないパスにリクエストが来た場合にエラーを返すというのも含まれています。gitlabの立場からするとsubmoduleやsubgroupの存在を無視して正しかろうが正しくなかろうがオウム返しの返答を行うしかありません。
+
+[GO 1.24]から[GOAUTH]環境変数を設定することであらゆるhttp requestが認証可能になっていますが、これを前提とすると既存のワークフローがすべて破壊されてしまいます。そのため後方互換性を考慮してこの挙動が変えられることはないと筆者は考えます。
 
 下記のソースより、`gitlab`を含めて`go tool`にとってパスパターンが既知でないものは末尾の`// General syntax`のところにマッチします。
-つまり、`${domain}/${organization}/${project}`だと思って処理されます。ただし、`regexp`を見るとわかる通り`\.(?P<vcs>bzr|fossil|git|hg|svn))`にマッチすればそのパスまでが`VCS`のターゲットだとして処理されます。
+つまり、`${domain}/${organization}/${project}`だと思って処理されます。
+上記の`go-get`の挙動を組み合わせると、２階層目のグループがgit repositoryと思われて`git clone`の対象になってしまいます。
 
 https://github.com/golang/go/blob/go1.25.2/src/cmd/go/internal/vcs/vcs.go#L1565-L1627
 
+ただし、`regexp`を見るとわかる通り`\.(?P<vcs>bzr|fossil|git|hg|svn))`にマッチすればそのパスまでが`VCS`のターゲットだとして処理されます。
+
 ということで、privateかつ２階層以上のグループを持つ場合はmodule nameのrepository部分に`.git`をつけましょう。
+
+:::
 
 :::details vcs suffixをつけたくない場合には？
 
@@ -891,7 +961,7 @@ https://github.com/golang/go/blob/go1.25.2/src/cmd/go/internal/vcs/vcs.go#L1565-
 - private repositoryを参照できるgo module proxyを運用する
 
 だと思います。
-筆者は`VCS` suffixをつける方法に甘んじているためすべて試していないことに注意願います。
+筆者は`VCS` suffixをつける方法に甘んじているためいずれも試していないことに注意願います。
 
 - サブグループを使わない:
   - 単純ですが、サブグループを使わないだけでも解決します。
@@ -905,20 +975,16 @@ https://github.com/golang/go/blob/go1.25.2/src/cmd/go/internal/vcs/vcs.go#L1565-
 - go module proxyを運用する:
   - 最も正道で最も大変な方法と思われます。
   - [module proxy](https://go.dev/ref/mod#module-proxy)は`GOPROXY` protocolを実装したHTTPサーバーです。
-  - 見たところ実装自体は難しくなさそうですが、これのために1つ運用するサーバーを増やすというのもどうなのかなあという気持ちもあります。
-  - [github.com/goproxy/goproxy](https://github.com/goproxy/goproxy)がgoでgo module proxyを実装しているのでこれを用いるか、
-  - kubernetes clusterを動作させているなら[ArtifactHUBから探して](https://artifacthub.io/packages/search?ts_query_web=go+module+proxy&sort=relevance&page=1)Helmで導入するなどするとよいかもしれないです。
+  - 独自実装を用いるか[github.com/goproxy/goproxy](https://github.com/goproxy/goproxy)がgoでgo module proxyを実装しているのでこれを用いるかどちらかがいいと思います
   - このmodule proxy server自体にauthが必要ですので[GOAUTH]を各clientに設定してもらうか、イントラからしかアクセスできないようにするかする必要があります。これはこれで大変ですね。
 
 module proxyを運用したい別の理由があるなら話は違いますが、`VCS` suffixをつけてしまうのが一番楽です。
 
 :::
 
-### とりあえずmainを作ってビルドして実行してみる
+### go modコマンドによるgo.modの編集
 
-先ほどクローンしたディレクトリで、以下のようにファイルを作成し、`Go module`を初期化しましょう
-
-以下の手順ではgit repositoryの直下じゃなくてサブディレクトリにmoduleを作っています。これはこの記事向けのスニペットをまとめて同じrepositoryに置きたい筆者の都合です。
+以下の手順ではgit repositoryの直下じゃなくてサブディレクトリにmoduleを作っています。これはこの一連の記事群のためのスニペットをまとめて同じrepositoryに置きたい筆者の都合です。
 なので読者はパスはいい感じに読み替えて都合のいいパスで実行してください。
 
 ```
@@ -932,7 +998,7 @@ go mod init github.com/ngicks/go-example-basics-revisited/starting-projects
 ```mod: go.mod
 module github.com/ngicks/go-example-basics-revisited/starting-projects
 
-go 1.24.2
+go 1.25.2
 ```
 
 このファイルが、`go module`の
@@ -941,16 +1007,17 @@ go 1.24.2
 - version
 - toolchain
 - 依存するほかの`go module`
+- 依存する`tool`
 
 などを記録するファイルとなります。
 `pyproject.toml`、`package.json`、`deno.json`などと近しいものです。
 
 このファイルは`go get`や`go mod tidy`などのコマンドに編集してもらうことになるので、手で編集することは少ないです。
 
-`go version`のfix release(1.24.2の末尾の.2)が0以外だと少々具合が悪いので編集します。
+`go version`のfix release(1.25.2の末尾の.2)が0以外だと少々具合が悪いので編集します。
 
 ```
-go mod edit -go=1.24.0
+go mod edit -go=1.25.0
 ```
 
 すると`go.mod`の内容は以下のように変更されます。
@@ -958,13 +1025,30 @@ go mod edit -go=1.24.0
 ```diff: go.mod
 module github.com/ngicks/go-example-basics-revisited/starting-projects
 
--go 1.24.2
-+go 1.24.0
+-go 1.25.2
++go 1.25.0
 ```
 
-`Go`のmajor release([Go 1.23]や[Go 1.24]のような)はAPI追加、構文の追加、たまにエッジケースの挙動が破壊的に変更されますから、これは重要な観点です。他方、fix releaseはセキュリティーにかかわるfix以外では挙動の変更は起こらないことになっています。
+`Go`のmajor release([Go 1.24]や[Go 1.25]のような)はAPI追加、構文の追加、たまにエッジケースの挙動が破壊的に変更されますから、これは重要な観点です。他方、fix releaseはセキュリティーにかかわるfix以外では挙動の変更は起こらないことになっています。
 別に動作するにもかかわらずfix releaseが古い`go module`から`go get`できなくなるため、基本的にはfix releaseは`.0`を指定しておくほうが良いのではないかと思います。
 std libraryはビルドするときのtoolchainのものが使われるため、ビルドする側の設定次第で1.24.2でもビルドできますので`go.mod`では常に`.0`を指定していても問題ないはずです。
+
+ほかのコマンドは
+
+```
+go help mod
+```
+
+で確認できます。
+
+```
+go mod download
+go mod tidy
+```
+
+ぐらいを覚えておけばいいかな。
+
+### main packageを作って実行ファイルをビルドして実行
 
 エントリーポイントを作成します。
 
