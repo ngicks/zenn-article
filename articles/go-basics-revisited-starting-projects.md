@@ -301,19 +301,19 @@ sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xf ./dist.tar.gz
 
 例えば、以下のようなスクリプトを組んで`.bashrc`などから`. /path/to/script`という風に呼び出すとよいでしょう。
 
-```shell
+```bash
 gobin=/usr/local/go/bin/go
-
-export PATH=$($gobin env GOROOT)/bin:$PATH
-
-if [[ -n $($gobin env GOBIN) ]]; then
-    export PATH=$($gobin env GOBIN):$PATH
-else
-    export PATH=$($gobin env GOPATH)/bin:$PATH
-fi
+gopath=($gobin env GOROOT)
+case ":${PATH}:" in
+    *:"$gopath":*)
+        ;;
+    *)
+        export PATH="$gopath:$PATH"
+        ;;
+esac
 ```
 
-[Go Modules Reference#go-install](https://go.dev/ref/mod#go-install)より`GOBIN`が設定されていた場合、`go install`でコンパイルされた実行ファイルは設定されたディレクトリに格納されます。設定されない場合、`${GOPATH}/bin`以下に格納されます。
+[Go Modules Reference#go-install](https://go.dev/ref/mod#go-install)より環境変数もしくは`go env`で`GOBIN`が設定されていた場合、`go install`でコンパイルされた実行ファイルは設定されたディレクトリに格納されます。設定されない場合、`${GOPATH}/bin`以下に格納されます。
 
 例として`lazygit`を`go install`してみましょう。
 
@@ -328,9 +328,15 @@ which lazygit
 
 ```bash
 # I'm not using ~/.cache/go since it is somehow populated
-export GOPATH="$HOME/.local/go"
-export GOBIN="$HOME/.local/go/bin"
-export PATH="$GOBIN:$PATH"
+export GOPATH="${XDG_DATA_HOME:-$HOME/.local/share}/go"
+export GOBIN="${XDG_DATA_HOME:-$HOME/.local/share}/go/bin" 
+case ":${PATH}:" in
+    *:"$GOBIN":*)
+        ;;
+    *)
+        export PATH="$GOBIN:$PATH"
+        ;;
+esac
 ```
 
 ### mise(windows/linux/mac)
@@ -362,6 +368,11 @@ curl https://mise.run | sh
 https://mise.jdx.dev/configuration.html
 
 などを参考に、以下のような感じで
+
+```
+touch ~/.config/mise/config.toml
+touch ~/.config/mise/config.lock
+```
 
 ```toml: ~/.config/mise/config.toml
 [settings]
@@ -982,7 +993,7 @@ module proxyを運用したい別の理由があるなら話は違いますが�
 
 :::
 
-### go modコマンドによるgo.modの編集
+### main packageを作って実行ファイルをビルドして実行
 
 以下の手順ではgit repositoryの直下じゃなくてサブディレクトリにmoduleを作っています。これはこの一連の記事群のためのスニペットをまとめて同じrepositoryに置きたい筆者の都合です。
 なので読者はパスはいい感じに読み替えて都合のいいパスで実行してください。
@@ -992,6 +1003,118 @@ mkdir starting-projects
 cd starting-projects
 go mod init github.com/ngicks/go-example-basics-revisited/starting-projects
 ```
+
+エントリーポイントを作成します。
+
+```
+mkdir -p cmd/example
+touch cmd/example/main.go
+```
+
+ファイルの中身を以下のようにします。
+
+```go: cmd/example/main.go
+package main
+
+import "fmt"
+
+func main() {
+  fmt.Println("Hello world")
+}
+```
+
+`main` packageの`main`関数がエントリーポイントとなります。
+
+エントリーポイントはプログラムが実行されると最初に呼び出される関数だと思えばよいです。
+厳密に言うと、`var foo = bar()`や`func init() {}`があれば先に実行されるのと、実際には`Go`そのもののランタイムが起動するため、本来的な意味で最初に実行される関数ではないですが、最初はいったんそのことは忘れてよいです。
+
+この`main` packageは以下のコマンドでビルドすることができます。
+
+```
+go build ./cmd/example
+```
+
+`linux/amd64`で実行すると`./example`が出力されます。
+`windows`だと`./example.exe`になります。
+
+もしくは以下のコマンドで実行します
+
+```
+$ go run ./cmd/example
+Hello world
+```
+
+`go run`はOS依存のtmpディレクトリにビルドして実行するショートハンド的コマンドで、毎回ビルドしてしまうので複数回実行したい場合は`go build`したほうが良いこともあります。
+
+ちなみに、以下のように`./`を省略してしまうとダメです。
+
+```
+$ go build cmd/example
+package cmd/example is not in std (~/.local/go/src/cmd/example)
+```
+
+```
+$ go help packages
+...
+An import path that is a rooted path or that begins with
+a . or .. element is interpreted as a file system path and
+denotes the package in that directory.
+
+Otherwise, the import path P denotes the package found in
+the directory DIR/src/P for some DIR listed in the GOPATH
+environment variable (For more details see: 'go help gopath').
+...
+```
+
+とあるように、`/`や`C:\`、`.`、`..`から始まらないパスは`$(go env GOPATH)`以下にあるかのように解決されてしまうからです。
+
+以下のように拡張付きで指定した場合は場合はエラーなく実行できますが、packageが複数のファイルを含む場合うまくビルドできないことを筆者は確認しています。
+
+```
+$ go run cmd/example/main.go
+Hello world
+```
+
+つまり、`cmd/example`以下にファイルを足して`cmd/example/main.go`がそれを参照するようにすると
+
+```
+cat << EOF > cmd/example/other.go
+package main
+
+var Foo = "foo"
+EOF
+```
+
+```diff go: cmd/example/main.go
+package main
+
+import "fmt"
+
+func main() {
+-  fmt.Println("Hello world")
++  fmt.Println("Hello world", Foo)
+}
+```
+
+以下のような感じでエラーを吐きます。
+
+```
+$ go run ./cmd/example/main.go
+command-line-arguments
+cmd/example/main.go:6:29: undefined: Foo
+```
+
+実はファイルリストだったら実行できるんですが
+
+```
+$ go run ./cmd/example/main.go ./cmd/example/other.go
+Hello world foo
+```
+
+ファイルが増加するたびにコマンドが長くなってしまうため現実的ではありません。
+なのでファイルパスじゃなくてpacakge pathで指定するとよいでしょう。
+
+相対パスでビルドを行う場合は`./`を必ず含めて、directory名で指定するとよいでしょう。
 
 `go mod init`実行後に以下のファイルが作成されたと思います
 
@@ -1049,117 +1172,6 @@ go mod tidy
 ぐらいを覚えておけばいいかな。
 
 ### main packageを作って実行ファイルをビルドして実行
-
-エントリーポイントを作成します。
-
-```
-mkdir -p cmd/example
-touch cmd/example/main.go
-```
-
-ファイルの中身を以下のようにします。
-
-```go: cmd/example/main.go
-package main
-
-import "fmt"
-
-func main() {
-  fmt.Println("Hello world")
-}
-```
-
-`main` packageの`main`関数がエントリーポイントとなります。
-`func init() {}`が定義されているとそちらが先に実行されるので`main`が必ず最初に実行されるというわけではありません。
-
-以下のコマンドでビルドすることができます。
-
-```
-go build ./cmd/example
-```
-
-`linux/amd64`で実行すると`./example`が出力されます。
-`windows`だと`./example.exe`になります。
-
-もしくは以下のコマンドで実行します
-
-```
-$ go run ./cmd/example
-Hello world
-```
-
-`go run`はOS依存のtmpディレクトリにビルドして実行するショートハンド的コマンドで、毎回ビルドしてしまうので複数回実行したい場合は`go build`したほうが良いことが多いでしょう。
-
-ちなみに、以下ではダメです。
-
-```
-$ go build cmd/example
-package cmd/example is not in std (~/.local/go/src/cmd/example)
-```
-
-```
-$ go help packages
-...
-An import path that is a rooted path or that begins with
-a . or .. element is interpreted as a file system path and
-denotes the package in that directory.
-
-Otherwise, the import path P denotes the package found in
-the directory DIR/src/P for some DIR listed in the GOPATH
-environment variable (For more details see: 'go help gopath').
-...
-```
-
-とあるように、`/`や`C:\`、`.`、`..`から始まらないパスは`$(go env GOPATH)`以下にあるかのように解決されてしまうからです。
-(前述した表現では`std`であるかのように解決される、と述べていますが、これは`GOPATH`をいじることはもうないから、すなわち`GOPATH`=`std`と実質なっているからです。)
-
-以下の場合はエラーなく実行できますが、packageが複数のファイルを含む場合うまくビルドできないことを筆者は確認しています。
-
-```
-$ go run cmd/example/main.go
-Hello world
-```
-
-つまり、`cmd/example`以下にファイルを足して`cmd/example/main.go`がそれを参照するようにすると
-
-```
-cat << EOF > cmd/example/other.go
-package main
-
-var Foo = "foo"
-EOF
-```
-
-```diff go: cmd/example/main.go
-package main
-
-import "fmt"
-
-func main() {
--  fmt.Println("Hello world")
-+  fmt.Println("Hello world", Foo)
-}
-```
-
-以下のような感じでエラーを吐きます。
-
-```
-$ go run ./cmd/example/main.go
-command-line-arguments
-cmd/example/main.go:6:29: undefined: Foo
-```
-
-実はファイルリストだったら実行できるんですが
-
-```
-$ go run ./cmd/example/main.go ./cmd/example/other.go
-Hello world foo
-```
-
-ファイルが増えると困りますよね？
-なのでファイルパスじゃなくてpacakge pathで指定するとよいでしょう。
-
-相対パスでビルドを行う場合は`./`を必ず含めて、directory名で指定するとよいでしょう。
 
 ### packageを分ける
 
