@@ -303,12 +303,28 @@ sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xf ./dist.tar.gz
 
 ```bash
 gobin=/usr/local/go/bin/go
-gopath=($gobin env GOROOT)
+gorootbin=($gobin env GOROOT)
 case ":${PATH}:" in
-    *:"$gopath":*)
+    *:"$gorootbin":*)
         ;;
     *)
-        export PATH="$gopath:$PATH"
+        export PATH="$gorootbin:$PATH"
+        ;;
+esac
+```
+
+ほっとくと`~/go`にgo moduleのキャッシュとかが入ってしまいます。
+`$HOME`以下にディレクトリが増えてほしくないなら以下のように適当なパスに設定しておきます。
+
+```bash
+# I'm not using ~/.cache/go since it is somehow populated
+export GOPATH="${XDG_DATA_HOME:-$HOME/.local/share}/go"
+export GOBIN="${XDG_DATA_HOME:-$HOME/.local/share}/go/bin"
+case ":${PATH}:" in
+    *:"$GOBIN":*)
+        ;;
+    *)
+        export PATH="$GOBIN:$PATH"
         ;;
 esac
 ```
@@ -321,22 +337,6 @@ esac
 go install github.com/jesseduffield/lazygit@latest
 which lazygit
 # 筆者の環境では`$(go env GOPATH)/bin/lazygit`が表示されます。
-```
-
-ほっとくと`~/go`にgo moduleのキャッシュとかが入ってしまいます。
-`$HOME`以下にディレクトリが増えてほしくないなら以下のように適当なパスに設定しておきます。
-
-```bash
-# I'm not using ~/.cache/go since it is somehow populated
-export GOPATH="${XDG_DATA_HOME:-$HOME/.local/share}/go"
-export GOBIN="${XDG_DATA_HOME:-$HOME/.local/share}/go/bin" 
-case ":${PATH}:" in
-    *:"$GOBIN":*)
-        ;;
-    *)
-        export PATH="$GOBIN:$PATH"
-        ;;
-esac
 ```
 
 ### mise(windows/linux/mac)
@@ -397,7 +397,7 @@ go = "latest"
 mise trust ~/.config/mise/config.toml
 ```
 
-#### mise activate, install
+#### mise activate, install, up
 
 `mise activate`で前述の設定をglobalに有効にします。
 
@@ -429,7 +429,7 @@ mise up
 
 ですべてのツールの更新ができます。
 
-最近はサプライチェーン攻撃が怖い([\[1\]](https://semgrep.dev/blog/2025/chalk-debug-and-color-on-npm-compromised-in-new-supply-chain-attack/))ので`"1.25.2"`のようなexact versionを指定して[renovate](https://docs.renovatebot.com/modules/manager/mise/)で自動更新してもらうほうがいいかもしれないですね。もしくは`mise lock`サブコマンドの実装され次第(現状されていない、2025-10-12時点)そちらを使うように移行したほうがいいでしょう([#6231](https://github.com/jdx/mise/pull/6231))。
+最近はサプライチェーン攻撃が怖い([\[1\]](https://semgrep.dev/blog/2025/chalk-debug-and-color-on-npm-compromised-in-new-supply-chain-attack/))ので`"1.25.2"`のようなexact versionを指定して[renovate](https://docs.renovatebot.com/modules/manager/mise/)で自動更新してもらうほうがいいかもしれないですね。
 
 参考までに: [筆者のdotfilesのmise config](https://github.com/ngicks/dotfiles/blob/main/.config/mise/config.toml)
 
@@ -452,31 +452,31 @@ mise up
 
 [gopls]は`Go`の言語サーバーです。
 
-言語サーバー(Language Server)は[LSP](https://microsoft.github.io/language-server-protocol/)\(Language Server Protocol\)を実装するサーバーです。この`LSP`というのが「定義に飛ぶ」とか「参照を検索」とかの機能を実装するための通信の取り決めです。この位置のトークンの参照先を全部教えてとjson-rpc2で問い合わせると、参照先の位置のリストが返ってくる、みたいなものをイメージしていただければ大体あっています。
+言語サーバー(Language Server)は[LSP](https://microsoft.github.io/language-server-protocol/)\(Language Server Protocol\)を実装するサーバーです。
+`LSP`はautocompletionとか、「定義に飛ぶ」とか「参照を検索」とかの機能を実装するための通信の取り決めです。この位置のトークンの参照元を全部教えてとjson-rpc2で問い合わせると、参照元の位置のリストが返ってくる、みたいなものをイメージしていただければ大体あっています。
 
 :::
 
 :::details lintとは
 
-lintとは静的コード解析のことをさします。
+[lint](<https://en.wikipedia.org/wiki/Lint_(software)>)とは静的コード解析のことをさします。
 
 静的、というのは要するにプログラムを構文的に解析するだけで、実行はしないことをさします。
 
-`go test`などで実行できるテストはコードがどのようにふるまうかを検査しますが、lintはコードそのものにフォーカスが当たっています。
+`go test`などで実行できるテストはコードがどのようにふるまうかを主として検査しますが、lintはコードの書き方などを含めたふるまい以外の部分を主として検査します。
 
 linterは言語サーバーに組み込まれていたり、別のコマンドとして実装されていたりします。
-javascriptなら[eslint](https://eslint.org/)や[biome](https://biomejs.dev/)、pythonなら[pylint](https://www.pylint.org/)などがあります。
-`Go`なら[staticcheck](https://staticcheck.dev/)などがあります。
+javascriptなら[eslint](https://eslint.org/)や[biome](https://biomejs.dev/)、pythonなら[pylint](https://www.pylint.org/)、`Go`なら[staticcheck](https://staticcheck.dev/)などがあります。
 
-大抵はlint ruleというような呼び方でルールを決めます。
+一つ一つの検査項目は(筆者の観測範囲では大抵)lint ruleというような呼び方をします。`Go`の場合は`analysis`と呼ぶことがあります。lint ruleによってはautofixを提供するものもあります。
 
-例えば下記のようなものがあります
+lint ruleには例えば下記のようなものがあります
 
 - [nilness](https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/nilness): 絶対にnilにならない値に対して`if a == nil`のチェックをしている部分に警告
-- [modernize](https://pkg.go.dev/golang.org/x/tools@v0.38.0/go/analysis/passes/modernize): `for i := 0; i < LIMIT; i++`を`for range i`に直すように警告するなど、古い書き方への警告とautofix
+- [modernize](https://pkg.go.dev/golang.org/x/tools@v0.38.0/go/analysis/passes/modernize): 追加された構文を使っていない部分に警告(e.g. `for i := 0; i < LIMIT; i++` -> `for range LIMIT`, `sort.Sort` -> `slices.Sort`)
 - [lll](https://pkg.go.dev/golang.org/x/tools@v0.38.0/go/analysis/passes/modernize): １行が長すぎると警告
 
-ソースコードの解析のみで分かることについて警告が出せるという雰囲気がわかってもらえたでしょうか。
+ソースコードの書き方自体に対して警告し、ふるまいには(実行できないので)直接的に関心を持ちません。
 
 :::
 
@@ -521,7 +521,7 @@ javascriptなら[eslint](https://eslint.org/)や[biome](https://biomejs.dev/)、
 
 ```
 $ nvim --version
-NVIM v0.11.4
+NVIM v0.11.5
 Build type: Release
 LuaJIT 2.1.1741730670
 Run "nvim -V1 -v" for more info
@@ -651,7 +651,7 @@ return {
       semanticTokens = true,
       staticcheck = true,
       symbolMatcher = "fuzzy",
-      -- I've used for a while with this option, and found it annoying.
+      -- I've used this for a while, and found it annoying.
       -- Great feature tho.
       usePlaceholders = false,
     },
@@ -770,9 +770,21 @@ return {
 }
 ```
 
-## VCS(git)でrepositoryを作成する
+## プロジェクトを始める
 
-手順そのものは説明しませんが、以後の手順は[github](https://github.com/)や[gitlab](https://about.gitlab.com/)でrepositoryが存在していることを想定します。
+`Go`でプログラムを作成するためには`Go module`を作成します。
+
+プログラミング言語/ビルドシステムによってはディレクトリ構成が指定されていることがありますが、`Go`の標準的なビルドシステム(=`go build`)には特に指定はありません。
+`Go`では`main`という名前の`package`で実行ファイルのエントリーポイントが定義され、それ以外の名前の`package`がライブラリとしてimport可能です。
+
+- VCS(version control system)上でrepositoryを作成してローカルにcloneします。
+- `go mod init`で`Go module`を初期化します。
+- `main package`を定義して実行ファイルをビルドできることを示します。
+- `package`を分割し、importしあう方法を示します。
+- 外部の`Go module`をfetchしてimportする方法を示します。
+- `internal package`による公開性のコントールについて示します。
+
+### VCS(git)でrepositoryを作成する
 
 [VCS(Version Control System)](https://en.wikipedia.org/wiki/Version_control)は, コンピュータファイルのバージョンを管理するシステムのことです。
 代表的なものは[git]や[svn](https://en.wikipedia.org/wiki/Apache_Subversion),[mercurial](https://en.wikipedia.org/wiki/Mercurial)あたりだと思います。
@@ -780,23 +792,17 @@ return {
 
 `git`は、`VCS`を構築するためのサーバーおよびクライアントプログラムです。サーバーとして直接使うことはほとんどないかもしれません。
 現在では`git`サーバーは[github](https://github.com/)というwebサービスを利用するか、 セルフホストすることも可能な[gitlab](https://about.gitlab.com/)、あるいは[gitbucket](https://github.com/gitbucket/gitbucket)などを使うのが一般的だと思います。(この3つがリストされてるのは単に筆者が使ったことあるやつ3種っていうだけです)
+最近では[Gitea](https://about.gitea.com/)も人気なようです。
 
-以後の説明はremoteがすでに存在していることを前提とするため、とりあえず何か作っておいてください。別にローカルで作成してからremoteを指定しても構いません。
+#### ホスティングサービスでrepositoryを作成する
 
-## Go moduleの作成
+ソースコードを管理するためのrepositoryを作成しておきます。
 
-`Go`で記述されるプログラムは[Go 1.11]以降1つまたは複数の`Go module`から構成されます。
+手順そのものは説明しませんが、以後の手順は[github](https://github.com/)や[gitlab](https://about.gitlab.com/)でrepositoryが存在していることを想定します。ローカルで作成してからremoteを指定しても構いません。
 
-`Go module`は、`package`に分割できます。個々のディレクトリが`package`となります。
-`package`内では、つまり同一ディレクトリ内ではたとえファイルが分かれていてもnamespaceを共有します。つまり、お互いに記述された関数をimportなしで呼び合うことができますし、同名のシンボルを定義するとエラーとなります。
+#### git clone
 
-`main pckage`を定義すると、そこが実行ファイルのエントリポイントとなります。`main`以外の`package`を定義すると、ほかの`package`からインポート可能なライブラリーとなります。言語によってはディレクトリ構造によってエントリポイントを決めるようなものもありますが`Go`では自由に決めることができます。
-
-この項では`Go module`の新規作成方法とその構成方法について説明します。
-
-### git clone
-
-まず先ほど`git`(VCS)で作成したrepositoryをローカルに`git clone`しておきます。
+先ほど`git`(VCS)で作成したrepositoryをローカルに`git clone`しておきます。
 `clone`で作成されたディレクトリに`cd`で移動しておきます。ここが`Go module`の`module root`となります。
 
 ```
@@ -822,6 +828,8 @@ cd "${HOME}/gitrepo/github.com/ngicks/go-example-basics-revisited"
 - [ghq](https://github.com/x-motemen/ghq)
 
 ### Go moduleの初期化
+
+#### go mod init
 
 `Go module`を初期化します。
 
@@ -866,7 +874,7 @@ local only, つまりオンラインで公開する気のない場合は`${modul
 
 :::
 
-### (private gitかつサブグループを使用する場合)module nameに`.git`をつける
+#### (private gitかつサブグループを使用する場合)module nameに`.git`をつける
 
 一部の`VCS`, `gitlab`などは通常の`https://${domain}/${organization}/${reponame}`階層構造を超えて、さらにサブグループを作成することができます。
 つまり`https://${domain}/${organization}/${group_name1}/.../${group_nameN}/${reponame}`となるわけですね。
@@ -916,8 +924,8 @@ go: added gitlab.com/...
 
 :::details どうしてなのかの詳しい話
 
-`Go`でpublicではないregistryからmodule fetchを行いたい場合`GOPRIVATE`環境編素にuriのプロトコルスキーム抜きのものを指定します(大抵の場合ドメイン)。
-`GOPROXY`が特に指定されていないと[direct access](https://go.dev/ref/mod#private-module-proxy-direct)と言って、`git`などの`VCS`に対応するコマンドを直接使います。
+`Go`でpublicではないregistryからmodule fetchを行いたい場合`GOPRIVATE`環境変数にuriのプロトコルスキーム抜きのものを指定します(大抵の場合ドメイン)。
+`GOPRIVATE`が設定されているが`GOPROXY`が特に指定されていないと[direct access](https://go.dev/ref/mod#private-module-proxy-direct)と言って、`git`などの`VCS`に対応するコマンドを使って直接`VCS`からmoduleを取得しようとします。
 
 `go tool`はmodule pathを与えられると[module pathに?go-get=1をつけてhttp getすることでmodule metadataを得ようとします。](https://go.dev/ref/mod#vcs-find)
 
@@ -933,8 +941,8 @@ $ curl 'https://gitlab.com/ngicks/subgroup-sample/prj/sub1?go-get=1'
 
 返答は`<meta name="go-import" content="root-path vcs repo-url [subdirectory]">`のフォーマットが期待されます。
 `go tool`はこの情報を使って`VCS`から特定のバージョンのソースコードを取り出します。
-公開repositoryであればソース情報は`https://proxy.golang.org`にキャッシュされます。
 
+公開repositoryであればソース情報は`https://proxy.golang.org`にキャッシュされます。
 問題はmodule pathがprivateな場合です。
 
 例として以下のようにprivateグループ以下の存在しないパスに対して`?go-get=1`付きでリクエストしたとします。
@@ -993,7 +1001,9 @@ module proxyを運用したい別の理由があるなら話は違いますが�
 
 :::
 
-### main packageを作って実行ファイルをビルドして実行
+### 実行ファイルをつくってビルド・実行する
+
+#### いきなり例外: exampleではサブパス以下でgo mod init
 
 以下の手順ではgit repositoryの直下じゃなくてサブディレクトリにmoduleを作っています。これはこの一連の記事群のためのスニペットをまとめて同じrepositoryに置きたい筆者の都合です。
 なので読者はパスはいい感じに読み替えて都合のいいパスで実行してください。
@@ -1003,6 +1013,8 @@ mkdir starting-projects
 cd starting-projects
 go mod init github.com/ngicks/go-example-basics-revisited/starting-projects
 ```
+
+#### エントリーポイントの作成・ビルドして実行
 
 エントリーポイントを作成します。
 
@@ -1023,10 +1035,10 @@ func main() {
 }
 ```
 
-`main` packageの`main`関数がエントリーポイントとなります。
+`main package`の`main`関数がエントリーポイントとなります。
 
-エントリーポイントはプログラムが実行されると最初に呼び出される関数だと思えばよいです。
-厳密に言うと、`var foo = bar()`や`func init() {}`があれば先に実行されるのと、実際には`Go`そのもののランタイムが起動するため、本来的な意味で最初に実行される関数ではないですが、最初はいったんそのことは忘れてよいです。
+[エントリーポイント](https://en.wikipedia.org/wiki/Entry_point)とはプログラムが実行されるときの開始地点となる場所のことをさします。
+(プログラム実行時に最初に実行される関数というわけではありません: 厳密に言うと、(1)`var foo = bar()`のようなpackage toplevel scopeで実行される関数、(2)`init`関数(`func init() {}`)、(3)`Go`そのもののランタイム、(4)CGOかつコンパイラがGCCの場合の[\_\_attribute\_\_((constructor))](https://gcc.gnu.org/onlinedocs/gcc-4.5.3/gcc/Function-Attributes.html)のつけられた関数などのほうが`main`より先に実行されます)
 
 この`main` packageは以下のコマンドでビルドすることができます。
 
@@ -1034,10 +1046,9 @@ func main() {
 go build ./cmd/example
 ```
 
-`linux/amd64`で実行すると`./example`が出力されます。
-`windows`だと`./example.exe`になります。
+実行すると`./example`(`GOOS=windows`の場合`./example.exe`)が出力されます。
 
-もしくは以下のコマンドで実行します
+もしくは以下のコマンドでコンパイルして実行することができます。
 
 ```
 $ go run ./cmd/example
@@ -1045,6 +1056,8 @@ Hello world
 ```
 
 `go run`はOS依存のtmpディレクトリにビルドして実行するショートハンド的コマンドで、毎回ビルドしてしまうので複数回実行したい場合は`go build`したほうが良いこともあります。
+
+#### goのビルドシステムにおけるパスの取り扱い
 
 ちなみに、以下のように`./`を省略してしまうとダメです。
 
@@ -1116,6 +1129,10 @@ Hello world foo
 
 相対パスでビルドを行う場合は`./`を必ず含めて、directory名で指定するとよいでしょう。
 
+#### go.modの編集のしかた
+
+`go.mod`は`go get ...`や`go mod edit ...`コマンドで編集します。
+
 `go mod init`実行後に以下のファイルが作成されたと思います
 
 ```mod: go.mod
@@ -1153,8 +1170,8 @@ module github.com/ngicks/go-example-basics-revisited/starting-projects
 ```
 
 `Go`のmajor release([Go 1.24]や[Go 1.25]のような)はAPI追加、構文の追加、たまにエッジケースの挙動が破壊的に変更されますから、これは重要な観点です。他方、fix releaseはセキュリティーにかかわるfix以外では挙動の変更は起こらないことになっています。
-別に動作するにもかかわらずfix releaseが古い`go module`から`go get`できなくなるため、基本的にはfix releaseは`.0`を指定しておくほうが良いのではないかと思います。
-std libraryはビルドするときのtoolchainのものが使われるため、ビルドする側の設定次第で1.24.2でもビルドできますので`go.mod`では常に`.0`を指定していても問題ないはずです。
+別に動作するにもかかわらずfix releaseが古い`go module`から`go get`できなくなるため、そのfix verdsionで修正された挙動に依存しない限りにおいては`.0`を指定しておくほうが良いのではないかと思います。
+std libraryはビルドするときのtoolchainのものが使われるため、ビルドする側の設定次第で1.25.4でもビルドできますので`go.mod`では常に`.0`を指定していても問題ないはずです。
 
 ほかのコマンドは
 
@@ -1171,32 +1188,39 @@ go mod tidy
 
 ぐらいを覚えておけばいいかな。
 
-### main packageを作って実行ファイルをビルドして実行
-
 ### packageを分ける
 
 前述のとおり、moduleは複数のpackageに分割されます。
-`Go module`では1 directory(フォルダー) = 1 packageとなります。
 
-- １つのdirectoryは１つのpackageしか持てません。
-  - ただし例外としてmain package以外については、package nameに`_test`というsuffixをつけてテスト用の別packageを同一directory内に定義できます(e.g. `pkg`に対して`pkg_test`)。
-    - `_test` packageは別のpackageなので、元のpackageとnamespaceを共有しません。そのためexportされたシンボルにしかアクセスできません。
-    - 何かの都合でテスト内で循環参照が生じてしまうようなときに`_test`を定義してそれを回避するのが主な使い道になります。
-- `Go`の慣習とGo teamのおすすめ的には、packageは関心をもとに分割するのが良いとされています。
-  - まずはpackageは分割せず、同一package内にすべて定義し、不都合が生じ始めたら分割したらよい、と言われています。
-  - もちろんもとから関心が別れる点が明確であれば先だってpackageを分割しておいても特段問題はないと思います。
-- packageとdirecotryの名前は一致しているのが望ましいです。
-  - これは、import時にデフォルトではpackageで指定される名前でそのpackageにアクセスできるようになるため、import path(= directoryの名前)とpackageの名前が不一致だとものすごく読みにくくなってしまうからです。
-    - `gopls`(`Go`の言語サーバー)が機能していると自動的にimportが追加されたりしますが、そのさいにpackageの名前が指定されるように修正されます。(i.e. `import name "path/to/pkg"`)
-  - 例外的にpackageの名前がdirectoryの名前のsuffixである場合は問題なしとされるようです
-    - 上記の`gopls`の修正が起こらない。
-    - `semanticTokens`の設定を有効にしていると、packageの名前部分だけ色が変わるのでわかるようになります。
-- 慣習的にpackageの名前は１語で短いものが良いとされます。
-  - 長い名前を与えないといけないということはpackage階層設計がうまくいっていないことの兆候だからということらしいです。
-- 複数単語を含む場合でも`_`や`-`でつながず、`some_package`の代わりに`somepackage`を用いるのがよいとされます。
-  - 前述通りpackageの名前がそれにアクセスするためのidentifierとなりますが、`_`が含まれるのは変数名の慣習と一致しません。
-  - さらに大文字・小文字を区別しないファイルシステムが存在するためすべて小文字が好ましいという都合があります。
-  - それらがあわさるとこういった慣習になっているのだと思います。
+#### 概要
+
+- directory = package
+  - 1つのdirecotryは1つのpackageしか書けない。
+  - ただし例外として`_test` suffixをつけたテスト用のpackageを同じdirectory内に定義できる(e.g. `package foo`に対して`package foo_test`)。
+    - `foo_test` packageは`foo`とは別のpackage扱いとなり公開されたシンボルにしかアクセスできない
+    - `foo`でテストを記述するとcyclic importが起きる場合に`foo_test`にテストを分けるとよい。
+- packageは関心に応じて分割するとよい
+  - `Go`の慣習とGo teamのおすすめ的には、packageは関心をもとに分割するのが良いとされる
+  - まずはpackageは分割せず、同一package内にすべて定義し、不都合が生じ始めたら分割したらよい、と言われている。
+  - もちろんもとから関心が別れる点が明確であれば先だってpackageを分割しておいても特段問題はないと思われる。
+- packageとdirecotryの名前は一致しているのが望ましい。
+  - importされたpackageは、packageの名前のidentifier(変数とか関数の名前のようなもの)が定義され、それを通じてアクセスされる。
+  - つまり、directory nameとpackage nameの不一致は可読性が悪い
+    - `gopls`が自動的に補完する機能があるため問題自体は起きにくい(i.e. `import (actual_name "path/to/module")`の`actual_name`を勝手に付け足す)
+  - 例外:
+    - packageの名前がdirectoryの名前のsuffixであるとき(`github.com/charmbracelet/bubbletea`のpackage nameは`tea`
+      - `semanticTokens`の設定を有効にしていると、packageの名前部分だけ色が変わる.
+    - version suffxi(`math/v2`のpackage nameは`math`)
+- 慣習的にpackageの名前は１語で短いものが良いとされる。
+  - 長い名前 => package階層設計がうまくいっていないことの兆候。
+- 複数単語を含む場合でも`_`や`-`などを用いない(e.g. `some_package`ではなく`somepackage`)
+  - 前述通りpackageの名前がそれにアクセスするためのidentifierとなる一方で、`Go`のpackage pathはURLとして用いられることがあるため:
+    - `-`はidentifierに含められない
+    - 変数名の慣習は`PascalCase`/`camelCase` => `_`が含まれるのは変数名の慣習と不一致
+    - 大文字・小文字を区別しないファイルシステムが存在するため(=Windows)
+    - URLは慣習的に小文字に丸め込むのが普通
+
+#### packageをimportする
 
 同じpackage内のファイルはnamespaceを共有しています: つまり別のファイルに同名の関数は定義できないし、別のファイルの関数や変数を利用可能です。
 
@@ -1229,6 +1253,8 @@ func SayDouble() string {
 ```
 
 上記のように、ほかのpackageで定義した内容を利用するには、`import`宣言内で、fully qualifiedなpackageパスを書くことで、インポートします。
+
+#### cyclic importはエラー
 
 `Go module`は、循環インポートを許しません。つまり
 
