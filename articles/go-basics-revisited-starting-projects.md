@@ -29,6 +29,10 @@ published: true
 - (まだ)~~[test](https://zenn.dev/ngicks/articles/go-basics-revisited-test)~~
 - (まだ)~~[filesystem abstraction](https://zenn.dev/ngicks/articles/go-basics-revisited-filesystem-abstraction)~~
 
+## EDIT(2025-11-18)
+
+大幅改定([change log](https://github.com/ngicks/zenn-article/commit/435cc6b55f9f2f03c25baccbc5108a25787ec4b2))
+
 ## プロジェクトを始めるまで
 
 新しいプログラミング言語、フレームワーク、ライブラリー、ツール、etcを始めるとき筆者にとってよく障害となるのは「プロジェクトを始めるまでの方法がわからない」ということです。
@@ -1657,7 +1661,7 @@ $ cat $(go env GOENV)
 
 ### module nameを`.git`でsuffixする
 
-👉[\(private gitかつサブグループを使用する場合\)module nameに`.git`をつける](<#(private gitかつサブグループを使用する場合)module nameに`.git`をつける>)
+👉[\(private gitかつサブグループを使用する場合\)module nameに`.git`をつける](<#(private-gitかつサブグループを使用する場合)module-nameに.gitをつける>)
 
 ### git credentialの適切な保存
 
