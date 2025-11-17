@@ -43,7 +43,7 @@ published: true
 - プロジェクトの開始方法(=moduleの作成方法)
   - github / gitlabなどにrepositoryを作成してgo moduleを作って動作させるまで
 - private repositoryで管理されるgo moduleをインポートできるようにする方法
-- タスクランナー
+- おまけとしてtask runnerについて
 
 などについてまとめます。
 
@@ -303,7 +303,7 @@ sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xf ./dist.tar.gz
 
 ```bash
 gobin=/usr/local/go/bin/go
-gorootbin=($gobin env GOROOT)
+gorootbin=($gobin env GOROOT)/bin
 case ":${PATH}:" in
     *:"$gorootbin":*)
         ;;
@@ -772,7 +772,9 @@ return {
 
 ## プロジェクトを始める
 
-`Go`でプログラムを作成するためには`Go module`を作成します。
+プロジェクトを始めるということは、実行ファイルを作るか、ライブラリを作るということを意味します。
+
+`Go`でプロジェクトを作成するには、どちらに対しても`Go module`を作成します。
 
 プログラミング言語/ビルドシステムによってはディレクトリ構成が指定されていることがありますが、`Go`の標準的なビルドシステム(=`go build`)には特に指定はありません。
 `Go`では`main`という名前の`package`で実行ファイルのエントリーポイントが定義され、それ以外の名前の`package`がライブラリとしてimport可能です。
@@ -828,6 +830,11 @@ cd "${HOME}/gitrepo/github.com/ngicks/go-example-basics-revisited"
 - [ghq](https://github.com/x-motemen/ghq)
 
 ### Go moduleの初期化
+
+- `Go`でプログラムを作成するには[Go 1.11]以降、`Go module`を作成します。
+- `Go module`は１つないしは複数の`package`からなります。
+- `go.mod`ファイルが存在しているディレクトリ(フォルダ)とそより下のディレクトリの階層が`go module`となります。
+- ほかの言語と同様に、コマンド(`go mod init`)から`Go module`を初期化します。
 
 #### go mod init
 
@@ -1038,7 +1045,7 @@ func main() {
 `main package`の`main`関数がエントリーポイントとなります。
 
 [エントリーポイント](https://en.wikipedia.org/wiki/Entry_point)とはプログラムが実行されるときの開始地点となる場所のことをさします。
-(プログラム実行時に最初に実行される関数というわけではありません: 厳密に言うと、(1)`var foo = bar()`のようなpackage toplevel scopeで実行される関数、(2)`init`関数(`func init() {}`)、(3)`Go`そのもののランタイム、(4)CGOかつコンパイラがGCCの場合の[\_\_attribute\_\_((constructor))](https://gcc.gnu.org/onlinedocs/gcc-4.5.3/gcc/Function-Attributes.html)のつけられた関数などのほうが`main`より先に実行されます)
+(プログラム実行時に最初に実行される関数というわけではありません。厳密に言うと、以下は`main`より先に実行されます: (1)`var foo = bar()`のようなpackage toplevel scopeで実行される関数、(2)`init`関数(`func init() {}`)、(3)`Go`そのもののランタイム、(4)CGOかつコンパイラがGCCの場合の[\_\_attribute\_\_((constructor))](https://gcc.gnu.org/onlinedocs/gcc-4.5.3/gcc/Function-Attributes.html)のつけられた関数など)
 
 この`main` packageは以下のコマンドでビルドすることができます。
 
@@ -1057,7 +1064,7 @@ Hello world
 
 `go run`はOS依存のtmpディレクトリにビルドして実行するショートハンド的コマンドで、毎回ビルドしてしまうので複数回実行したい場合は`go build`したほうが良いこともあります。
 
-#### goのビルドシステムにおけるパスの取り扱い
+#### go buildに渡すパスは必ず`./`でprefixする
 
 ちなみに、以下のように`./`を省略してしまうとダメです。
 
@@ -1129,7 +1136,7 @@ Hello world foo
 
 相対パスでビルドを行う場合は`./`を必ず含めて、directory名で指定するとよいでしょう。
 
-#### go.modの編集のしかた
+### go.modの編集のしかた
 
 `go.mod`は`go get ...`や`go mod edit ...`コマンドで編集します。
 
@@ -1195,6 +1202,7 @@ go mod tidy
 #### 概要
 
 - directory = package
+  - package内ではnamespaceが共有される: 別ファイル間で関数や型などの名前をimportせずに参照しあえるし、同名のものがあるとエラー
   - 1つのdirecotryは1つのpackageしか書けない。
   - ただし例外として`_test` suffixをつけたテスト用のpackageを同じdirectory内に定義できる(e.g. `package foo`に対して`package foo_test`)。
     - `foo_test` packageは`foo`とは別のpackage扱いとなり公開されたシンボルにしかアクセスできない
@@ -1202,13 +1210,13 @@ go mod tidy
 - packageは関心に応じて分割するとよい
   - `Go`の慣習とGo teamのおすすめ的には、packageは関心をもとに分割するのが良いとされる
   - まずはpackageは分割せず、同一package内にすべて定義し、不都合が生じ始めたら分割したらよい、と言われている。
-  - もちろんもとから関心が別れる点が明確であれば先だってpackageを分割しておいても特段問題はないと思われる。
+  - もちろんもとから関心が別れる点が明確であれば先だってpackageを分割しておいても特段問題はないだろう。
 - packageとdirecotryの名前は一致しているのが望ましい。
-  - importされたpackageは、packageの名前のidentifier(変数とか関数の名前のようなもの)が定義され、それを通じてアクセスされる。
+  - importされたpackageは、packageの名前がidentifier(変数とか関数の名前のようなもの)として機能し、それを通じてアクセスされる。
   - つまり、directory nameとpackage nameの不一致は可読性が悪い
     - `gopls`が自動的に補完する機能があるため問題自体は起きにくい(i.e. `import (actual_name "path/to/module")`の`actual_name`を勝手に付け足す)
   - 例外:
-    - packageの名前がdirectoryの名前のsuffixであるとき(`github.com/charmbracelet/bubbletea`のpackage nameは`tea`
+    - packageの名前がdirectoryの名前のsuffixであるとき(`github.com/charmbracelet/bubbletea`のpackage nameは`tea`)
       - `semanticTokens`の設定を有効にしていると、packageの名前部分だけ色が変わる.
     - version suffxi(`math/v2`のpackage nameは`math`)
 - 慣習的にpackageの名前は１語で短いものが良いとされる。
@@ -1217,10 +1225,10 @@ go mod tidy
   - 前述通りpackageの名前がそれにアクセスするためのidentifierとなる一方で、`Go`のpackage pathはURLとして用いられることがあるため:
     - `-`はidentifierに含められない
     - 変数名の慣習は`PascalCase`/`camelCase` => `_`が含まれるのは変数名の慣習と不一致
-    - 大文字・小文字を区別しないファイルシステムが存在するため(=Windows)
+    - 大文字・小文字を区別しないファイルシステムが存在する(=Windows)
     - URLは慣習的に小文字に丸め込むのが普通
 
-#### packageをimportする
+#### 複数packageを作ってimportする
 
 同じpackage内のファイルはnamespaceを共有しています: つまり別のファイルに同名の関数は定義できないし、別のファイルの関数や変数を利用可能です。
 
@@ -1277,6 +1285,8 @@ package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1
 
 ### 外部のGo moduleをimportする(go get)
 
+#### go get
+
 以下のコマンドドキュメントを参考にすると
 
 https://pkg.go.dev/cmd/go
@@ -1285,13 +1295,13 @@ https://pkg.go.dev/cmd/go
 go get <<fully-qualified-package-path>>
 ```
 
-で、`Go module`を取得し、`go.mod`と`go.sum`を編集します。
+で、指定された`Go module`が取得され、`go.mod`と`go.sum`が編集されます。
 
 例えば
 
 ```
 $ go get github.com/ngicks/go-iterator-helper
-go: added github.com/ngicks/go-iterator-helper v0.0.18
+go: added github.com/ngicks/go-iterator-helper v0.0.23
 ```
 
 を実行すると以下のように`go.mod`と`go.sum`にmodule情報が追記されます。
@@ -1299,14 +1309,14 @@ go: added github.com/ngicks/go-iterator-helper v0.0.18
 ```diff: go.mod
 module github.com/ngicks/go-example-basics-revisited/starting-projects
 
-go 1.24.0
+go 1.25.0
 
-+ require github.com/ngicks/go-iterator-helper v0.0.18 // indirect
++ require github.com/ngicks/go-iterator-helper v0.0.23 // indirect
 ```
 
 ```diff: go.sum
-+github.com/ngicks/go-iterator-helper v0.0.18 h1:a9a3ndHDyYSsI9bLTV4LOUA9cg6NpwPyfL20t4HoLVw=
-+github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7ON57aOpfu80ccBvPVHI=
++github.com/ngicks/go-iterator-helper v0.0.23 h1:XtiWqVD9grfbs7yCuGEX5f5gC3Oud/0pq2rBM9PVs0M=
++github.com/ngicks/go-iterator-helper v0.0.23/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7ON57aOpfu80ccBvPVHI=
 ```
 
 まだこのmoduleはこのプロジェクトのどこからも使われていないので`// indirect`がつけれています。
@@ -1338,6 +1348,8 @@ Hello world foo
 9585b4cf88cdbe27
 ```
 
+#### go mod tidyでgo.sumへ反映
+
 この時点で`go mod tidy`を実行します。
 
 ```
@@ -1347,17 +1359,17 @@ go mod tidy
 ```diff: go.mod
 module github.com/ngicks/go-example-basics-revisited/starting-projects
 
-go 1.24.0
+go 1.25.0
 
--require github.com/ngicks/go-iterator-helper v0.0.18 // indirect
-+require github.com/ngicks/go-iterator-helper v0.0.18
+-require github.com/ngicks/go-iterator-helper v0.0.23 // indirect
++require github.com/ngicks/go-iterator-helper v0.0.23
 ```
 
 ```diff: go.sum
 +github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
 +github.com/google/go-cmp v0.5.9/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
-github.com/ngicks/go-iterator-helper v0.0.18 h1:a9a3ndHDyYSsI9bLTV4LOUA9cg6NpwPyfL20t4HoLVw=
-github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7ON57aOpfu80ccBvPVHI=
+github.com/ngicks/go-iterator-helper v0.0.23 h1:XtiWqVD9grfbs7yCuGEX5f5gC3Oud/0pq2rBM9PVs0M=
+github.com/ngicks/go-iterator-helper v0.0.23/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7ON57aOpfu80ccBvPVHI=
 +gotest.tools/v3 v3.5.1 h1:EENdUnS3pdur5nybKYIh2Vfgc8IUNBjxDPSjtiJcOzU=
 +gotest.tools/v3 v3.5.1/go.mod h1:isy3WKz7GK6uNw/sbHzfKBLvlvXwUyV06n6brMxxopU=
 ```
@@ -1365,7 +1377,9 @@ github.com/ngicks/go-iterator-helper v0.0.18/go.mod h1:g++KxWVGEkOnIhXVvpNNOdn7O
 実際にプロジェクト内で使われるようになったので`// indirect`が外れます。
 さらに`go get`時には追加されていなかった依存先の依存先も`go.sum`に記録されています。
 
-`go mod tidy`を行うと`go.sum`の内容が整理されたり、使われなくなった外部moduleが削除されたりします。`VCS`にプッシュする前には`go mod tidy`を実行しておくほうがよいでしょう。
+`go mod tidy`を行うと`go.sum`の内容が整理されたり、使われなくなった外部moduleが削除されたりします。`VCS`にプッシュする前には`go mod tidy`を実行しておくほうがよいでしょう。実際にコード中でimportされる前に`go mod tidy`を読んでしまうと`go.mod`から記述が消されてしまうので気をつけましょう。
+
+#### go get時に`@`でqueryを指定する
 
 上記の例では`go get`時にversionを指定していないため、適当な最新バージョンが選ばられるようです。
 
@@ -1378,12 +1392,12 @@ https://go.dev/ref/mod#version-queries
 ```
 go get <<fully-qualified-module-path>>@latest
 go get <<fully-qualified-module-path>>@v1.2.3
-go get <<fully-qualified-module-path>>@<<git-tag>>
-go get <<fully-qualified-module-path>>@<<git-commit-hash-prefix>>
+go get <<fully-qualified-module-path>>@${git-tag}
+go get <<fully-qualified-module-path>>@${git-commit-hash-prefix}
 ```
 
 `git tag`は`v`でprefixされた[Semantic Versioning 2.0](https://semver.org/)形式であれば`go.mod`にそのバージョンで記載されます([参照](https://go.dev/ref/mod#vcs-version))。`sem ver`形式でなくてもよいですが、その場合は[pseudo-version](https://go.dev/ref/mod#glos-pseudo-version)というpre-release形式のversionにエンコードされて記載されます。
-この`pseudo-version`を直接指定しても取得できますが、指定したいrevisionの直前の`sem ver`から1つ進んだversionのpre-releaseになる変換方式のようですので、これを直接指定するのは手間です。なのでやらないほうが良いでしょう。
+この`pseudo-version`を直接指定しても取得できますが、指定したいrevisionの直前の`sem ver`から1つ進んだversionのpre-releaseになる変換方式のようですので、これを直接指定するのは手間です。なので代わりに`${git-commit-hash-prefix}`などを使うとよいでしょう。
 
 ### internal: 外部公開しないpackage
 
@@ -1520,7 +1534,9 @@ package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg1
         pkg1/some.go:6:2: use of internal package github.com/ngicks/go-example-basics-revisited/starting-projects/pkg2/internal/i2 not allowed
 ```
 
-### package構成
+### packageの構成例
+
+#### 基本的な構成
 
 https://go.dev/doc/modules/layout
 
@@ -1546,33 +1562,40 @@ https://go.dev/doc/modules/layout
 └── lib.go(名前はmoduleにふさわしい何かにする)
 ```
 
-## formatterの設定(goplsに任せるので特に設定はない)
+#### Pattern1: 空のトップディレクトリ
 
-[gopls]の設定で`gofmt`, `goimports`, `gofumpt`などでformatがかけられます。多分前述したeditorのセットアップをしたうえで、editorで`Format On Save`を有効にすれば問題なくformatがかかりますので特に設定はありません。
+```
+.
+├── subdir
+│ ├── some.go
+│ ├── other.go
+│ └── moreother.go
+├── go.mod
+└── go.sum
+```
 
-といいつつ、`vim`/`neovim`ではさらに[追加の設定](https://github.com/golang/tools/blob/gopls/v0.18.1/gopls/doc/vim.md#imports-and-formatting)が必要です。どうも試してる限りまだこのautocmdがないとimportの修正が起こらないっぽい？詳しくなくて裏が取れてません。
-筆者は`lua_ls`に警告を受けるのが気に入らなかったので[若干修正](https://github.com/ngicks/dotfiles/blob/75b4a0c4db837b5fdc700b9d183ddb5d53598bb8/.config/nvim/after/lsp/gopls.lua#L1-L32)して使っています
+[github.com/google/go-cmp](https://github.com/google/go-cmp)の直下に`cmp` packageがあり、メインのロジックはすべてそこに入っているというパターン。
 
-## linterの設定
+githubなどのrepositoryがそのままmodule pathとなってしまうため、名前かぶりを避けるために`go-`のようなprefixをつけると、importする時に非常に扱いづらい(`gocmp`に`gopls`の自動補完によってrenameされるうえ、長くなる)。
+そのため、十分にユニークな名前をトップディレクトリに与え、メインのロジックは呼びやすい名前を付けたサブディレクトリ以下に配置する。
 
-[gopls]の設定で`staticcheck`や、[golang.org/x/tools/gopls/internal/analysis/modernize](https://pkg.go.dev/golang.org/x/tools/gopls/internal/analysis/modernize)などが有効になっているはずです。
+#### Pattern2: `pkg`ディレクトリ
 
-それ以外のいろいろなルールを追加したい場合は、[github.com/golangci/golangci-lint](https://github.com/golangci/golangci-lint)がよく用いられると思います。
+```
+.
+├── pkg
+│ ├── somepkg
+│ │   └── files.go
+│ └── otherpkg
+│     └── files.go
+├── go.mod
+└── go.sum
+```
 
-導入方法は下記で述べられていますが、[vscode],`GoLand`に関してはextensionを入れる以外には特に設定がいらず、`vim`/`neovim`に関しては[golangci-lint-langserver](https://github.com/nametake/golangci-lint-langserver)を用いるように書かれています。
-[エディタのセットアップ](#エディタのセットアップ)のところで触れたような感じで設定すればよいです([筆者の設定](https://github.com/ngicks/dotfiles/blob/75b4a0c4db837b5fdc700b9d183ddb5d53598bb8/.config/nvim/after/lsp/golangci_lint_ls.lua)。`nvim-lspconfig`の設定とマージされる前提です。)
+[github.com/moby/moby](https://github.com/moby/moby)や[github.com/docker/compose](https://github.com/docker/compose)で見られるパターン。
 
-https://golangci-lint.run/welcome/integrations/
-
-ルールを自作し、`golangci-lint`から実行させたい場合は
-
-- [github.com/quasilyte/go-ruleguard](https://github.com/quasilyte/go-ruleguard)で作成する
-  - 参考: [【Go】コーディング規則を簡単にlinterに落としこむ！go-ruleguardを使ってみる](https://zenn.dev/hrbrain/articles/4365c28245e2d3)
-- [golang.org/x/tools/go/analysis](https://pkg.go.dev/golang.org/x/tools/go/analysis)などで自作し、[Module Plugin System](https://golangci-lint.run/plugins/module-plugins)で追加
-
-などします。
-
-どちらも始めたての人がいきなりできるものではないと思う(`Go`のastと型システムに対する習熟がいる。これは他言語の経験では補いづらい)ため、基本は`golangci-lint`にあらかじめ統合されたもののみを使うとよいでしょう。
+ほかのロジックからはある程度独立した関心を持つが、別の`Go module`に分けるほどではないものをここに置いたりする。
+ほかの階層を汚さないのでスクリプトとかをいっぱい置くときはこういう構成にするといい感じになるときもあります。
 
 ## Private repositoryから`go get`する
 
@@ -1596,14 +1619,14 @@ https://go.dev/ref/mod#private-modules
 
 ```
 # git repositoryのURIが https://example.com/base_path
-# である場合、<<url_wo_protocol>>は`example.com/base_path`になります。
-go env -w GOPRIVATE=<<url_wo_protocol>>
+# である場合、${url_wo_protocol}は`example.com/base_path`になります。
+go env -w GOPRIVATE=${url_wo_protocol}
 ```
 
-(環境変数で指定すればよいと書かれていますが、筆者はうまくいかなかったので`go env -w`で書き込んでいます。)
+(環境変数で指定すればよいと書かれていますが、筆者はうまくいかないことがあったので`go env -w`で書き込んでいます。)
 
 `GONOPROXY`, `GONOSUMDB`(`NO`であることに注意)を設定しない場合、`GOPRIVATE`がデフォルトとして使われます。
-`GONOPROXY`に設定されたホストからのmodule取得する(`direct` mode)際には相手`VCS`に合わせたコマンドが使用されます(`git`の場合`git`コマンド -> [modfetch](https://github.com/golang/go/blob/go1.24.2/src/cmd/go/internal/modfetch/codehost/git.go#L233))。そのため、credentialの設定も多くの場合必要になります。
+`GONOPROXY`に設定されたホストからのmodule取得する(`direct` mode)際には相手`VCS`に合わせたコマンドが使用されます(`git`の場合`git`コマンド -> [modfetch](https://github.com/golang/go/blob/go1.25.4/src/cmd/go/internal/modfetch/codehost/git.go#L251))。そのため、credentialの設定も多くの場合必要になります。
 
 `go env -w`で書き込まれた内容は`go env GOENV`で表示されるファイルに保存されます。
 
@@ -1612,6 +1635,7 @@ $ go env -w GOPRIVATE=example.com
 $ cat $(go env GOENV)
 GOPRIVATE=example.com
 # -uでunset
+
 $ go env -u GOPRIVATE
 $ cat $(go env GOENV)
 
@@ -1623,9 +1647,9 @@ $ cat $(go env GOENV)
 
 [Go 1.23]かそれ以前では、`go tool`がhttp accessを行う際にはcredentialを`.netrc`から読み込んでいましたが、[Go 1.24]からは[GOAUTH]を設定することで任意の方法を設定できるようになりました(デフォルトは`.netrc`)。
 
-[private VCSかつサブグループを使用する場合.gitなどでmodule nameをsuffixしておく](#private-vcsかつサブグループを使用する場合.gitなどでmodule-nameをsuffixしておく)のところで述べましたが、[Go 1.23]まで`.netrc`以外にcredを渡す方法がなかったため`gitlab`では`?go-get=1`がついている場合credentialなしのHTTP GETを受け付けるようになっていました。そのため設定する必要があるのはこれ以外にもっときつい制限をかけた`VCS`で使用しているか、もしくはprivate go module proxyを用いる場合でしょうか。
+前述しましたが、[Go 1.23]まで`.netrc`以外にcredを渡す方法がなかったため`gitlab`では`?go-get=1`がついている場合credentialなしのHTTP GETを受け付けるようになっていました。そのため設定する必要があるのはこれ以外にもっときつい制限をかけた`VCS`で使用しているか、もしくはprivate go module proxyを用いる場合でしょう。
 
-筆者は試したことがないため参考までに、ですが、基本的には`git dir`を使用するとよいのではないかと思います。これは`GOAUTH=git /path/to/working/dir`を渡すと、[dirでgit credential fillを呼び出し](https://github.com/golang/go/blob/master/src/cmd/go/internal/auth/gitauth.go#L45)、[Basic Auth](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Authentication#basic_authentication_scheme)としてHTTP Headerにセットするものなので、git credentialの設定がしっかりされていれば追加の設定が不要であるためです。
+筆者は試したことがないため参考までに、ですが、基本的には`git dir`を使用するとよいのではないかと思います。これは`GOAUTH=git /path/to/working/dir`を渡すと、[dirでgit credential fillを呼び出し](https://github.com/golang/go/blob/go1.25.4/src/cmd/go/internal/auth/gitauth.go#L45)、[Basic Auth](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Authentication#basic_authentication_scheme)としてHTTP Headerにセットするものなので、git credentialの設定がしっかりされていれば追加の設定が不要であるためです。
 
 `Basic Auth`以外の認証方法が必要な場合はカスタムコマンドを渡します。`go help goauth`を参照してください。
 
@@ -1633,7 +1657,7 @@ $ cat $(go env GOENV)
 
 ### module nameを`.git`でsuffixする
 
-👉[private VCSかつサブグループを使用する場合.gitなどでmodule nameをsuffixしておく](#private-vcsかつサブグループを使用する場合.gitなどでmodule-nameをsuffixしておく)
+👉[\(private gitかつサブグループを使用する場合\)module nameに`.git`をつける](<#(private gitかつサブグループを使用する場合)module nameに`.git`をつける>)
 
 ### git credentialの適切な保存
 
@@ -1703,225 +1727,53 @@ pinentry-program /usr/bin/pinentry-qt
 開発の経緯的に、想定された用途ははゲームなどで大きなバイナリファイルを一緒に管理することのようです。
 それ以外でもテスト用の大きなファイルを管理するときなどにも使うことがあると思います。
 
-## task runner
-
-`Go`には組み込まれたtask runnerはありません。使わないか、外部のtask runnerを使います。
-
-### 使わない
-
-以下のケースではtask runnerを用いなくても十分通用します。
-
-- 複雑なビルド過程やテストマッチャーがない
-- `github actions`,`gitlab ci`, [Dockerfile]などでビルドを記述できる
-- `//go:generate`で事足りる
-- `.sh`と`.bat`を両対応できる程度の量しかスクリプトがいらない
-- 管理用コマンドも全部`Go`で実装するつもり
-
-[Generate Go files by processing source](https://pkg.go.dev/cmd/go#hdr-Generate_Go_files_by_processing_source)より、`//go:generate command`というマジックコメントを`.go`ファイルの中に書き込むと、`go generate ./path/to/file_or_package`で`command`を実行できます。主眼は`code generator`を実行することですが実際には任意のコマンドを実行可能です。
-
-依存moduleの管理は`go.mod`でできますし、moduleをvendorする機能もサポートされていますので、task runnerが必要ないケースも多いのではないでしょうか。
-
-### Make
-
-[make](https://www.gnu.org/software/make/)を使っているプロジェクトをいくつか見たことがあります。
-筆者はこの方法をとったことがないため何とも言えませんが、
-
-- pros:
-  - `linux`ならもとからインストール済みのことが多い
-- cons:
-  - `make`はtask runnerではないという批判
-  - syntaxの覚え方が苦しんで覚える以外の方法があるのかわからない
-  - windowsで動かそうとするとハマる
-
-という感じでしょうか(筆者の完全主観ですが)
-
-チームがすでに`make`に慣れている場合はよい思います。
-
-### github.com/go-task/task
-
-[github.com/go-task/task]を用いるという方法もあります。
-
-https://taskfile.dev/
-
-> Task is a task runner / build tool that aims to be simpler and easier to use than, for example, GNU Make.
-
-とある通り、`make`などの代替を目指すものです。
-
-- pros:
-  - `Go`で開発されているため、toolchainが入っていれば簡単にインストール可能
-  - cross-platform
-  - yamlで書ける
-- cons:
-  - 管理すべきツールが増える
-
-```
-go install github.com/go-task/task/v3/cmd/task@latest
-```
-
-`--init`で初期化を行います。
-
-```
-$ task --init
-Taskfile created: Taskfile.yml
-```
-
-デフォルトで以下が作成されます。
-
-```yaml: Taskfile.yml
-# https://taskfile.dev
-
-version: '3'
-
-vars:
-  GREETING: Hello, World!
-
-tasks:
-  default:
-    cmds:
-      - echo "{{.GREETING}}"
-    silent: true
-```
-
-[Templating Reference](https://taskfile.dev/reference/templating/)にあるように[text/template]の構文でtemplateを書けるようですね
-
-```diff yaml: Taskfile.yml
-# https://taskfile.dev
-
-version: '3'
-
-vars:
-  GREETING: Hello, World!
-
-tasks:
-  default:
-    cmds:
--      - echo "{{.GREETING}}"
-+      - echo "{{index .GREETING 0}}"
-    silent: true
-```
-
-```
-$ task default
-72
-```
-
-72は`H`のascii codeです。
-
-[Usage#task-dependencies](https://taskfile.dev/usage/#task-dependencies)より、task間に依存関係を記述可能です
-
-```diff yaml: Taskfile.yml
-# https://taskfile.dev
-
-version: '3'
-
-vars:
-  GREETING: Hello, World!
-
-tasks:
-  default:
-    cmds:
-      - echo "{{index .GREETING 0}}"
-    silent: true
-+  quack:
-+    cmds:
-+      - echo quack
-+  run:
-+    deps: [quack]
-+    cmds:
-+      - go run ./cmd/example
-```
-
-```
-$ task run
-task: [quack] echo quack
-quack
-task: [run] go run ./cmd/example
-Hello world foo
-ede693e1e85a2f70
-```
-
-最近のpowershell(というかwindowsに？)にはunix風コマンドがいくつかあります(`tar`とか`curl`とか)。echoは存在するみたいなのでこれはwindowsでも動作するようです。
-
-### deno task
+## (おまけ)task runner
 
 [dax]: https://github.com/dsherret/dax
 
-[deno]のtask runnerを用いる方法もあると思います
+`Go`には組み込まれたtask runnerはありません。使わないか、外部のtask runnerを使います。
 
-https://docs.deno.com/runtime/reference/cli/task/
-
-- pros:
-  - cross-platform
-  - jsonで書ける
-  - [dax]を用いた容易なスクリプト開発
-- cons:
-  - 別言語の知識が必要
-  - 管理すべきツールが増える
-
-[deno]は[Rust]の[tokio](https://github.com/tokio-rs/tokio)をバックエンドに、`javascript` engineの[V8](https://v8.dev/)で動作する`javascript`/`typescript`ランタイムです。
-
-[dax]を用いるとshellscriptのようなノリで`typescript`がかけるためいい感じです。
-なんとshellコマンド間や`javascript object`にpipeが行えるのです。shellscriptで書くには億劫な高度な演算を`typescript`でかいたり、コマンドの結果を`WebStream`に受けていじくったりできるので便利だと思います。
-
-ただ半面導入するツールが増えのが難点です。`Go`で開発されているわけでもないためぱっと導入できるわけでもないですし、書き込まれるキャッシュ領域も増えるので、必ずしもこれが最適な選択というわけでもありません。
-チームがすでに`typescript`に慣れており、何かの事情ですでに[deno]を導入している場合はよいかもしれません。
-
-`task`であげた例と似たようなものは以下のようになります。
-
-```json: dneo.json
-{
-  "tasks": {
-    "quack": "deno eval 'console.log(\"quack\")'",
-    "run": {
-      "command": "go run ./cmd/example",
-      "dependencies": ["quack"]
-    }
-  },
-  "imports": {
-    "#/": "./script/"
-  }
-}
-```
-
-```
-$ deno task run
-Task quack deno eval 'console.log("quack")'
-quack
-Task run go run ./cmd/example
-Hello world foo
-ed35803c9ff5b841
-```
-
-[dax]を用いるとshellのように`typescript`がかけます。
-少し極端な例として`sha256sum`をとるのをshellだけでやるような形と、`WebStream`を混在させたバージョンの二つを挙げてスタイルの自由さの例とします。
-[builtInCommands](https://github.com/dsherret/dax/blob/0.43.0/src/command.ts#L90-L107)は[dax]が抽象化しているのでwindowsでも動きます。`sha256sum`や`awk`はないので実際には`WebStream`版のようなことをすることになるでしょう。
-
-```ts: script/dax_example.ts
-import { crypto } from "jsr:@std/crypto";
-import { encodeHex } from "jsr:@std/encoding/hex";
-
-import $ from "@david/dax";
-
-const sum1 = await $`cat ./go.mod | sha256sum | awk '{print $1}'`.text();
-
-const pipe = new TransformStream<Uint8Array, Uint8Array>();
-const sumP = crypto.subtle.digest("SHA-256", pipe.readable);
-await $`cat ./go.mod > ${pipe.writable}`;
-const sum2 = encodeHex(await sumP);
-
-console.log(sum1);
-console.log(sum2);
-console.log("same? =", sum1 === sum2);
-```
-
-```
-$ deno run -A ./script/dax_example.ts
-a141062eb619fb89a183d62b8896d192170b1dd6fc479611f6c5a427038447f0
-a141062eb619fb89a183d62b8896d192170b1dd6fc479611f6c5a427038447f0
-same? = true
-```
-
-[dax]・・・すばらしい・・・
+- 使わない: `go generate`で事足りるので特にtask runnerを使わない
+  - やり方:
+    - [Generate Go files by processing source](https://pkg.go.dev/cmd/go#hdr-Generate_Go_files_by_processing_source)より、`//go:generate command`の文法でソース中に書かれたコメントが`go generate`サブコマンドで実行可能です。
+    - `go generate ./...`でcwd以下のすべての`//go:generate`が実行可能です。
+    - スクリプトも`go`で`internal`以下に実行ファイルを書くことで実装可能。
+  - pros:
+    - すごくシンプル。
+    - `Go`だけで完結。
+  - cons:
+    - タスクの依存関係などは記述が難しい。
+- [make](https://www.gnu.org/software/make/)
+  - pros:
+    - unix系のシステムではpre-installedなことが多い
+    - 利用者が多い
+  - cons:
+    - `make`はtask runnerではないという批判
+    - windowsで動かすときハマりがち
+- [github.com/go-task/task]
+  - pros:
+    - `Go`で開発されているため、toolchainが入っていれば簡単にインストール可能
+    - cross-platform
+    - yamlで書ける
+  - cons:
+    - 管理すべきツールが増える
+    - 他で利用しないかもしれないツールへの習熟が必要
+- [deno task](https://docs.deno.com/runtime/reference/cli/task/)
+  - pros:
+    - cross-platform
+    - jsonで書ける
+    - [dax]と組み合わせて利用するとcross-platformなshellscriptみたいに書ける。
+  - cons:
+    - 管理すべきツールが増える
+    - 別言語への習熟が必要
+      - TypeScriptはできる人多いかなって思うからそこは問題ないかも・・・
+- [mise tasks](https://mise.jdx.dev/tasks/)
+  - pros:
+    - tomlとshellscript両方をサポート
+    - `watch`でタスクをラップ可能
+    - すでに`mise`でツールを管理している場合は追加のツール不要
+  - cons:
+    - うっかりshellscript taskを利用するとwindowsでうまく動かない可能性あり
 
 ## おわりに
 
