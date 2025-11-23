@@ -16,7 +16,7 @@ published: true
 
 - (まだ)~~[今はこうやる集](https://zenn.dev/ngicks/articles/go-basics-revisited-updated-practices)~~
 - プロジェクトを始めるまで: ここ
-- (まだ)~~[dockerによるビルド](https://zenn.dev/ngicks/articles/go-basics-revisited-bulding-with-docker)~~
+- [dockerによるビルド](https://zenn.dev/ngicks/articles/go-basics-revisited-bulding-with-docker)
 - [error handling](https://zenn.dev/ngicks/articles/go-basics-revisited-error-handling)
 - (まだ)~~[fileとio](https://zenn.dev/ngicks/articles/go-basics-revisited-file-and-io)~~
 - (まだ)~~[jsonやxmlを読み書きする](https://zenn.dev/ngicks/articles/go-basics-revisited-data-encoding)~~
