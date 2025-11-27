@@ -29,35 +29,262 @@ published: false
 - (まだ)~~[test](https://zenn.dev/ngicks/articles/go-basics-revisited-test)~~
 - (まだ)~~[filesystem abstraction](https://zenn.dev/ngicks/articles/go-basics-revisited-filesystem-abstraction)~~
 
-## Dockerfile
+## Docker / podmanなどによるビルド
 
-`Dockerfile`のexample.
+[プロジェクトを始めるまで](https://zenn.dev/ngicks/articles/go-basics-revisited-starting-projects)で基本的なビルド方法については述べました。
+しかし現代においてはアプリケーションは何かしらのコンテナとしてデプロイすることが普通であると思われるので、この記事では
 
-[Docker]を使うとアプリをパッケージ化して送り込んだりするのが楽になります。
-プロジェクト構成の話に近いと思うので、ここに載せておきますが実際上違った方法をとったり(e.g. [ko](https://github.com/ko-build/ko)、[Bazel](https://bazel.build/install/docker-container))、対象読者にとって早すぎる話題かもしれないのでいったん読み飛ばしていただくのもよいかもしれません。
+- そもそも[Docker] / コンテナ / イメージ / `Dockerfile`(`Containerfile`)とは何ぞやという簡単な説明
+- [Docker] / [podman]\([podman-static]\)のインストール手順
+- [Docker] / [podman]を用いた`Go`アプリケーションのビルド方法
+  - cooporate proxy下対応
+  - 最大限キャッシュを効かせる
+  - 半自動的に`Go`の最新パッチバージョンを使用
 
-- `docker`自体の詳細は説明しません。ドキュメントに譲ります。ガイドやマニュアルは充実しています: https://docs.docker.com/guides/
-- `Dockerfile`の文法自体は紹介しません。リファレンスに譲ります: https://docs.docker.com/reference/dockerfile
-- `docker image build`自体の紹介はしません。リファレンスに譲ります: https://docs.docker.com/reference/cli/docker/image/build/
+について述べます。
 
-また
+[Docker] / [podman]はいわゆるコンテナランタイムです。
+コンテナは、アプリとその依存関係をパッケージ化し、それを隔離した環境で動作させる一連の仕組みだと思っておけばよいです。
 
-- 暗黙的に`Ubuntu`/`Debian`系のコマンド/ファイル配置が前提になっているので定義読み替えたり書き換えてください
-  - 差を考慮しきれるほど筆者はlinuxに詳しくありません。申し訳ないです。
+コンテナは、一般的なアプリをPCにインストールしたときに起こる以下のような問題を回避することができます
 
-### dockerの軽い紹介
+- アプリが保存するデータや設定ファイルの位置がほかのアプリと衝突する
+- アプリが必要なライブラリがいろいろあって全部入れないといけない
+- アプリ同士で必要なライブラリのバージョンが異なっており衝突する
+- 同じアプリを複数動かそうとすると一時ファイルの位置や、ネットワークのポートが衝突していまう
 
-[docker]は[Container](<https://en.wikipedia.org/wiki/Containerization_(computing)>) -- アプリケーションとその依存関係をパッケージ化したもの -- のビルダー及びランタイムおよびエコシステムです。
+こうしたコンテナを動作させるのがコンテナランタイムです。
 
-`docker`を使うと、アプリケーションを送り込むのが楽になります。
-言ってしまえば`.tar.gz`の１ファイルを`docker`のdaemon(`dockerd`)に投げつけると、アプリと起動コマンドを送り込むことができて、その後、少しずつ設定を変えながらそのアプリケーションを何個か立ち上げる、みたいなことができます。(`tar`でも送り付けられるが)実際はコンテナを効率的に送りあうための仕組みや公開のためのレジストリなど、多岐にわたる概念の集合体が`docker`、もしくは`OCI container`です。
-詳しい説明はほかの記事や[docker]自体のドキュメントに譲ります。
+## 対象読者/前提知識
 
-`Dockerfile`は、そういう`Container`のひな型となる`Image`をビルドするためのレシピを記述できるものです。
+- 会社の同僚
+- 今まで[Go]を使ってこなかった
+- dockerはいくらか触ったことがある
+- 高校レベルの英語読解能力
 
-`docker`(および`containerd`)自体も`Go`で書かれているので読んでみると面白いと思います。筆者はちょっとしか読めていません。
+## 環境
 
-### goをビルドするDockerfile example
+win11のwsl2インスタンス内で動作させます。[Docker Desktop](https://www.docker.com/products/docker-desktop/)をインストールした場合/PCに直接Linuxをインストールした場合でも基本的に同様になると思います。
+
+```
+$ wsl --version
+WSL バージョン: 2.6.1.0
+カーネル バージョン: 6.6.87.2-1
+WSLg バージョン: 1.0.66
+...
+```
+
+distroはUbuntu 24.04LTSです。説明は暗黙的に`Ubuntu`を前提とします。
+
+```
+$ cat /etc/*-release
+...
+DISTRIB_DESCRIPTION="Ubuntu 24.04.3 LTS"
+...
+```
+
+ランタイムにはpodmanを用います
+
+```
+$ podman --version
+podman version 5.7.0
+```
+
+## そもそも[Docker] / コンテナ / イメージ / `Dockerfile`ってなに？
+
+コンテナにまつわる用語として[Docker] / コンテナ / イメージ / `Dockerfile`などがよく聞かれると思います。
+これらが一体何なのかという話をざっくりこことでしておきます。
+全体の構図が見えることのみを目指すので、厳密でなかったり詳細でなかったりしますが、記事の趣旨からして詳細に立ち入ることはしません。
+
+### コンテナ？
+
+コンテナとは、アプリケーションとその依存関係と、アプリの起動方法などををひとまとめにして、隔離環境で実行できるようにしたものを、実行したプロセスなどをさしてコンテナと言います。アプリだと思ってくれてもいいかもしれません。
+
+例えばPCに直接[PlantUML](https://plantuml.com/)を入れてサーバーとして利用できるようにしたいとします。
+その場合、下記のようなことを行う必要があります。
+
+- `Java`実行環境のインストール
+- `tomcat`などのセットアップ
+- `Graphviz`などの依存先をインストール
+- `plantuml`のソースをコピーしビルドする
+- `systemd`のunitファイルなどを書いてサービス永続化
+- ポート/一時ファイルの位置などが他と被らないようにマネージ
+
+参考:
+
+- [PlantUMLクイックスタートガイド](https://plantuml.com/starting)
+- [PlantUML Serverを仮想マシン上にセットアップする (Tomcatサーバー編)](https://zenn.dev/h1d3mun3/articles/9ab6f0e3d10195)
+
+まあまあいろいろやりますね。
+厄介なのがほかのサービスに必要な`Java`とかのバージョンが異なる場合です。工夫すれば異なる複数のバージョンを同時に動かすこともできますが、工夫が必要であることは覚えておいてください。
+
+これが[Docker] / [podman]を用いると
+
+```
+podman container run -d -p 8881:8080 docker.io/plantuml/plantuml-server:tomcat-v1.2025.10
+```
+
+で済みます。(dockerの場合、`podman`の部分を`docker`に取り換えてください)
+`docker.io/plantuml/plantuml-server:tomcat-v1.2025.10`の部分が、こういったサーバー用途のアプリとして配布されたもの(イメージと呼ぶ)をさします。
+コンテナエコシステムだとHTTPなどを通じてアクセスされるサーバーとしてアプリを配布することが多いため、ありもののパッケージとしてすでにサーバーとして動くように調節されていることが多いわけです。
+
+同じアプリを設定を変えながら複数建てたい場合、
+
+```
+podman container run -d -p 8882:8080 --env PLANTUML_LIMIT_SIZE=8192 docker.io/plantuml/plantuml-server:tomcat-v1.2025.10
+```
+
+のように、同じようにコマンドを実行すればよいです。
+
+このアプリがシステム再起動を挟んでも起動してほしい場合は`--restart=always`を付け足します。
+
+```
+podman container run -d -p 8883:8080 --env PLANTUML_LIMIT_SIZE=8192 --restart=always docker.io/plantuml/plantuml-server:tomcat-v1.2025.10
+```
+
+つまり、コンテナの特記すべき性質は
+
+- スケール性: アプリ単位の隔離であることで必要に応じて起動させるインスタンスの数を増減できる
+  - 基本的に1プロセス-1コンテナの粒度で隔離します。
+- イメージ配布システム: (VM仮想化に比べて)簡単に利用できるありもののパッケージ(イメージと呼ばれる)が広く配布されていること
+- 管理容易: アプリとその依存性は隔離されているのでホストやほかのアプリを汚すことがないこと
+
+などがあげられます。
+
+### よく言われる「VM仮想化と違ってゲストカーネルがない」というのは厳密には誤り
+
+コンテナを調べていると、よく「KVM/Hypervisor仮想化と違ってゲストOSがないので軽量」という言い回しがされるように思います
+
+参考:
+
+- [コンテナ型の仮想化を基礎から学ぶ！従来の技術との違いやメリットを解説 ](https://www.ctc-g.co.jp/keys/blog/detail/containerized-virtualization)
+- [コンテナ技術を他の仮想化技術と比較しながら整理](https://qiita.com/n0mura/items/b57800356eb6c59be7d9)
+- [サーバ仮想化技術とコンテナ技術の違い](https://jpn.nec.com/cloud/service/container/comparison.html)
+- [コンテナ型仮想化とは、クラウド展開に便利な進化中の仮想化技術](https://insights-jp.arcserve.com/container-virtualization)
+- [コンテナ化と仮想化：7つの技術的違い](https://www.trianz.com/ja/insights/containerization-vs-virtualization)
+
+実際[dockerはlinux kernel機能のnamespaceを使用して隔離環境を作成する](https://docs.docker.com/get-started/docker-overview/#the-underlying-technology)ため`docker`に関しては普通はこの言説のとおりだと思います。
+しかし[OCI Runtime Space](https://github.com/opencontainers/runtime-spec/blob/main/spec.md)にはどのような方法で隔離環境を作成するかには規定がなく、実際に[kata-container](https://katacontainers.io/)や[windows containerのrunhcs](https://learn.microsoft.com/en-us/virtualization/windowscontainers/deploy-containers/containerd#runhcs)はVMを使ってコンテナを動作させます。
+
+`kata-container`は設定をいじれば`docker`からも利用可能なコンポーネントです。
+
+この事実からゲストOSがないことがコンテナの本質ではなく、前節で上げたようなアプリ配布エコシステムの成立と、1プロセス-1コンテナの粒度で隔離することが重要な性質であることを述べておきます。
+
+### イメージ？
+
+コンテナのひな型のことをイメージと呼びます。
+アプリとその依存関係と、アプリの起動設定などをまとめたもので、これをコンテナランタイムが読み込んで隔離環境を作成し、実行するとコンテナとなります。
+
+参考:
+
+- [What is Docker? > Docker architecture > Docker objects > images](https://docs.docker.com/get-started/docker-overview/#images)
+- [OCI Image Spec](https://github.com/opencontainers/image-spec/blob/main/spec.md)
+
+### Docker / podman ?
+
+コンテナランタイムです。
+
+- イメージをpullしたり、buildしたり、
+- コンテナを作成/実行したり
+- イメージ/コンテナの作成/停止/実行をしたり
+
+するものです。
+
+[Docker]はこの分野の草分けです。`Docker, Inc.`開発。開発者ツールとしてはかなりポピュラーだと思います。
+[podman]は`Docker`より後発のランタイム。`Red Hat`開発。rootless by default, daemonlessなどいろいろ進んだ機能が多い。手元で動かすなら`docker`より扱いが楽なこともしばしば。
+
+version 1.0.0のリリース時期は`docker`のほうが速い:
+
+- `Docker`: [2014-06](https://docs.docker.com/engine/release-notes/prior-releases/#100-2014-06-09)
+- `Podman`: [2019-01](https://github.com/containers/podman/releases/tag/v1.0.0)
+
+### Dockerfile(Containerfile)?
+
+`Dockerfile`はイメージをビルドする際のレシピとなるファイルです。リファレンスは下記。
+
+https://docs.docker.com/reference/dockerfile/
+
+`docker buildx build -f Dockerfile -t ${repo}:${tag} .`で指定すると`${repo}:${tag}`でタグ付けされた(名づけられた)イメージがビルドされます。
+
+`Containerfile`は`Dockerfile`と全く同じものですがコンテナランタイムがdocker外にもたくさん現れたため`Docker`という固有名詞を排したい意図で`podman`のデフォルト参照先となっているようです([参考](https://github.com/containers/buildah/discussions/3170))
+
+## Docker / podman(-static)のインストール方法
+
+### Docker
+
+以下の2つが代表的なインストール方法かと思います
+
+- `Docker Desktop`や[Rancher Desktop](https://rancherdesktop.io/)を利用する方法
+- [Install Docker Engine](https://docs.docker.com/engine/install/)\: 公式の手続きに基づいてインストールする方法
+
+`Docker Desktop`は[従業員250人以上もしくは年間売り上げ＄10 million(≒15.6億円)で支払い義務が発生する](https://docs.docker.com/subscription/desktop-license/)ライセンス形態であることに注意です。
+
+後者についてのみ説明します。
+
+```bash
+#!/bin/bash
+
+set -Cue
+
+# Add Docker's official GPG key:
+sudo -E apt-get update
+sudo -E apt-get install -y ca-certificates curl
+
+sudo -E install -m 0755 -d /etc/apt/keyrings
+sudo -E curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo -E chmod a+r /etc/apt/keyrings/docker.asc
+
+# Add the repository to Apt sources:
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo -E apt-get update
+sudo -E apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+`rootless`で実行したい場合は追加で下記も実施します。開発環境のdockerとしては`rootless`にしておくほうがお勧めです。
+
+https://docs.docker.com/engine/security/rootless/
+
+### podman
+
+[podman-static]を利用してビルドします。
+
+[podman-static]は`static`(=動的にロードされるライブラリがない=ホスト環境に対する依存性が低い)に`podman`をビルドするためのスクリプト集です。
+
+repositoryをcloneして下記を実行し、`./build/asset/podman-linux-amd64`以下のファイルを適当なところにコピーしたら完了です。
+
+実行する前に、スクリプトの内容はよく読んでおきましょう: https://github.com/mgoltzsche/podman-static/blob/master/Dockerfile
+
+```
+  sudo make
+  sudo make singlearch-tar
+```
+
+(`sudo`がつくのは`docker`コマンドの実行のために必要なだけで、`rootless`にしている場合などは`sudo`なしで実行する)
+
+筆者は`~/.local/share/podman`以下にビルド成果物をまとめておきたかったためさらに追加のビルドスクリプトを組んでいます。
+
+以下をcloneして下記のスクリプトを実行します。[deno]が必要です。
+
+https://github.com/ngicks/dotfiles
+
+```
+build/podman-static/build.sh
+build/podman-static/install.sh
+```
+
+(もちろん実行する前に中身はよく読んでください)
+
+`install.sh`完了後、下記を`.bashrc`などから呼び出すと`podman`コマンドに`PATH`が通ります。
+
+```
+. ~/.config/containers/path.sh
+```
+
+## goをビルドするDockerfile example
 
 以下に`Go`をstatic binaryにビルドする`Dockerfile`の例を示します。
 `Dockerfile`をまず述べ、各変数とbuildkitのマウントの各パラメータの意味を述べ、ビルドコマンドなどをその後に述べます。
@@ -72,63 +299,71 @@ published: false
 
 コードはここに置いてあります: https://github.com/ngicks/go-basics-example/tree/main/dockerfile
 
-#### Dockerfile
+### Dockerfile(Containerfile)
 
-```Dockerfile
-# syntax=docker/dockerfile:1.4
+```dockerfile
+# syntax=docker/dockerfile:1
 
-# 上記で新しいsyntaxであることをビルダーに伝える。
-# 新しい構文を使うとき、
-# なぜかなくても動いたり動かなかったりする環境があってややこしいので
-# とりあえず書く。
+ARG TAG_GOVER="1.25.0"
+ARG TAG_DISTRO="bookworm"
 
-FROM golang:1.22.3-bookworm AS builder
+FROM docker.io/library/golang:${TAG_GOVER}-${TAG_DISTRO} AS builder
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
-ARG GOPATH=/go
-ARG CGO_ENABLED=0
-ARG MAIN_PKG_PATH=.
 
-# WORKDIRの決め方やビルドしたバイナリの置き場所はこれがいいよという自信がない。
-# 必要に応じて変えてください。
-WORKDIR /usr/local/container-bin/src
-# git-lfsの有無でgit fetch結果が異なり、sum照合エラーになることがある。
-# Private go moduleをdirect modeでgo getするならば、すべての環境に入れておくほうが安全。
-# apt-getでバージョン指定をするとすぐに古いパッケージが消えるのでバージョンは固定しない。
-# バージョンを固定したい場合はdebファイルを保存して
-# そこからインストールしたり、ソースからビルドする。
-RUN --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt\
-    apt-get update && apt-get install -yqq --no-install-recommends git-lfs
-# 先にgo mod downloadを実行する
-# buildkitでマウントするキャッシュ以外に変更が起きない。
-# (/root/.cacheと/root/.config/goにマウントされるのでディレクトリは作成される)
-# Dockerのimage layerとしてキャッシュするというより、
-# コマンドの失敗する点を切り分けてエラーを見やすくする意図がある。
-COPY go.mod go.sum ./
-RUN --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt\
-    --mount=type=secret,id=.netrc,target=/root/.netrc\
-    --mount=type=secret,id=goenv,target=/root/.config/go/env\
-    --mount=type=cache,target=/go\
-    --mount=type=cache,target=/root/.cache/go-build\
-    go mod download
-# COPY . .をしてしまうとbuildkitの遅延ファイル要求の利点がすっ飛びますが、全部送らざるを得ない
-# ソース以外のコンテンツがいろいろ含まれる場合は、`.dockerignore`などをちきんと整備してください。
+ARG SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+ARG NODE_EXTRA_CA_CERTS="/etc/ssl/certs/ca-certificates.crt"
+ARG DENO_CERT="/etc/ssl/certs/ca-certificates.crt"
+
+ARG GOPATH="/go"
+ARG GOCACHE="/root/.cache/go-build"
+ARG GOPRIVATE=""
+ARG CGO_ENABLED="0"
+ARG MAIN_PKG_PATH="."
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
+<<EOF
+    rm -f /etc/apt/apt.conf.d/docker-clean
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+    apt-get update
+    apt-get install -yqq --no-install-recommends git-lfs openssh-client
+EOF
+
+RUN <<EOF
+    git config --global url."ssh://git@github.com".insteadOf https://github.com
+    mkdir -p -m 0700 ~/.ssh
+    ssh-keyscan github.com >> ~/.ssh/known_hosts
+EOF
+
+WORKDIR /app/src
+
 # https://docs.docker.com/build/building/context/#dockerignore-files
-COPY . .
+# COPY . .
+
 RUN --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt\
-    --mount=type=secret,id=.netrc,target=/root/.netrc\
-    --mount=type=secret,id=goenv,target=/root/.config/go/env\
-    --mount=type=cache,target=/go\
-    --mount=type=cache,target=/root/.cache/go-build\
+    --mount=type=ssh \
+    --mount=type=secret,id=goenv,target=/root/.config/go/env \
+    --mount=type=cache,target=/go \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,target=/app/src \
+<<EOF
+    go mod download
+    # go generate ./...
     go build -o ../bin ${MAIN_PKG_PATH}
+EOF
 
-# distrolessはtagの中身が入れ替わるので再現性を優先するならsha256で指定したほうがよい
-FROM gcr.io/distroless/static-debian12@sha256:41972110a1c1a5c0b6adb283e8aa092c43c31f7c5d79b8656fbffff2c3e61f05
+WORKDIR /app
 
-COPY --from=builder /usr/local/container-bin/bin /usr/local/container-bin/
+FROM gcr.io/distroless/static-debian12@sha256:ed92139a33080a51ac2e0607c781a67fb3facf2e6b3b04a2238703d8bcf39c40
+# FROM gcr.io/distroless/static-debian12@sha256:6ceafbc2a9c566d66448fb1d5381dede2b29200d1916e03f5238a1c437e7d9ea
 
-ENTRYPOINT [ "/usr/local/container-bin/bin" ]
+COPY --from=builder /app/bin /app/bin
+
+ENTRYPOINT [ "/app/bin" ]
+
 ```
 
 #### 各変数の説明
@@ -232,6 +467,8 @@ $ docker container run --rm joke:joke
 [git]: https://git-scm.com/
 [Git Credential Manager]: https://github.com/git-ecosystem/git-credential-manager?tab=readme-ov-file
 [Docker]: https://www.docker.com/
+[podman]: https://podman.io/
+[podman-static]: https://github.com/mgoltzsche/podman-static
 [Dockerfile]: https://docs.docker.com/build/concepts/dockerfile/
 [Elasticsearch]: https://www.elastic.co/docs/solutions/search
 
