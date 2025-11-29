@@ -101,7 +101,7 @@ podman version 5.7.0
 
 ### 概説
 
-![concept-of-container](/images/go-basics-revisited-bulding-with-docker/concept-of-container.webp)
+![concept-of-container](/images/go-basics-revisited-bulding-with-docker/concept-of-container.png)
 
 コンテナは「そのアプリだけ入ったLinuxシステムみたいなやつ」を隔離した環境で動かすアプリの動作方式などのことを言います。
 
