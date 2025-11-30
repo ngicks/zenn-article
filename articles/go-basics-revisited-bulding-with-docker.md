@@ -843,6 +843,8 @@ podman buildx build \
 
 ### ポイント7: distrolessを使うならsha256sumでイメージを指定しよう
 
+再現性を優先する場合は`distroless`の指定はsha256sumでしたほうが良いです。
+
 最終ステージをこうしています。
 
 ```dockerfile
@@ -1163,7 +1165,7 @@ TARGET_ARCH=arm64 ./build.sh joke:0.0.3
 $ podman image save localhost/joke:0.0.3-arm64 | gzip > joke:0.0.3-arm64.tar.gz
 $ scp ./joke:0.0.3-arm64.tar.gz ${remote-machine}:/tmp
 $ ssh ${remote-machine}
-$$ sudo k3s ctr images import ./tmp/joke\:0.0.3-arm64.tar.gz
+$$ sudo k3s ctr images import /tmp/joke\:0.0.3-arm64.tar.gz
 ```
 
 動かしてみます
