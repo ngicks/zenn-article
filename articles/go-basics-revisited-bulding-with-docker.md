@@ -1030,7 +1030,7 @@ CMD ["-c"]
 ```
 
 - `ENTRYPOINT`は`(docker|podman) container (create|run)`の`--entrypoint`で上書き可能
-- `CMD`は`(docker|pomdna) container (create|run) foo bar ...`の`foo bar ...`の部分で上書き可能
+- `CMD`は`(docker|podman) container (create|run) foo bar ...`の`foo bar ...`の部分で上書き可能
 
 `ENTRYPOINT`のほうが上書きしにくい。`docker`/`podman` cliからだと`ENTRYPOINT`はarrayで上書きできないかも・・・([composeからはできる](https://github.com/compose-spec/compose-spec/blob/main/05-services.md#entrypoint))
 
