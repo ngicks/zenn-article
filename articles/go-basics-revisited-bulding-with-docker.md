@@ -1108,12 +1108,15 @@ CPU Architectureとはプログラムから見ると命令セットの仕様の�
 昨今の高レベルなプログラミング言語を書いていると違いは意識されにくいかもしれませんが、アセンブリを直接書くと大幅に違います。
 `Go`もランタイムのところにアーキテクチャ依存のアセンブリがおいてあるので違いを見比べてみるといいと思います。
 
+ていう説明だとよくわかんないですよね。
+ここで分かってほしいのはプログラムは特定のos/arch(Architecture)の組み合わせ向けにビルドされることが一般的で、この組み合わせをプラットフォームなどと呼ぶことと、あるプラットフォーム向けにビルドされたプログラムはほかのプラットフォームだと基本的に動かないということです。
+
 `arm64`(`aarch64`)は`amd64`(`x86_64`)より安価なので利用される場面が多いようです。
 
 ビルドシステムが動作しているマシンとは異なるOS/アーキテクチャ向けにプログラムをビルドすることをcross-compilationなどと呼びます([Wikipedia: Cross-Compiler](https://en.wikipedia.org/wiki/Cross_compiler))。
 `Go`は容易に別システム向けのバイナリをビルドできますが、コンテナは`Go`だけでは済まないことがあるため、`qemu`などのVMを使ってcross-compilationを行います。
 
-`buildah`のドキュメント曰く`multi-arch build`には`qemu-user-static`が必要です([\[1\]](https://github.com/containers/buildah/blob/v1.42.1/docs/buildah-build.1.md), [\[2\]](https://github.com/containers/buildah/blob/v1.42.1/docs/buildah-from.1.md))
+`buildah`のドキュメント曰く`multi-arch build`には`qemu-user-static`が必要です([\[1\]](https://github.com/containers/buildah/blob/v1.42.1/docs/buildah-build.1.md), [\[2\]](https://github.com/containers/buildah/blob/v1.42.1/docs/buildah-from.1.md))。dockerでも同様です(がサードパーティツールでqemu-userを導入させる形式なようです)([\[3\]](https://docs.docker.com/build/building/multi-platform/#qemu))。
 
 ソースを見る限り`binfmt_misc`も必要ですが、そもそも`wsl2`のインスタンスなら元から有効になっているようです。
 
