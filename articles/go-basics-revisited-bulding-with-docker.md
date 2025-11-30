@@ -180,12 +180,18 @@ version 1.0.0のリリース時期は`docker`のほうが速い:
 
 なんかコンテナ周りの話を読んでると`rootless`って言う語がよく言われていませんか？
 
-これはその意味のとおり、`root`以外のユーザーでコンテナデーモンを動かすということをさします。
+これはその言葉のとおり、`root`以外のユーザーでコンテナデーモンを動かすということをさします。
 
-コンテナは複数のimage layerを重ね合わせる`union mount filesystem`が必要だったり、ネットワークの操作をしたりするため、特別な処置なしでは`root`の権限が必要となります。`mount`コマンドは基本的に`sudo`が必要なのからそれがわかると思います。
+コンテナを成立させるために使われるlinux kernelの機能などは、普通にすると`root`権限が必要です。
+「そのアプリだけが入ったLinuxシステムみたいなやつ」を成立させるのは「アプリが入っているファイルシステム」、独立したネットワーク/pid/ユーザー/グループ空間が必要です。ファイルシステムは複数のimage layerを重ね合わせることで成り立っています(いわゆる`uniom mount filesystem`)。普通`mount`コマンドを用いると`sudo`が必要ですから、そこから普通は`root`権限が必要であるとわかると思います。
 
-`dockerd`や`containerd`のような[デーモンプロセス](<https://en.wikipedia.org/wiki/Daemon_(computing)>)はデフォルトでは`root`で動作するようになっています。何かしらの攻撃にあい、`dockerd`を好きに操作できるような攻撃が成立したとき、`dockerd`が`root`で動いていると攻撃できる範囲が広いので、`rootless`、つまり`root`ではない権限の低いユーザー動いていたほうがセキュリティー的にいい、という話です。
-(想定読者には[デーモンプロセス](<https://en.wikipedia.org/wiki/Daemon_(computing)>)が通じない気がしますが、ここでは説明を省きます。そういうものがあると思っておいてください。)
+`Docker`は`dockerd`という[デーモンプロセス](<https://en.wikipedia.org/wiki/Daemon_(computing)>)がイメージやコンテナの状態を管理し、`docker`コマンドがそこにリクエストをするというサーバー・クライアント型ソフトウェアです。
+
+- `dockerd`を自由に操作できる攻撃が成立すると、攻撃できる範囲が非常に広くなってしまいます。
+- `dockerd`が`root`で動作しているとコンテナを`root`で動作させることも可能です。実際特に設定しなければコンテナはuid=0, つまり`root`で動作します。コンテナ内の`root`はコンテナ外=ホストでの`root`であるので、もし仮にコンテナに攻撃が成立すると、マウントしているvolume内の`root`権限を必要とするファイルが読み書きされてしまいます。
+
+`rootless`である場合、`dockerd`がユーザーの権限で動作するため、コンテナの`root`はコンテナ外ではそのユーザーとなります。
+そのため攻撃成立後にできることが狭くなり、安全性が増します。
 
 ## Reference
 
@@ -281,7 +287,6 @@ build/podman-static/install.sh
 ## GoをビルドするDockerfile example
 
 以下に`Go`をstatic binaryにビルドする`Dockerfile`の例を示します。
-`Dockerfile`をまず述べ、各変数とbuildkitのマウントの各パラメータの意味を述べ、ビルドコマンドなどをその後に述べます。
 
 - 通常版・企業プロキシ下版の２バージョンを説明します。
 - 双方でprivate repository管理のgo moduleがあってもビルドできるようにします。
@@ -1082,13 +1087,6 @@ yay
  <<EOF
      go mod download
      # go generate ./...
-@@ -48,10 +56,7 @@ EOF
-
- WORKDIR /app
-
-FROM gcr.io/distroless/static-debian12@sha256:6ceafbc2a9c566d66448fb1d5381dede2b29200d1916e03f5238a1c437e7d9ea
-
- COPY --from=builder /app/bin /app/bin
 ```
 
 ```diff bash
@@ -1109,8 +1107,8 @@ FROM gcr.io/distroless/static-debian12@sha256:6ceafbc2a9c566d66448fb1d5381dede2b
      --build-arg TAG_GOVER=${TAG_GOVER} \
      --build-arg MAIN_PKG_PATH=${MAIN_PKG_PATH:-./} \
      --build-arg GOPRIVATE=${GOPRIVATE:-""} \
-+    --secret id=netrc,src=${NETRC:-$HOME/.netrc} \
      --secret id=goenv,src=$(go env GOENV) \
++    --secret id=netrc,src=${NETRC:-$HOME/.netrc} \
 -    --ssh default=${SSH_AUTH_SOCK:-""} \
 +    --build-arg SSL_CERT_FILE=${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt} \
 +    --secret id=certs,src=${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt} \
@@ -1144,8 +1142,8 @@ CMD ["-c"]
 
 `ENTRYPOINT`のほうが上書きしにくい。`docker`/`podman` cliからだと`ENTRYPOINT`はarrayで上書きできないかも・・・([composeからはできる](https://github.com/compose-spec/compose-spec/blob/main/05-services.md#entrypoint))
 
-広く公開して設定をあれこれいじってほしい場合は上のようにdefault-ishなコマンドのベース部分を`ENTRYPOINT`にして残りのオプションを`CMD`に置くと気が利いていて意図が伝わりやすい。
-狭くしか公開しないor狭い使い道しかない場合は`ENTRYPOINT`だけ指定しておけばok。
+広く公開して設定をあれこれいじってほしい場合は上のようにdefault-ishなコマンドのベース部分を`ENTRYPOINT`にして残りのオプションを`CMD`に置くと気が利いていて意図が伝わりやすいと思います。
+狭くしか公開しないor狭い使い道しかない場合は`ENTRYPOINT`だけ指定しておけばok。そもそもアプリとしてcli argの指定がない部分はデフォルト値を使う挙動にしておいたほうがいいでしょう。というのも`CMD`でデフォルト値をつけて回ると、`create|run`の引数で全部上書きされるので部分的な変更ができないからです。
 
 #### イメージ内でUSER変えるべきか
 
@@ -1153,13 +1151,16 @@ CMD ["-c"]
 
 https://docs.docker.com/reference/dockerfile#user
 
-筆者は「`(docker|podman)container create --user`でcontainer creation時にユーザーを変える運用をしたいから、イメージは切り替えるべきではない」派
+筆者は「`(docker|podman)container create --user`でcontainer creation時にユーザーを変える運用をしたいから、イメージは切り替えるべきではない」派です。
 
-- 切り替えられたユーザーがファイルを保存し、それがホスト側や別のコンテナからアクセスされる必要があるときuid/gidの都合をつけるのが面倒
-- ランタイム側がrootlessだった場合は`fake root`(=コンテナ内に置けるuid=0, ホストにおける`docker`/`podman`コマンド実行者)で動作し続けるほうが望ましい
-- そもそもホストのファイルに触らないならuid/gidはなんだったとしても気にならないはず
+理由は簡単で
 
-筆者はよそから持ってきたイメージ(i.e. [elasticsearch-oss](https://www.docker.elastic.co/r/elasticsearch/elasticsearch-oss))がユーザーの切り替えがあり、それが固定でuid 1000であることからホスト側のユーザーで都合をつける必要があったことがあります。
+- ホスト環境のuid/gidとの都合をつけるのが面倒
+  - ホストから`/etc/passwd`, `/etc/group`をマウントしたときuid/gid関係がずれる可能性
+  - ランタイム側が`rootless`だった場合は`fake root`(=コンテナ内におけるuid=0, ホストにおける`docker`/`podman`コマンド実行者)で動作し続けるほうが望ましい
+- ホストのファイルに触らない(=bind mountしない)ならそもそもuid/gidはなんでもいい
+
+逆に言うと`Dockerfile`は動作時に`--user`でユーザーが切り替わっていても動作できるような考慮が必要です。
 
 #### VOLUMEは既存のディレクトリを指定してはいけない
 
@@ -1168,7 +1169,7 @@ https://docs.docker.com/reference/dockerfile#user
 https://docs.docker.com/reference/dockerfile#volume
 
 (少なくとも)`docker`では指定がなければanonymous volumeを作ってマウントします。
-`(docker|podman) container create --mount type=volume,src=foo,dst=${dst}`でマウント指定してねという意思表明として使うものなんだと思います。
+`(docker|podman) container create --mount type=volume,src=${foo},dst=${bar}`でマウント指定してねという意思表明として使うものなんだと思います。
 
 ```dockerfile
 COPY . /data
@@ -1181,6 +1182,9 @@ VOLUME ["/data"]
 
 - コピー途中で電断が起きたら(当たり前だが)コピーしなおす挙動はない
 - イメージのバージョンが上がるなどしてイメージ中のコンテンツが変わってもコピーしなおしは起きない
+
+この挙動ないほうが望ましい気がします。
+anonymous volumeの管理をしないためにも`VOLUME` instruction自体使わないようにし、`--mount type=volume`を指定するときも`dst`はイメージ内に存在しないパスにしたほうが良いでしょう。
 
 この挙動はdocker v20.10.xあたりの時点でソースコードを読んで確認しています。多分変わってないと思います。
 
@@ -1269,7 +1273,7 @@ yay
 
 自分が書いた`Dockerfile`を参照しなおすためにいろんなところを何度も開き直している自分を見つけたのでまとめておきました。
 
-private gitを使うさいのビルド方法は結構難儀しましたが、あまり書かれてるところを見たことがない気がしたので書いておいてよかったと思います。
+private gitを使うさいのビルド方法は結構難儀しましたが、あまり書かれてるところを見たことがない気がしたのでやってよかったと思います。
 
 資料や挙動は確認できるものはしていますが、間違っている場合にはコメントで教えていただけると幸いです。
 
