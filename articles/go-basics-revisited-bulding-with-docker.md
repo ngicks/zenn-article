@@ -172,6 +172,17 @@ version 1.0.0のリリース時期は`docker`のほうが速い:
 - `Docker`: [2014-06](https://docs.docker.com/engine/release-notes/prior-releases/#100-2014-06-09)
 - `Podman`: [2019-01](https://github.com/containers/podman/releases/tag/v1.0.0)
 
+### rootless？
+
+なんかコンテナ周りの話を読んでると`rootless`って言う語がよく言われていませんか？
+
+これはその意味のとおり、`root`以外のユーザーでコンテナデーモンを動かすということをさします。
+
+コンテナは複数のimage layerを重ね合わせる`union mount filesystem`が必要だったり、ネットワークの操作をしたりするため、特別な処置なしでは`root`の権限が必要となります。`mount`コマンドは基本的に`sudo`が必要なのからそれがわかると思います。
+
+`dockerd`や`containerd`のような[デーモンプロセス](<https://en.wikipedia.org/wiki/Daemon_(computing)>)はデフォルトでは`root`で動作するようになっています。何かしらの攻撃にあい、`dockerd`を好きに操作できるような攻撃が成立したとき、`dockerd`が`root`で動いていると攻撃できる範囲が広いので、`rootless`、つまり`root`ではない権限の低いユーザー動いていたほうがセキュリティー的にいい、という話です。
+(想定読者には[デーモンプロセス](<https://en.wikipedia.org/wiki/Daemon_(computing)>)が通じない気がしますが、ここでは説明を省きます。そういうものがあると思っておいてください。)
+
 ## Reference
 
 これ以上の詳細な情報は公式的なドキュメントへお進みください。
@@ -278,7 +289,7 @@ build/podman-static/install.sh
 コードはここに置いてあります: https://github.com/ngicks/go-example-basics-revisited/tree/main/building-with-docker
 
 通常版・企業プロキシ下版両方を示してから各パートとポイントについて説明し、最新のパッチバージョンを取得する方法を含んだビルドスクリプトを示します。
-最後におまけとしてmulti-archビルド(`amd64`(普通のPCなど)で`arm64`(Raspberry Piなど)むけのimageをビルドすること)をする方法を示します。
+最後におまけとしてmulti-archビルド(`amd64`(でストップPCなど)で`arm64`(Raspberry Piなど)むけのimageをビルドすること)をする方法を示します。
 
 ### Dockerfile(Containerfile)の例
 
@@ -427,7 +438,9 @@ ENTRYPOINT [ "/app/bin" ]
 | ARG          | MAIN_PKG_PATH | yes        | build context内のビルド対象へのパス                                              |
 | secret mount | goenv         |            | ホスト側の`go env`をマウントするためのid.                                        |
 
-`GOPRIVATE`は`go env`に書き込むほどじゃない実験用のレジストリとか入れるために`ARG`にしてありますが、普通はいらないので消してしまったほうがいいかも。
+`Dockerfile`内で参照されていない変数は環境変数として各コマンドに渡されます。
+
+`GOPRIVATE`はホスト側で`go env`に書き込んで、ファイルで渡してもいいですが、永続化する必要のない実験用のレジストリとか入れるために`ARG`にしてあります。普通はいらない気がしますので消してしまったほうがいいかも。
 
 ### ポイント1: `# syntax=docker/dockerfile:1`を先頭につけとく
 
@@ -627,7 +640,7 @@ EOF
   - `Go`のキャッシュはconcurrenct-safe
     - `GOPATH`(`/go`): [26794#issuecomment-442953703](https://github.com/golang/go/issues/26794#issuecomment-442953703)
     - `GOCACHE`(`~/.cache/go-build`): `go help cache`参照: `The cache is safe for concurrent invocations of the go command.`
-- どっちかわかんない場合は`sharing=private`にしておくと(効率は落ちるが)安全。
+- どっちかわかんない場合は`private`か`locked`にしておくと(効率は落ちるが)安全。
 - debian系のベースイメージは`apt`キャッシュを消す設定になっている。
   - 実際にコンテナに入って`/etc/apt/apt.conf.d/docker-clean`の中身を見たらわかりますが、ダウンロードしたキャッシュなどを消す設定が入っています。
   - これはdockerユーザー向けの気遣いです。
@@ -831,8 +844,9 @@ sha256:ed92139a33080a51ac2e0607c781a67fb3facf2e6b3b04a2238703d8bcf39c40
 - 企業プロキシは`ssh`を通さないことが多いみたいなので`ssh`関連のものは全部削除
 - `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `DENO_CERT`を宣言することで`curl`など、`Node.js`、`deno`がそれぞれが企業プロキシのオレオレ証明書を含んだca bundleを使うように指定します。
   - imageに`ca-certificates`パッケージを導入する場合はパスかぶりを避けるため`/etc/ssl/certs/ca-certificates.crt`以外の位置(`/ca-certificates.crt`など)を指定してマウント位置も買えたらいいです。
+  - ソース見る限り`Go`も`SSL_CERT_FILE`を読みに行きます。
 - `.netrc`ファイルを作成し、secret mountでマウントする
-  - 平文で機密情報を書かないといけないフォーマットなのでさけられるなら避けたほうがいです。
+  - 平文で機密情報を書かないといけないフォーマットなので書き込むcredentia書き込むcredentia書き込むcredentia書き込むcredentialはできる限り短命なほうが良いです。
   - フォーマットは[IBM: .netrc ファイルの作成](https://www.ibm.com/docs/ja/aix/7.2.0?topic=customization-creating-netrc-file)などをご覧ください
 
 ```diff dockerfile
@@ -912,7 +926,7 @@ $ go run github.com/ngicks/go-common/tools/golatestpatchver@latest
 
 これをビルドスクリプトから読み込ませれば常に最新のパッチバージョンでビルドできます！
 
-一応どのように作ったかは:
+一応どのように作ったかの説明:
 
 - `Go`のすべてのバージョンの一覧は以下の二通りの方法で得ることができます
   - `curl https://proxy.golang.org/golang.org/toolchain/@v/list`
@@ -937,7 +951,7 @@ private repositoryの挙動のチェックのために、筆者しかアクセ�
 
 以下のようなスクリプトでビルドできます。
 
-```
+```bash
 #! /bin/sh
 
 set -Cue
@@ -959,13 +973,13 @@ ssh-add -T ~/.ssh/id_ecdsa.pub
 podman buildx build \
     --platform linux/${arch} \
     --build-arg TAG_GOVER=${TAG_GOVER} \
-    --build-arg HTTP_PROXY=${HTTP_PROXY} \
-    --build-arg HTTPS_PROXY=${HTTPS_PROXY} \
+    --build-arg HTTP_PROXY=${HTTP_PROXY:-""} \
+    --build-arg HTTPS_PROXY=${HTTPS_PROXY:-""} \
     --build-arg MAIN_PKG_PATH=${MAIN_PKG_PATH:-./} \
-    --build-arg GOPRIVATE=${GOPRIVATE} \
+    --build-arg GOPRIVATE=${GOPRIVATE:-""} \
     --secret id=certs,src=/etc/ssl/certs/ca-certificates.crt \
     --secret id=goenv,src=$(go env GOENV) \
-    --ssh default=${SSH_AUTH_SOCK} \
+    --ssh default=${SSH_AUTH_SOCK:-""} \
     -t ${1}-${arch} \
     -f Containerfile \
     .
@@ -1000,6 +1014,65 @@ yay
 ```
 
 鳥が踊ります。
+
+### その他のプラクティス集
+
+言いたいことは終わったけどもうちょい細かい|詳しい話とか
+
+#### `ENTRYPOINT`/`CMD`使い分け
+
+どちらもコンテナのデフォルトコマンドを決めるもの。ただし両方あると`ENTRYPOINT` `CMD`の順で組み合わされる。
+
+```dockerfile
+# https://docs.docker.com/reference/dockerfile#entrypoint
+ENTRYPOINT ["top", "-b"]
+CMD ["-c"]
+```
+
+- `ENTRYPOINT`は`(docker|podman) container (create|run)`の`--entrypoint`で上書き可能
+- `CMD`は`(docker|pomdna) container (create|run) foo bar ...`の`foo bar ...`の部分で上書き可能
+
+`ENTRYPOINT`のほうが上書きしにくい。`docker`/`podman` cliからだと`ENTRYPOINT`はarrayで上書きできないかも・・・([composeからはできる](https://github.com/compose-spec/compose-spec/blob/main/05-services.md#entrypoint))
+
+広く公開して設定をあれこれいじってほしい場合は上のようにdefault-ishなコマンドのベース部分を`ENTRYPOINT`にして残りのオプションを`CMD`に置くと気が利いていて意図が伝わりやすい。
+狭くしか公開しないor狭い使い道しかない場合は`ENTRYPOINT`だけ指定しておけばok。
+
+#### イメージ内でUSER変えるべきか
+
+`Dockerfile`内で`USER`を使ってユーザーを切り替えるべきかについて
+
+https://docs.docker.com/reference/dockerfile#user
+
+筆者は「`(docker|podman)container create --user`でcontainer creation時にユーザーを変える運用をしたいから、イメージは切り替えるべきではない」派
+
+- 切り替えられたユーザーがファイルを保存し、それがホスト側や別のコンテナからアクセスされる必要があるときuid/gidの都合をつけるのが面倒
+- ランタイム側がrootlessだった場合は`fake root`(=コンテナ内に置けるuid=0, ホストにおける`docker`/`podman`コマンド実行者)で動作し続けるほうが望ましい
+- そもそもホストのファイルに触らないならuid/gidはなんだったとしても気にならないはず
+
+筆者はよそから持ってきたイメージ(i.e. [elasticsearch-oss](https://www.docker.elastic.co/r/elasticsearch/elasticsearch-oss))がユーザーの切り替えがあり、それが固定でuid 1000であることからホスト側のユーザーで都合をつける必要があったことがあります。
+
+#### VOLUMEは既存のディレクトリを指定してはいけない
+
+`VOLUME` instrcuctionで指定したディレクトリをvolumeとしてホストのディスクをマウントすべきかを指定できます。
+
+https://docs.docker.com/reference/dockerfile#volume
+
+`docker`|`podman`は`(docker|podman) container create --mount type=volume,src=foo,dst=${dst}`でマウント指定してねという意思表明として使うものなんだと思います。
+(少なくとも)`docker`では指定がなければanonymous volumeを作ってマウントします。
+
+```dockerfile
+COPY . /data
+VOLUME ["/data"]
+```
+
+このようにイメージ内に既に存在するディレクトリを`VOLUME`で指定すると、volumeの中身の空の場合にイメージの内容がコピーされます。
+
+問題は以下です:
+
+- コピー途中で電断が起きたら(当たり前だが)コピーしなおす挙動はない
+- イメージのバージョンが上がるなどしてイメージ中のコンテンツが変わってもコピーしなおしは起きない
+
+この挙動はdocker v20.10.xあたりの時点でソースコードを読んで確認しています。多分変わってないと思います。
 
 ## (おまけ)multi-arch build
 
@@ -1044,7 +1117,7 @@ FROM docker.io/library/golang:${TAG_GOVER}-${TAG_DISTRO}
 +FROM gcr.io/distroless/static-debian12@sha256:ed92139a33080a51ac2e0607c781a67fb3facf2e6b3b04a2238703d8bcf39c40
 ```
 
-(この部分答えが出ていない。どうしたらいんだろう？)
+(この部分はほかの人はどうしているんだろう？まだ何も調べていない)
 
 ではこの状態でビルドしてみます。
 `build.sh`ではarchで分岐できるように調節してあるので、環境変数を設定してスクリプトを呼び出すだけです。
