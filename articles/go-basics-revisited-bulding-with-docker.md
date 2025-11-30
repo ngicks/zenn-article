@@ -427,6 +427,11 @@ ENTRYPOINT [ "/app/bin" ]
 - `CGO`使わない場合は`CGO_ENABLED=0`に: static binaryを出力すると、`glibc`などのバージョン差を気にしなくてよくなる
   - コンテナ内で使うならば特にバージョンずれるとかない気がするので常に`1`でも問題ない気はします。
   - `CGO`必要になる場合、例えば[github.com/mattn/go-sqlite3](https://github.com/mattn/go-sqlite3)を使う場合は明示的に`1`にします。
+- 最終ステージは[distroless](https://github.com/GoogleContainerTools/distroless)にしてもいい
+  - `distroless`はコンテナに必要最低限なファイルだけが含まれたベースイメージです。
+  - 余計なものがないということは、軽いし、攻撃に使える界面も少ないということにあります。
+  - shellすらないものもあります。
+  - サポートされている`java`/`nodejs`など以外にも、`Go`のようなシングルバイナリを吐く形式のコンパイルができる場合は相性がいいです。
 
 ### Goに関係するパラメータ群とその意味
 
@@ -725,7 +730,7 @@ https://docs.docker.com/build/concepts/context/#dockerignore-files
 
 ### ポイント6: private gitを使うための設定(RUN --mount=type=ssh)
 
-[以前の記事のこの部分](<https://zenn.dev/ngicks/articles/go-basics-revisited-starting-projects#(private-git%E3%81%8B%E3%81%A4%E3%82%B5%E3%83%96%E3%82%B0%E3%83%AB%E3%83%BC%E3%83%97%E3%82%92%E4%BD%BF%E7%94%A8%E3%81%99%E3%82%8B%E5%A0%B4%E5%90%88)module-name%E3%81%AB.git%E3%82%92%E3%81%A4%E3%81%91%E3%82%8B>)で説明しましたが、`Go`でprivate VCSでホストされるモジュールを取得する際、特別な設定がされていなければ`VCS`に対応するコマンド、つまり`git`コマンドが使用されます。
+[以前の記事のこの部分](<https://zenn.dev/ngicks/articles/go-basics-revisited-starting-projects#(private-git%E3%81%8B%E3%81%A4%E3%82%B5%E3%83%96%E3%82%B0%E3%83%AB%E3%83%BC%E3%83%97%E3%82%92%E4%BD%BF%E7%94%A8%E3%81%99%E3%82%8B%E5%A0%B4%E5%90%88)module-name%E3%81%AB.git%E3%82%92%E3%81%A4%E3%81%91%E3%82%8B>)で説明しましたが、`Go`でprivate VCS(Version Control System)でホストされるモジュールを取得する際、特別な設定がされていなければ`VCS`に対応するコマンド、つまり`git`コマンドが使用されます。
 
 そこでprivateなGo moduleが含まれる場合、以下が必要となります。
 
@@ -783,7 +788,7 @@ https://docs.github.com/en/authentication/connecting-to-github-with-ssh
 
 https://docs.gitlab.com/user/ssh/
 
-筆者はgpg-agentにssh-agentの役割を担ってもらうことにしています。
+筆者は`gpg-agent`に`ssh-agent`の役割を担ってもらうことにしています。
 下記のスクリプトを`.bashrc`などから読み込ませると
 
 ```bash
@@ -815,7 +820,10 @@ dbus-update-activation-environment --systemd SSH_AUTH_SOCK
 
 #### (podman)ビルド直前にgpg-agentをunlockしておく
 
-下記より、`buildah`にハードコードされた２秒というタイムアウトがあるためssh-agent経由で鍵にかかったpassphraseのプロンプトを入力するのはほぼ不可能です。
+秘密鍵にpassphraseがついている場合、`pinentry`というプログラムでプロンプトを出してそのパスワードを入力させる仕組みになっています。
+ビルド中にこれへのアクセスが必要になったときプロンプトが出現するとことになりますが`podman`が利用するbuild backendコンポーネントの`buildah`の都合でpassphraseの入力がほぼ不可能になっています。
+
+下記より、`buildah`にはハードコードされた２秒というタイムアウトがあります。
 
 https://github.com/containers/buildah/blob/v1.42.1/pkg/sshagent/sshagent.go#L126-L131
 
@@ -830,6 +838,8 @@ podman buildx build \
 ```
 
 `Docker`の実装はだいぶ違ったのでこの問題は起きないかも。特に検証していないのでわかりませんが。
+
+そもそもCIなどと相性が悪そうなので利用する機会は少ないかもしれないですね。
 
 ### ポイント7: distrolessを使うならsha256sumでイメージを指定しよう
 
