@@ -375,21 +375,20 @@ ARG GOPRIVATE=""
 
 ARG MAIN_PKG_PATH="."
 
-ARG HTTP_PROXY
-ARG HTTPS_PROXY=${HTTP_PROXY}
-ARG NO_PROXY
-ARG http_proxy=${HTTP_PROXY}
-ARG https_proxy=${HTTP_PROXY}
-ARG no_proxy=${NO_PROXY}
-
 # for curl, etc.
 ARG SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
-ARG NODE_EXTRA_CA_CERTS="/etc/ssl/certs/ca-certificates.crt"
-ARG DENO_CERT="/etc/ssl/certs/ca-certificates.crt"
+ARG NODE_EXTRA_CA_CERTS=${SSL_CERT_FILE}
+ARG DENO_CERT=${SSL_CERT_FILE}
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
+    --mount=type=secret,id=HTTP_PROXY,env=HTTP_PROXY \
+    --mount=type=secret,id=HTTPS_PROXY,env=HTTPS_PROXY \
+    --mount=type=secret,id=NO_PROXY,env=NO_PROXY \
+    --mount=type=secret,id=http_proxy,env=http_proxy\
+    --mount=type=secret,id=https_proxy,env=https_proxy \
+    --mount=type=secret,id=no_proxy,env=no_proxy \
 <<EOF
     rm -f /etc/apt/apt.conf.d/docker-clean
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
@@ -401,10 +400,16 @@ WORKDIR /app/src
 
 RUN --mount=type=secret,id=netrc,target=/root/.netrc \
     --mount=type=secret,id=goenv,target=/root/.config/go/env \
-    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
     --mount=type=cache,target=/go \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,target=/app/src \
+    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
+    --mount=type=secret,id=HTTP_PROXY,env=HTTP_PROXY \
+    --mount=type=secret,id=HTTPS_PROXY,env=HTTPS_PROXY \
+    --mount=type=secret,id=NO_PROXY,env=NO_PROXY \
+    --mount=type=secret,id=http_proxy,env=http_proxy\
+    --mount=type=secret,id=https_proxy,env=https_proxy \
+    --mount=type=secret,id=no_proxy,env=no_proxy \
 <<EOF
     go mod download
     # go generate ./...
@@ -863,68 +868,9 @@ sha256:ed92139a33080a51ac2e0607c781a67fb3facf2e6b3b04a2238703d8bcf39c40
 
 `:latest`の中身はビルドされるたびに変わるので時々pullしなおします。
 
-### 企業プロキシ下版の考慮点
+### ポイント8: (Hack)secret mountをファイルをマウントできる方式としてつかう
 
-- `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`とそれらの小文字版を導入
-  - ステージ内で`ARG`を宣言すると`RUN`コンテクスト内で環境変数として挿入されます。`FROM`より前の行で宣言しないように注意！
-- 企業プロキシは`ssh`を通さないことが多いみたいなので`ssh`関連のものは全部削除
-- `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `DENO_CERT`を宣言することで`curl`など、`Node.js`、`deno`がそれぞれが企業プロキシのオレオレ証明書を含んだca bundleを使うように指定します。
-  - imageに`ca-certificates`パッケージを導入する場合はパスかぶりを避けるため`/etc/ssl/certs/ca-certificates.crt`以外の位置(`/ca-certificates.crt`など)を指定してマウント位置も買えたらいいです。
-  - ソース見る限り`Go`も`SSL_CERT_FILE`を読みに行きます。
-- `.netrc`ファイルを作成し、secret mountでマウントする
-  - 平文で機密情報を書かないといけないフォーマットなので書き込むcredentia書き込むcredentia書き込むcredentia書き込むcredentialはできる限り短命なほうが良いです。
-  - フォーマットは[IBM: .netrc ファイルの作成](https://www.ibm.com/docs/ja/aix/7.2.0?topic=customization-creating-netrc-file)などをご覧ください
-
-```diff dockerfile
- ARG GOPATH="/go"
- ARG GOPRIVATE=""
-
--ARG GIT_SSH_HOSTS="github.com,"
- ARG MAIN_PKG_PATH="."
-
-+ARG HTTP_PROXY
-+ARG HTTPS_PROXY=${HTTP_PROXY}
-+ARG NO_PROXY
-+ARG http_proxy=${HTTP_PROXY}
-+ARG https_proxy=${HTTP_PROXY}
-+ARG no_proxy=${NO_PROXY}
-+
-+# for curl, etc.
-+ARG SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
-+ARG NODE_EXTRA_CA_CERTS=${SSL_CERT_FILE}
-+ARG DENO_CERT=${SSL_CERT_FILE}
-+
- RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-+    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
- <<EOF
-     rm -f /etc/apt/apt.conf.d/docker-clean
-     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
-     apt-get update
--    apt-get install -yqq --no-install-recommends git-lfs openssh-client
--EOF
--
--RUN <<EOF
--    mkdir -p -m 0700 ~/.ssh
--    for item in $(echo $GIT_SSH_HOSTS | tr ',' '\n' ); do
--      if [ ! -z ${item} ]; then
--        git config --global url."ssh://git@${item}".insteadOf https://${item}
--        ssh-keyscan ${item} >> ~/.ssh/known_hosts
--      fi
--    done
-+    apt-get install -yqq --no-install-recommends git-lfs
- EOF
-
- WORKDIR /app/src
-
--RUN --mount=type=ssh \
-+RUN --mount=type=secret,id=netrc,target=/root/.netrc \
-     --mount=type=secret,id=goenv,target=/root/.config/go/env \
-+    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
-     --mount=type=cache,target=/go \
-     --mount=type=cache,target=/root/.cache/go-build \
-     --mount=type=bind,target=/app/src \
-```
+`RUN --mount=type=bind`だとファイルもしくはディレクトリをマウントできますがsecret mountはファイルしかマウントできないのでファイルだけをマウントする際にsecret mountを悪用しています。
 
 ### go.mod記載のgo versionから最新のpatch versionを取得
 
@@ -982,12 +928,39 @@ private repositoryの挙動のチェックのために、筆者しかアクセ�
 
 set -Cue
 
+if [ -z ${1:-""} ]; then
+  echo "set repo:tag as first cli argument"
+  exit 1
+fi
+
 TAG_GOVER=1.25.0
 if [ -f ./ver ]; then
   TAG_GOVER=$(cat ./ver)
 fi
 
-arch=${TARGET_ARCH:-$(go env GOARCH)}
+arch=${TARGET_ARCH:-""}
+
+if [ -z ${arch} ]; then
+  case $(uname -m) in
+    "x86_64")
+      arch="amd64";;
+    "x86_64-AT386")
+      arch="amd64";;
+    "aarch64_be")
+      arch="arm64be";;
+    "aarch64")
+      arch="arm64";;
+    "armv8b")
+      arch="arm64";;
+    "armv8l")
+      arch="arm64";;
+  esac
+fi
+
+if [ -z $arch ]; then
+  echo "arch unknown: $(uname -m)"
+  exit 1
+fi
 
 echo $arch
 
@@ -999,11 +972,8 @@ ssh-add -T ~/.ssh/id_ecdsa.pub
 podman buildx build \
     --platform linux/${arch} \
     --build-arg TAG_GOVER=${TAG_GOVER} \
-    --build-arg HTTP_PROXY=${HTTP_PROXY:-""} \
-    --build-arg HTTPS_PROXY=${HTTPS_PROXY:-""} \
     --build-arg MAIN_PKG_PATH=${MAIN_PKG_PATH:-./} \
     --build-arg GOPRIVATE=${GOPRIVATE:-""} \
-    --secret id=certs,src=/etc/ssl/certs/ca-certificates.crt \
     --secret id=goenv,src=$(go env GOENV) \
     --ssh default=${SSH_AUTH_SOCK:-""} \
     -t ${1}-${arch} \
@@ -1040,6 +1010,120 @@ yay
 ```
 
 鳥が踊ります。
+
+### 企業プロキシ下版の考慮点
+
+- `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`とそれらの小文字版を環境変数として導入。
+  - BasicAuth必要なproxyの場合秘密情報を含むので、[secret mount](https://docs.docker.com/reference/dockerfile#run---mounttypesecret)で環境変数としてマウントします。
+  - (別のフォワードプロキシを立ててそこのURLを指定する、そのプロキシでBasicAuthの情報を付け足す、という方法のほうがいいんではないかと思いますが)
+  - すんげえ長くなるんで`ARG`で渡したほうがいいかもしれないです。
+- 企業プロキシは`ssh`を通さないことが多いみたいなので`ssh`関連のものは全部削除
+- `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `DENO_CERT`を宣言することで`curl`など、`Node.js`、`deno`がそれぞれが企業プロキシのオレオレ証明書を含んだca bundleを使うように指定します。
+  - imageに`ca-certificates`パッケージを導入する場合はパスかぶりを避けるため`/etc/ssl/certs/ca-certificates.crt`以外の位置(`/ca-certificates.crt`など)を指定してマウント位置も買えたらいいです。
+  - ソース見る限り`Go`も`SSL_CERT_FILE`を読みに行きます。
+- `.netrc`ファイルを作成し、secret mountでマウントする
+  - 平文で機密情報を書かないといけないフォーマットなので書き込むcredentialはできる限り短命なほうが良いです。
+  - フォーマットは[IBM: .netrc ファイルの作成](https://www.ibm.com/docs/ja/aix/7.2.0?topic=customization-creating-netrc-file)などをご覧ください
+
+```diff dockerfile
+ ARG GOPATH="/go"
+ ARG GOPRIVATE=""
+
+-ARG GIT_SSH_HOSTS="github.com,"
+ ARG MAIN_PKG_PATH="."
+
++# for curl, etc.
++ARG SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
++ARG NODE_EXTRA_CA_CERTS=${SSL_CERT_FILE}
++ARG DENO_CERT=${SSL_CERT_FILE}
++
+ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+     --mount=type=cache,target=/var/lib/apt,sharing=locked \
++    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
++    --mount=type=secret,id=HTTP_PROXY,env=HTTP_PROXY \
++    --mount=type=secret,id=HTTPS_PROXY,env=HTTPS_PROXY \
++    --mount=type=secret,id=NO_PROXY,env=NO_PROXY \
++    --mount=type=secret,id=http_proxy,env=http_proxy\
++    --mount=type=secret,id=https_proxy,env=https_proxy \
++    --mount=type=secret,id=no_proxy,env=no_proxy \
+ <<EOF
+     rm -f /etc/apt/apt.conf.d/docker-clean
+     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+     apt-get update
+-    apt-get install -yqq --no-install-recommends git-lfs openssh-client
+-EOF
+-
+-RUN <<EOF
+-    mkdir -p -m 0700 ~/.ssh
+-    for item in $(echo $GIT_SSH_HOSTS | tr ',' '\n' ); do
+-      if [ ! -z ${item} ]; then
+-        git config --global url."ssh://git@${item}".insteadOf https://${item}
+-        ssh-keyscan ${item} >> ~/.ssh/known_hosts
+-      fi
+-    done
++    apt-get install -yqq --no-install-recommends git-lfs
+ EOF
+
+ WORKDIR /app/src
+
+-RUN --mount=type=ssh \
++RUN --mount=type=secret,id=netrc,target=/root/.netrc \
+     --mount=type=secret,id=goenv,target=/root/.config/go/env \
+     --mount=type=cache,target=/go \
+     --mount=type=cache,target=/root/.cache/go-build \
+     --mount=type=bind,target=/app/src \
++    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
++    --mount=type=secret,id=HTTP_PROXY,env=HTTP_PROXY \
++    --mount=type=secret,id=HTTPS_PROXY,env=HTTPS_PROXY \
++    --mount=type=secret,id=NO_PROXY,env=NO_PROXY \
++    --mount=type=secret,id=http_proxy,env=http_proxy\
++    --mount=type=secret,id=https_proxy,env=https_proxy \
++    --mount=type=secret,id=no_proxy,env=no_proxy \
+ <<EOF
+     go mod download
+     # go generate ./...
+@@ -48,10 +56,7 @@ EOF
+
+ WORKDIR /app
+
+FROM gcr.io/distroless/static-debian12@sha256:6ceafbc2a9c566d66448fb1d5381dede2b29200d1916e03f5238a1c437e7d9ea
+
+ COPY --from=builder /app/bin /app/bin
+```
+
+```diff bash
+ # buildah sets 2 sec timeout for ssh-agent so you have low chance to successfully enter passphrase.
+ ssh-add -T ~/.ssh/id_ecdsa.pub
+
++# this is really needed.
++export HTTP_PROXY=${HTTP_PROXY}
++export HTTPS_PROXY=${HTTPS_PROXY:-$HTTP_PROXY}
++# maybe being empty is ok.
++export NO_PROXY=${NO_PROXY:-""}
++export http_proxy=${http_proxy:-$HTTP_PROXY}
++export https_proxy=${https_proxy:-$HTTPS_PROXY}
++export no_proxy=${no_proxy:-$NO_PROXY}
++
+ podman buildx build \
+     --platform linux/${arch} \
+     --build-arg TAG_GOVER=${TAG_GOVER} \
+     --build-arg MAIN_PKG_PATH=${MAIN_PKG_PATH:-./} \
+     --build-arg GOPRIVATE=${GOPRIVATE:-""} \
++    --secret id=netrc,src=${NETRC:-$HOME/.netrc} \
+     --secret id=goenv,src=$(go env GOENV) \
+-    --ssh default=${SSH_AUTH_SOCK:-""} \
++    --build-arg SSL_CERT_FILE=${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt} \
++    --secret id=certs,src=${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt} \
++    --secret id=HTTP_PROXY \
++    --secret id=HTTPS_PROXY \
++    --secret id=NO_PROXY \
++    --secret id=http_proxy \
++    --secret id=https_proxy \
++    --secret id=no_proxy \
+     -t ${1}-${arch} \
+     -f Containerfile \
+     .
+```
 
 ### その他のプラクティス集
 
@@ -1083,8 +1167,8 @@ https://docs.docker.com/reference/dockerfile#user
 
 https://docs.docker.com/reference/dockerfile#volume
 
-`docker`|`podman`は`(docker|podman) container create --mount type=volume,src=foo,dst=${dst}`でマウント指定してねという意思表明として使うものなんだと思います。
 (少なくとも)`docker`では指定がなければanonymous volumeを作ってマウントします。
+`(docker|podman) container create --mount type=volume,src=foo,dst=${dst}`でマウント指定してねという意思表明として使うものなんだと思います。
 
 ```dockerfile
 COPY . /data
@@ -1116,7 +1200,7 @@ CPU Architectureとはプログラムから見ると命令セットの仕様の�
 `arm64`(`aarch64`)は`amd64`(`x86_64`)より安価なので利用される場面が多いようです。
 
 ビルドシステムが動作しているマシンとは異なるOS/アーキテクチャ向けにプログラムをビルドすることをcross-compilationなどと呼びます([Wikipedia: Cross-Compiler](https://en.wikipedia.org/wiki/Cross_compiler))。
-`Go`は容易に別システム向けのバイナリをビルドできますが、コンテナは`Go`だけでは済まないことがあるため、`qemu`などのVMを使ってcross-compilationを行います。
+`Go`は容易に別プラットフォーム向けのバイナリをビルドできますが、コンテナは`Go`だけでは済まないことがあるため、`qemu`などのVMを使ってcross-compilationを行います。
 
 `buildah`のドキュメント曰く`multi-arch build`には`qemu-user-static`が必要です([\[1\]](https://github.com/containers/buildah/blob/v1.42.1/docs/buildah-build.1.md), [\[2\]](https://github.com/containers/buildah/blob/v1.42.1/docs/buildah-from.1.md))。dockerでも同様です(がサードパーティツールでqemu-userを導入させる形式なようです)([\[3\]](https://docs.docker.com/build/building/multi-platform/#qemu))。
 
@@ -1183,9 +1267,9 @@ yay
 
 ## おわりに
 
-同僚の書いた`Dockerfile`が`build-essential`やどでかい依存を丸ごとイメージに残しているからビルドや配布物のアップロードに時間がかかって辛い思いをしたあの夜や、どうやって`Dockerfile`を書くのか微妙に思い出せなくて過去に書いた`Dockerfile`を引っ張り出してコピペしなおしたあの時の自分を救うためにいろいろ書きました。
+自分が書いた`Dockerfile`を参照しなおすためにいろんなところを何度も開き直している自分を見つけたのでまとめておきました。
 
-private gitを使うさいのビルド方法は結構難儀したしあまりまとまって書かれていることもないように思うのでまとめました。
+private gitを使うさいのビルド方法は結構難儀しましたが、あまり書かれてるところを見たことがない気がしたので書いておいてよかったと思います。
 
 資料や挙動は確認できるものはしていますが、間違っている場合にはコメントで教えていただけると幸いです。
 
