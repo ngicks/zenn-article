@@ -483,7 +483,7 @@ $ docker image pull golang:1.25.4-bookworm
 
 https://hub.docker.com/_/golang
 
-`Docker`の場合、imageの名前は以下のようになっています
+`Docker`のdocument曰く、imageの名前は以下の仕様に従います。
 
 https://docs.docker.com/reference/cli/docker/image/tag/#description
 
@@ -512,7 +512,7 @@ multi-stage buildは`Dockerfile`に`FROM`が複数あることをさします。
 - `COPY --from=<stage-name>`で成果物のコピーが可能
 - 最終的なビルドステージのみがイメージに保存されます。
 
-ビルド環境と実行環境を別のステージとして用意し、最終的なイメージには実行環境を残す野が典型的な使い方になると思います。
+ビルド環境と実行環境を別のステージとして用意し、最終的なイメージには実行環境を残すのが典型的な使い方になると思います。
 
 つまりメリットとして以下があります。
 
@@ -645,10 +645,18 @@ EOF
     - `GOPATH`(`/go`): [26794#issuecomment-442953703](https://github.com/golang/go/issues/26794#issuecomment-442953703)
     - `GOCACHE`(`~/.cache/go-build`): `go help cache`参照: `The cache is safe for concurrent invocations of the go command.`
 - どっちかわかんない場合は`private`か`locked`にしておくと(効率は落ちるが)安全。
-- debian系のベースイメージは`apt`キャッシュを消す設定になっている。
-  - 実際にコンテナに入って`/etc/apt/apt.conf.d/docker-clean`の中身を見たらわかりますが、ダウンロードしたキャッシュなどを消す設定が入っています。
-  - これはdockerユーザー向けの気遣いです。
-    - キャッシュをかけないケースではこの設定のほうがイメージが軽くなるので良いです。
+
+これに関連して、ベースイメージがキャッシュを消す設定をしている場合、これを覆す必要があります。
+例では以下のように、`apt`のキャッシュが残るように設定を行っています。
+
+```dockerfile
+RUN <<EOF
+    rm -f /etc/apt/apt.conf.d/docker-clean
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+EOF
+```
+
+実際にコンテナに入って`/etc/apt/apt.conf.d/docker-clean`の中身を見たらわかりますが、ダウンロードしたキャッシュなどを消す設定が入っています。これはdockerユーザー向けの気遣いです。キャッシュをかけないケースではこの設定のほうがイメージが軽くなるので良いです。
 
 ### ポイント5: RUN --mount=type=bindでソースコードをマウントする
 
