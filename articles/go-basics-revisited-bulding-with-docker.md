@@ -262,7 +262,7 @@ $ mv docker-credential-pass ~/.local/bin
 
 [podman-static]を利用してビルドします。
 
-[podman-static]は`static`(=動的にロードされるライブラリがない=ホスト環境に対する依存性が低い)に`podman`をビルドするためのスクリプト集です。ちなみに`docker`コマンドが必要です。古いバージョンの`podman`を使っても(`alias docker=podman`)行けると思います。
+[podman-static]は`static`(=動的にロードされるライブラリがない=ホスト環境に対する依存性が低い)に`podman`をビルドするためのスクリプト集です。ちなみに`docker`コマンドが必要です。
 
 repositoryをcloneして下記を実行し、`./build/asset/podman-linux-amd64`以下のファイルを適当なところにコピーしたら完了です。
 
@@ -273,8 +273,9 @@ repositoryをcloneして下記を実行し、`./build/asset/podman-linux-amd64`�
   sudo make singlearch-tar
 ```
 
+(`rootless docker`なら`sudo`を外す)
+
 `./build/asset/podman-linux-amd64`以下を`/`以下に構造を保ったままコピーしていけば標準的なパスに`podman`が入るような状態になるようです。
-(`sudo`がつくのは`docker`コマンドの実行のために必要なだけで、`rootless`にしている場合などは`sudo`なしで実行する)
 
 筆者は`~/.local/share/podman`以下にビルド成果物をまとめておきたかったためさらに追加のビルドスクリプトを組んでいます。
 
@@ -309,7 +310,7 @@ build/podman-static/install.sh
 コードはここに置いてあります: https://github.com/ngicks/go-example-basics-revisited/tree/main/building-with-docker
 
 通常版・企業プロキシ下版両方を示してから各パートとポイントについて説明し、最新のパッチバージョンを取得する方法を含んだビルドスクリプトを示します。
-最後におまけとしてmulti-archビルド(`amd64`(でストップPCなど)で`arm64`(Raspberry Piなど)むけのimageをビルドすること)をする方法を示します。
+最後におまけとしてmulti-archビルド(`amd64`(デスクトップPCなど)で`arm64`(Raspberry Piなど)むけのimageをビルドすること)をする方法を示します。
 
 ### Dockerfile(Containerfile)の例
 
@@ -512,7 +513,8 @@ ENTRYPOINT [ "/app/bin" ]
 
 - `git-lfs`を入れよう: [以前の記事のこの部分](https://zenn.dev/ngicks/articles/go-basics-revisited-starting-projects#git-lfs%E3%82%92%E5%B0%8E%E5%85%A5%E3%81%97%E3%81%A6%E3%81%84%E3%82%8B%E5%A0%B4%E5%90%88%E3%81%AF%E3%81%99%E3%81%B9%E3%81%A6%E3%81%AE%E7%92%B0%E5%A2%83%E3%81%A7git-lfs%E3%82%92%E4%BD%BF%E3%81%86%E3%82%88%E3%81%86%E3%81%AB%E6%B0%97%E3%82%92%E4%BB%98%E3%81%91%E3%82%8B)でも書きましたが、`git-lfs`はとりあえずすべての環境に入れておいたほうがいいです。
   - private gitからGo moduleを落としてくるとき、`git-lfs`の有無で`git fetch`した結果が変わるためmodule sumが食い違ってしまうためです。
-- `CGO`使わない場合は`CGO_ENABLED=0`に: static binaryを出力すると、`glibc`などのバージョン差を気にしなくてよくなる
+- `CGO`使わない場合は`CGO_ENABLED=0`にしてstatic binaryに: 動的ロードされるライブラリをなくすと環境の自由度が上がります。
+  - `glibc`などのバージョン差を気にしなくてよくなる
   - コンテナ内で使うならば特にバージョンずれるとかない気がするので常に`1`でも問題ない気はします。
   - `CGO`必要になる場合、例えば[github.com/mattn/go-sqlite3](https://github.com/mattn/go-sqlite3)を使う場合は明示的に`1`にします。
 - 最終ステージは[distroless](https://github.com/GoogleContainerTools/distroless)にしてもいい
@@ -553,6 +555,8 @@ https://docs.docker.com/build/buildkit/frontend/
 
 のような感じで、バージョン範囲の指定も行えるとあります。
 ただ、筆者の体験する限りバージョンが上がることで変更された挙動によってうまく動かなくなったことはなかったためとりあえず`:1`の指定の仕方を推奨しておきます。トラブルが起きたらより狭い固定をしましょう。
+
+`podman`というか`buildah`はこの設定読んでない気がします。
 
 ### ポイント2: `docker.io/library`を省略しない
 
@@ -734,6 +738,7 @@ EOF
 
 - 同時アクセス不可なものは`sharing=locked`をつける。
   - `apt`は同時に１つしか実行できない。
+- 同時アクセス可のものは何もつけない。
   - `Go`のキャッシュはconcurrenct-safe
     - `GOPATH`(`/go`): [26794#issuecomment-442953703](https://github.com/golang/go/issues/26794#issuecomment-442953703)
     - `GOCACHE`(`~/.cache/go-build`): `go help cache`参照: `The cache is safe for concurrent invocations of the go command.`
