@@ -1281,16 +1281,16 @@ https://docs.docker.com/reference/dockerfile#user
   - ランタイム側が`rootless`だった場合は`fake root`(=コンテナ内におけるuid=0, ホストにおける`docker`/`podman`コマンド実行者)で動作し続けるほうが望ましい
 - ホストのファイルに触らない(=bind mountしない)ならそもそもuid/gidはなんでもいい
 
-逆に言うと`Dockerfile`は動作時に`--user`でユーザーが切り替わっていても動作できるような考慮が必要です。
+逆に言うと`Dockerfile`は`--user`でユーザーが切り替わっていても動作できるような考慮が必要です。
 
-#### VOLUMEは既存のディレクトリを指定してはいけない
+#### VOLUMEはイメージ内に存在するディレクトリを指定してはいけない
 
 `VOLUME` instrcuctionで指定したディレクトリをvolumeとしてホストのディスクをマウントすべきかを指定できます。
 
 https://docs.docker.com/reference/dockerfile#volume
 
+`(docker|podman) container create --mount type=volume,src=${foo},dst=${bar}`でこのパスに外部ストレージをマウントしてねという意思表明として使うものなんだと思います。
 (少なくとも)`docker`では指定がなければanonymous volumeを作ってマウントします。
-`(docker|podman) container create --mount type=volume,src=${foo},dst=${bar}`でマウント指定してねという意思表明として使うものなんだと思います。
 
 ```dockerfile
 COPY . /data
