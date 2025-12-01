@@ -247,6 +247,17 @@ sudo -E apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plug
 
 https://docs.docker.com/engine/security/rootless/
 
+筆者の環境では`rootless`化すると`docker-credential-pass`が`PATH`に見つからないというエラーでビルドが行えなかったので下記から落として適当な位置に置きました。
+
+https://github.com/docker/docker-credential-helpers
+
+```
+$ cd $(mktemp -d)
+$ curl -L https://github.com/docker/docker-credential-helpers/releases/download/v0.9.4/docker-credential-pass-v0.9.4.linux-amd64 -o docker-credential-pass
+$ chmod +x docker-credential-pass
+$ mv docker-credential-pass ~/.local/bin
+```
+
 ### podman
 
 [podman-static]を利用してビルドします。
@@ -385,6 +396,71 @@ ARG SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
 ARG NODE_EXTRA_CA_CERTS=${SSL_CERT_FILE}
 ARG DENO_CERT=${SSL_CERT_FILE}
 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
+<<EOF
+    rm -f /etc/apt/apt.conf.d/docker-clean
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+    apt-get update
+    apt-get install -yqq --no-install-recommends git-lfs
+EOF
+
+WORKDIR /app/src
+
+RUN --mount=type=secret,id=netrc,target=/root/.netrc \
+    --mount=type=secret,id=goenv,target=/root/.config/go/env \
+    --mount=type=cache,target=/go \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,target=/app/src \
+    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
+<<EOF
+    go mod download
+    # go generate ./...
+    go build -o ../bin ${MAIN_PKG_PATH}
+EOF
+
+WORKDIR /app
+
+FROM gcr.io/distroless/static-debian12@sha256:6ceafbc2a9c566d66448fb1d5381dede2b29200d1916e03f5238a1c437e7d9ea
+
+COPY --from=builder /app/bin /app/bin
+
+ENTRYPOINT [ "/app/bin" ]
+```
+
+:::details dockerなら動くもうちょいセキュア版
+
+`HTTP_PROXY`などをsecret mountするようにしたほうがセキュアだと思いますが、podmanだと動かなかった・・・
+
+```dockerfile
+# syntax=docker/dockerfile:1
+
+ARG TAG_GOVER="1.25.0"
+ARG TAG_DISTRO="bookworm"
+
+FROM docker.io/library/golang:${TAG_GOVER}-${TAG_DISTRO} AS builder
+
+ARG CGO_ENABLED="0"
+ARG GOCACHE="/root/.cache/go-build"
+ARG GOENV="/root/.config/go/env"
+ARG GOPATH="/go"
+ARG GOPRIVATE=""
+
+ARG MAIN_PKG_PATH="."
+
+# for curl, etc.
+ARG SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+ARG NODE_EXTRA_CA_CERTS=${SSL_CERT_FILE}
+ARG DENO_CERT=${SSL_CERT_FILE}
+
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
@@ -429,6 +505,8 @@ COPY --from=builder /app/bin /app/bin
 
 ENTRYPOINT [ "/app/bin" ]
 ```
+
+:::
 
 ### Go固有のポイント
 
@@ -1019,9 +1097,9 @@ yay
 ### 企業プロキシ下版の考慮点
 
 - `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`とそれらの小文字版を環境変数として導入。
-  - BasicAuth必要なproxyの場合秘密情報を含むので、[secret mount](https://docs.docker.com/reference/dockerfile#run---mounttypesecret)で環境変数としてマウントします。
+  - `Docker`の場合: BasicAuth必要なproxyの場合秘密情報を含むので、[secret mount](https://docs.docker.com/reference/dockerfile#run---mounttypesecret)で環境変数としてマウントします。
+  - podmanの場合: `RUN --mount=type=secret,type=env`が動作しなかったので`build-arg`として導入します。
   - (別のフォワードプロキシを立ててそこのURLを指定する、そのプロキシでBasicAuthの情報を付け足す、という方法のほうがいいんではないかと思いますが)
-  - すんげえ長くなるんで`ARG`で渡したほうがいいかもしれないです。
 - 企業プロキシは`ssh`を通さないことが多いみたいなので`ssh`関連のものは全部削除
 - `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `DENO_CERT`を宣言することで`curl`など、`Node.js`、`deno`がそれぞれが企業プロキシのオレオレ証明書を含んだca bundleを使うように指定します。
   - imageに`ca-certificates`パッケージを導入する場合はパスかぶりを避けるため`/etc/ssl/certs/ca-certificates.crt`以外の位置(`/ca-certificates.crt`など)を指定してマウント位置も買えたらいいです。
@@ -1042,15 +1120,16 @@ yay
 +ARG NODE_EXTRA_CA_CERTS=${SSL_CERT_FILE}
 +ARG DENO_CERT=${SSL_CERT_FILE}
 +
++ARG HTTP_PROXY
++ARG HTTPS_PROXY
++ARG NO_PROXY
++ARG http_proxy
++ARG https_proxy
++ARG no_proxy
++
  RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
      --mount=type=cache,target=/var/lib/apt,sharing=locked \
 +    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
-+    --mount=type=secret,id=HTTP_PROXY,env=HTTP_PROXY \
-+    --mount=type=secret,id=HTTPS_PROXY,env=HTTPS_PROXY \
-+    --mount=type=secret,id=NO_PROXY,env=NO_PROXY \
-+    --mount=type=secret,id=http_proxy,env=http_proxy\
-+    --mount=type=secret,id=https_proxy,env=https_proxy \
-+    --mount=type=secret,id=no_proxy,env=no_proxy \
  <<EOF
      rm -f /etc/apt/apt.conf.d/docker-clean
      echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
@@ -1078,49 +1157,91 @@ yay
      --mount=type=cache,target=/root/.cache/go-build \
      --mount=type=bind,target=/app/src \
 +    --mount=type=secret,id=certs,target=/etc/ssl/certs/ca-certificates.crt \
-+    --mount=type=secret,id=HTTP_PROXY,env=HTTP_PROXY \
-+    --mount=type=secret,id=HTTPS_PROXY,env=HTTPS_PROXY \
-+    --mount=type=secret,id=NO_PROXY,env=NO_PROXY \
-+    --mount=type=secret,id=http_proxy,env=http_proxy\
-+    --mount=type=secret,id=https_proxy,env=https_proxy \
-+    --mount=type=secret,id=no_proxy,env=no_proxy \
  <<EOF
      go mod download
      # go generate ./...
+@@ -48,10 +51,7 @@ EOF
+
+ WORKDIR /app
+
+-# arm64
+-FROM gcr.io/distroless/static-debian12@sha256:ed92139a33080a51ac2e0607c781a67fb3facf2e6b3b04a2238703d8bcf39c40
+-# amd64
+-# FROM gcr.io/distroless/static-debian12@sha256:6ceafbc2a9c566d66448fb1d5381dede2b29200d1916e03f5238a1c437e7d9ea
++FROM gcr.io/distroless/static-debian12@sha256:6ceafbc2a9c566d66448fb1d5381dede2b29200d1916e03f5238a1c437e7d9ea
+
+ COPY --from=builder /app/bin /app/bin
 ```
 
-```diff bash
- # buildah sets 2 sec timeout for ssh-agent so you have low chance to successfully enter passphrase.
- ssh-add -T ~/.ssh/id_ecdsa.pub
+ビルドは以下のスクリプトで行います。
 
-+# this is really needed.
-+export HTTP_PROXY=${HTTP_PROXY}
-+export HTTPS_PROXY=${HTTPS_PROXY:-$HTTP_PROXY}
-+# maybe being empty is ok.
-+export NO_PROXY=${NO_PROXY:-""}
-+export http_proxy=${http_proxy:-$HTTP_PROXY}
-+export https_proxy=${https_proxy:-$HTTPS_PROXY}
-+export no_proxy=${no_proxy:-$NO_PROXY}
-+
- podman buildx build \
-     --platform linux/${arch} \
-     --build-arg TAG_GOVER=${TAG_GOVER} \
-     --build-arg MAIN_PKG_PATH=${MAIN_PKG_PATH:-./} \
-     --build-arg GOPRIVATE=${GOPRIVATE:-""} \
-     --secret id=goenv,src=$(go env GOENV) \
-+    --secret id=netrc,src=${NETRC:-$HOME/.netrc} \
--    --ssh default=${SSH_AUTH_SOCK:-""} \
-+    --build-arg SSL_CERT_FILE=${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt} \
-+    --secret id=certs,src=${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt} \
-+    --secret id=HTTP_PROXY \
-+    --secret id=HTTPS_PROXY \
-+    --secret id=NO_PROXY \
-+    --secret id=http_proxy \
-+    --secret id=https_proxy \
-+    --secret id=no_proxy \
-     -t ${1}-${arch} \
-     -f Containerfile \
-     .
+```bash
+#! /bin/sh
+
+set -Cue
+
+if [ -z ${1:-""} ]; then
+  echo "set repo:tag as first cli argument"
+  exit 1
+fi
+
+TAG_GOVER=1.25.0
+if [ -f ./ver ]; then
+  TAG_GOVER=$(cat ./ver)
+fi
+
+arch=${TARGET_ARCH:-""}
+
+if [ -z ${arch} ]; then
+  case $(uname -m) in
+    "x86_64")
+      arch="amd64";;
+    "x86_64-AT386")
+      arch="amd64";;
+    "aarch64_be")
+      arch="arm64be";;
+    "aarch64")
+      arch="arm64";;
+    "armv8b")
+      arch="arm64";;
+    "armv8l")
+      arch="arm64";;
+  esac
+fi
+
+if [ -z $arch ]; then
+  echo "arch unknown: $(uname -m)"
+  exit 1
+fi
+
+echo $arch
+
+# this is really needed.
+export HTTP_PROXY=${HTTP_PROXY}
+export HTTPS_PROXY=${HTTPS_PROXY:-$HTTP_PROXY}
+# maybe being empty is ok.
+export NO_PROXY=${NO_PROXY:-""}
+export http_proxy=${http_proxy:-$HTTP_PROXY}
+export https_proxy=${https_proxy:-$HTTPS_PROXY}
+export no_proxy=${no_proxy:-$NO_PROXY}
+
+podman buildx build \
+    --platform linux/${arch} \
+    --build-arg TAG_GOVER=${TAG_GOVER} \
+    --build-arg MAIN_PKG_PATH=${MAIN_PKG_PATH:-./} \
+    --build-arg GOPRIVATE=${GOPRIVATE:-""} \
+    --secret id=goenv,src=$(go env GOENV) \
+    --secret id=netrc,src=${NETRC:-$HOME/.netrc} \
+    --secret id=certs,src=${SSL_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt} \
+    --build-arg HTTP_PROXY=${HTTP_PROXY} \
+    --build-arg HTTPS_PROXY=${HTTPS_PROXY} \
+    --build-arg NO_PROXY=${NO_PROXY} \
+    --build-arg http_proxy=${http_proxy} \
+    --build-arg https_proxy=${https_proxy} \
+    --build-arg no_proxy=${no_proxy} \
+    -t ${1}-${arch} \
+    -f behind-proxy.Containerfile \
+    .
 ```
 
 ### その他のプラクティス集
