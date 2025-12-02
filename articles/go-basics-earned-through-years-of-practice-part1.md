@@ -13,6 +13,12 @@ dockerでビルドする周りの話以外は書きなおしました(dockerで�
 
 https://zenn.dev/ngicks/articles/go-basics-revisited-starting-projects
 
+// EDIT 2025-12-02
+
+dockerでビルドする周りの話も書きなおしました。
+
+https://zenn.dev/ngicks/articles/go-basics-revisited-bulding-with-docker
+
 ## Goで開発して3年のプラクティスまとめ(1/4): プロジェクトを始めるまで編
 
 yet another入門記事です。
