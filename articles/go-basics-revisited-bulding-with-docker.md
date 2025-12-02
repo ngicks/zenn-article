@@ -3,7 +3,7 @@ title: "Goのプラクティスまとめ: dockerによるビルド"
 emoji: "💪"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["go"]
-published: false
+published: true
 ---
 
 ## Goのプラクティスまとめ: dockerによるビルド
@@ -1277,7 +1277,10 @@ CMD ["-c"]
 
 https://docs.docker.com/reference/dockerfile#user
 
-筆者は「`(docker|podman)container create --user`でcontainer creation時にユーザーを変える運用をしたいから、イメージは切り替えるべきではない」派です。
+前述通り`rootful`なコンテナのuid=0(`root`)はコンテナ外でもuid=0です。
+事故を防ぐためには`Dockerfile`内で`USER`インストラクションを使ってユーザーを切り替えておくと高い権限でコンテナアプリが実行される事故が防げます。
+
+ただ筆者は「`(docker|podman)container create --user`でcontainer creation時にユーザーを変える運用をするからどっちでもいい」派です。
 
 理由は簡単で
 
@@ -1287,6 +1290,11 @@ https://docs.docker.com/reference/dockerfile#user
 - ホストのファイルに触らない(=bind mountしない)ならそもそもuid/gidはなんでもいい
 
 逆に言うと`Dockerfile`は`--user`でユーザーが切り替わっていても動作できるような考慮が必要です。
+うっかり`root`で`mkdir`したりするとファイルが作れなくて困ります。
+
+ちなみに最もやりづらいパターンが`ENTRYPOINT`で指定されたプログラムの中で`root`から別ユーザーに切り替えるパターンです。
+[docker.elastic.co/elasticsearch/elasticsearch-oss](https://www.docker.elastic.co/r/elasticsearch/elasticsearch-oss)がこれをするのでずいぶん困りました・・・
+そういうのやらないでほしいなっていうのが筆者の願いです。
 
 #### VOLUMEはイメージ内に存在するディレクトリを指定してはいけない
 
@@ -1313,6 +1321,13 @@ VOLUME ["/data"]
 anonymous volumeの管理をしないためにも`VOLUME` instruction自体使わないようにし、`--mount type=volume`を指定するときも`dst`はイメージ内に存在しないパスにしたほうが良いでしょう。
 
 この挙動はdocker v20.10.xあたりの時点でソースコードを読んで確認しています。多分変わってないと思います。
+
+#### --read-onlyで動作させよう
+
+`--read-only`かつ(`podman`では`--read-only-tmpfs=false`)でコンテナを動作させましょう。
+
+コンテナのroot filesystemはデフォルトでは読み書き可能ですが書いてしまうとコンテナにステートが保存されてしまい、コンテナの再生成でそのステートがリセットされてしまいます。
+`docker compose`は環境変数などの設定が変わるとイメージのバージョンが同じでもコンテナの再生成が起こるため、`--read-only`をつけて万一にも意図しない場所への書き込みが起きないことを保証しておくのが(本番環境では)おすすめです。
 
 ## (おまけ)multi-arch build
 
