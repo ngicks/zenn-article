@@ -435,7 +435,7 @@ mise up
 
 最近はサプライチェーン攻撃が怖い([\[1\]](https://semgrep.dev/blog/2025/chalk-debug-and-color-on-npm-compromised-in-new-supply-chain-attack/))ので`"1.25.2"`のようなexact versionを指定して[renovate](https://docs.renovatebot.com/modules/manager/mise/)で自動更新してもらうほうがいいかもしれないですね。
 
-参考までに: [筆者のdotfilesのmise config](https://github.com/ngicks/dotfiles/blob/main/.config/mise/config.toml)
+参考までに: [筆者のdotfilesのmise config](https://github.com/ngicks/dotfiles/blob/main/.config/mise)
 
 ## エディタのセットアップ
 
