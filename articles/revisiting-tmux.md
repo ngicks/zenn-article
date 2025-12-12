@@ -19,7 +19,7 @@ zenn上で[zellij]の記事が少なかったので応援記事を書こうと�
 
 [tmux], [zellij]はいわゆるtermianl multiplexer, 1つのterminal windowを複数に分割して複数のterminalを操作したり、セッション管理を行うことでsshログイン先で実行したコマンドを中断せずにデタッチできるようにしたりします。
 
-おおむね機能的には同じですが、以下が異なります。
+おおむね機能的には同じですが、両者は以下が異なります。
 
 - 画面見たときの分かりやすさ
   - `tmux`は操作を覚える前提で画面に情報が少ない
@@ -38,9 +38,9 @@ zenn上で[zellij]の記事が少なかったので応援記事を書こうと�
   - `tmux`はカスタマイズ必須だと思います
   - `zellij`は割と設定なしでも使えます。(motion周りは変えたほうがいいかも)
 - mode数
-  - `tmux`は`prefix`(デフォルトで`Ctrl-b`)があり、これの続いて個別のキーを打つことで`tmux`固有の機能を使用します。`tmux`には通常modeと`copy mode`があり、`copy mode`でterminalをスクロールしたり、コピーしたりします。
+  - `tmux`は`prefix`(デフォルトで`Ctrl-b`)があり、これに続いて個別のキーを打つことで`tmux`固有の機能を使用します。`tmux`には通常modeと`copy mode`があり、`copy mode`でterminalをスクロールしたり、コピーしたりします。
   - `zellij`には[たくさんmodeがあります](https://zellij.dev/documentation/keybindings-modes.html)。`normal`/`pane`/`resize`/`tab`/`scroll`/`session`みたいな感じで、操作対象に合わせてmodeを切り替えて、modeによってキーに対応する機能が変わる感じです。
-    - mode間で共通のバインドがデフォルトでたくさんあり、これがほかのアプリと被ることがあります。例えば`codex`のtranscript modeは`Ctrl-t`で移行できますが、`zellij`デフォルトの`tab` modeと被ります。かぶってる場合に備えて、ほとんど何のバインドもしない`locked` modeがあります。
+    - mode間で共通のバインドがデフォルトでたくさんあり、これがほかのアプリと被ることがあります。例えばデフォルトでは`Ctrl-t`で`Tab` modeに入れますが、これは`codex`のtranscript modeのbindと被っています。かぶってる場合に備えて、ほとんど何のバインドもしない`locked` modeがあります。
 
 ### どうしてzellijに移行したのか,何が優れていたか
 
@@ -92,7 +92,7 @@ zenn上で[zellij]の記事が少なかったので応援記事を書こうと�
 
 `prefix f`はデフォルトだと`search window`がふられていますね。
 
-`zellij`ではfullscreen自はtabのところに`(FULLSCREEN)`と表示されて分かりやすいです。この挙動をパクるためにはstatus rightにzoomかnormalなのかを表示することにしましょう。
+`zellij`ではfullscreen時はtabのの名前の末尾に`(FULLSCREEN)`と表示されて分かりやすいです。この挙動をパクるためにはstatus rightにzoomかnormalなのかを表示することにしましょう。
 
 ```bash: ~/.config/tmux/set_status_right.sh
 . ~/.config/tmux/color_scheme.sh
@@ -190,10 +190,19 @@ tmux display-popup -w 90% -h 90% $c_opt -E "sh -c '${editor_cmd_str:1}' --"
 +bind-key -T prefix c new-window -c "#{pane_current_path}"
 ```
 
+### dragで選択部分がクリップボードにコピーされる挙動を消す。
+
+[tmux]のデフォルトがこうなのですが、マウス操作とハイブリッドでやってると、うっかりターミナルをクリックしてしまってコピーバッファが吹き飛んだりして、気を遣うのでなくしたほうがいいなと[zellij]を使ってて思いました。
+
+```diff tmux.conf: ~/.config/tmux/tmux.conf
++unbind -T copy-mode-vi MouseDragEnd1Pane
++unbind -T copy-mode MouseDragEnd1Pane
+```
+
 ### sync-modeのbind
 
 [zellij]だと`Tab` modeの`s`がsync modeに割り当てられていて、ずいぶん便利だなと思わされました。
-[tmux]出はデフォルトだと特にbindがないため`prefix :`でプロンプトを表示して`set-window-option synchronize-panes on`と打ち込む必要がって面倒で使っていませんでした。
+[tmux]ではデフォルトだと特にbindがないため`prefix :`でプロンプトを表示して`set-window-option synchronize-panes on`と打ち込む必要があって面倒で使っていませんでした。
 やっぱbindしたほうがいいですね(あたりまえ)
 
 ```diff tmux.conf: ~/.config/tmux/tmux.conf
