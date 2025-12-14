@@ -90,7 +90,7 @@ zenn上で[zellij]の記事が少なかったので応援記事を書こうと�
 +bind-key -T prefix f resize-pane -Z
 ```
 
-`prefix f`はデフォルトだと`search window`がふられていますね。
+`prefix f`はデフォルトだと`command-prompt { find-window -Z "%%" }`がふられていますね。
 
 `zellij`ではfullscreen時はtabのの名前の末尾に`(FULLSCREEN)`と表示されて分かりやすいです。この挙動をパクるためにはstatus rightにzoomかnormalなのかを表示することにしましょう。
 
