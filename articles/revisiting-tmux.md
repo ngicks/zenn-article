@@ -3,7 +3,7 @@ title: "tmuxからzellijに移行したけどやっぱtmuxに戻した話"
 emoji: "🪟"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["tmux", "zellij"]
-published: false
+published: true
 ---
 
 ## tmuxからzellijに移行したけどやっぱtmuxに戻した話
@@ -122,11 +122,12 @@ run-shell "$SHELL ~/.config/tmux/set_status_right.sh"
 
 [zellij]には`Edit Scrollback`といってpaneに表示している内容を`${EDITOR:-${VISUAL:-vim}}`もしくは設定ファイルで指定したeditorで開く機能があります。
 
-[tmux]では`copy mode`に入るとvimの操作バインドでterminal内にカーソルを移動させてコピーを行えますが、`Edit Scrollback`はさらにこれを超えてあなたの好みのエディター(`neovim`など)でコピーを行うことができます。
+[tmux]では`copy mode`に入ると`emacs`/`vi`の操作バインドでterminal内にカーソルを移動させてコピーを行えますが、`Edit Scrollback`はさらにこれを超えてあなたの好みのエディター(`neovim`など)でコピーを行うことができます。
 これがすごく便利であったので、[tmux]でも使えるようにします。
 
-`zellij`の`Edit Scrollback`はそのpaneをeditorに差し替えてその場で開かせる形式です。`tmux`で全く同じ挙動ができるかわかりませんし、普段から使うエディターが開くので単に編集してるのか`Edit Scrollback`にいるのかわかりにくくなってしまっていました。
-そこで、この設定では`tmux popup`を使います。
+やり方はシンプルで`tmux capture-pane`でpaneの内容を一時ファイルに吐き、これをeditorで開くというものです。
+`zellij`とは違い、下記スクリプトでは`tmux display-popup`で開いたpopup paneの中でeditorを開きます。
+`zellij`ではその場でpaneをeditorに差し替えます。これが`tmux`で再現できるのかわからなかったのと、使っていて案外紛らわしいのでpopupにしたほうが明快だろうという判断です。
 
 ```bash
 #!/bin/bash
@@ -169,12 +170,10 @@ printf -v editor_cmd_str ' %q' "${editor_cmd[@]}"
 tmux display-popup -w 90% -h 90% $c_opt -E "sh -c '${editor_cmd_str:1}' --"
 ```
 
-`tmux capture-pane`でpaneの内容を一時ファイルに吐き、これをeditorで開くという大体同じ挙動が実装できました。
-
 `vi`/`vim`/`nvim`/`nano`はファイルを開くときのカーソル位置をcli optionで指定できますが他のエディターの設定の仕方はよく知らないので未対応になっています。
 そもそも筆者は`vim`/`nvim`(`neovim`)しか使わないのでこれで問題ありません！
 
-`copy mode`の`E`にbindしておきました。
+`copy-mode-vi`の`e`にしたかったんですが、すでにほかのコマンドがあるので`E`しておきました。
 
 ```diff tmux.conf: ~/.config/tmux/tmux.conf
 +bind-key -T copy-mode-vi E run-shell "~/.config/tmux/edit_scrollback.sh #{pane_id}"
