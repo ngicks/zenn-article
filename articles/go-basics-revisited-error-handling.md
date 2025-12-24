@@ -197,7 +197,7 @@ if errors.As(err, &syntaxErr) {
 }
 ```
 
-[errors.As]は第二引数で取り出したいerrorの具体的な型の**変数へのpointer**もしくは任意のinterfaceを渡します。
+[errors.As]は第二引数で取り出したいerrorの具体的な型の**変数へのpointer**を渡します。
 pointer渡しするのは、`As`が第一引数の`err`を探索しながら、第二引数に渡された値の型に代入可能なものを探し、可能ならば代入するからです。
 ですので、`As`がtrueを返す時、上記の`syntaxErr`は取り出されたerrorの値となっています(Offset: 6のように、zero valueでなくなっている。)
 
