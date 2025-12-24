@@ -31,6 +31,10 @@ published: true
 
 (リンク集は別の記事で出そうかと思ったんですが、そういえばzennだとリンク集とか見たことがない、本使えと怒られるかもなあ・・・とちょっと不安になったので一連の記事に相互リンクを張る形にします。)
 
+## EDIT NOTE
+
+2025-12-24: go1.26で追加された[errors.AsType]を追記。[errors.As]の第二引数が任意のinterfaceをとれる野を追記。
+
 ## error handling
 
 `Go`には`try-catch`のような構文や、`Result<T, E>`のようなtagged union typeのようなものは現状存在しません。(sum typeのproposalは長く存在するが一向に進まない。[#19412](https://github.com/golang/go/issues/19412), [#57644](https://github.com/golang/go/issues/57644)など)
@@ -181,18 +185,62 @@ if errors.Is(err, exec.ErrNotFound) {
 
 前述の[\*(encoding/json).SyntaxError](https://pkg.go.dev/encoding/json@go1.22.3#SyntaxError)の例で、[errors.As]を利用すると以下のようになります。
 
+[playground](https://go.dev/play/p/J1t5RJ1_3gY?v=gotip)
+
 ```go
 var tgtData any
 err := json.Unmarshal(brokenJsonBinary, &tgtData)
 var syntaxErr *json.SyntaxError
 if errors.As(err, &syntaxErr) {
-    fmt.Printf("err = %#v\n", syntaxErr) // err2 matched, err = &json.SyntaxError{msg:"", Offset:19}
+    fmt.Printf("err = %#v\n", syntaxErr)
+    // err = &json.SyntaxError{msg:"unexpected end of JSON input", Offset:6}
 }
 ```
 
-[errors.As]は第二引数で取り出したいerrorの具体的な型の**変数へのpointerを**を渡します。
+任意のinterfaceを対象とすることもできます。
+
+```go
+type AError struct{}
+
+func (e *AError) Error() string {
+    return "a"
+}
+
+func (e *AError) A() {}
+
+err := error(&AError{})
+var aErr interface{ A() }
+if errors.As(err, &aErr) {
+    fmt.Printf("err = %#v\n", aErr) // err = &main.AError{}
+}
+var bErr interface{ B() }
+if errors.As(err, &bErr) {
+    fmt.Printf("err = %#v\n", bErr)
+}
+```
+
+[errors.As]は第二引数で取り出したいerrorの具体的な型の**変数へのpointer**もしくは任意のinterfaceを渡します。
 pointer渡しするのは、`As`が第一引数の`err`を探索しながら、第二引数に渡された値の型に代入可能なものを探し、可能ならば代入するからです。
 ですので、`As`がtrueを返す時、上記の`syntaxErr`は取り出されたerrorの値となっています(Offset: 19のように、zero valueでなくなっている。)
+
+Go1.26以降では、[errors.AsType]を使うこともできます。(まだRelease Candidate 1なので使えません!)
+`AsType`は`As`と違い、対象は`error`を実装している必要があります。
+
+```go
+var tgtData any
+err := json.Unmarshal(brokenJsonBinary, &tgtData)
+if syntaxErr, ok := errors.AsType[*json.SyntaxError](err); ok {
+    fmt.Printf("err = %#v\n", syntaxErr)
+    // err = &json.SyntaxError{msg:"unexpected end of JSON input", Offset:6}
+}
+
+if aErr, ok := errors.AsType[interface {
+    error
+    A()
+}](&AError{}); ok {
+    fmt.Printf("err = %#v\n", aErr) // err = &main.AError{}
+}
+```
 
 ### err == tgt / err.(T)
 
@@ -1846,6 +1894,7 @@ func (e *gathered) Format(state fmt.State, verb rune) {
 [errors.New]: https://pkg.go.dev/errors@go1.23.4#New
 [errors.Is]: https://pkg.go.dev/errors@go1.23.4#Is
 [errors.As]: https://pkg.go.dev/errors@go1.23.4#As
+[errors.AsType]: https://pkg.go.dev/errors@go1.26rc1#AsType
 [errors.Join]: https://pkg.go.dev/errors@go1.23.4#Join
 [io.EOF]: https://pkg.go.dev/io@go1.23.4#EOF
 [fs.ErrNotExist]: https://pkg.go.dev/io/fs@go1.23.4#ErrNotExist
