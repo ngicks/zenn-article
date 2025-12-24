@@ -181,7 +181,7 @@ if errors.Is(err, exec.ErrNotFound) {
 // continue working...
 ```
 
-### errors.As/errros.AsType(Go 1.26以降): errorが特定の型を含むかどうかの判別
+### errors.As/errros.AsType: errorが特定の型を含むかどうかの判別
 
 前述の[\*(encoding/json).SyntaxError](https://pkg.go.dev/encoding/json@go1.22.3#SyntaxError)の例で、[errors.As]を利用すると以下のようになります。
 
