@@ -33,7 +33,7 @@ published: true
 
 ## EDIT NOTE
 
-2025-12-24: go1.26で追加された[errors.AsType]を追記。[errors.As]の第二引数が任意のinterfaceをとれる野を追記。
+2025-12-24: go1.26で追加された[errors.AsType]を追記。go1.26はrc1なのでまだ使えません。[errors.As]の第二引数が任意のinterfaceをとれる野を追記。
 
 ## error handling
 
@@ -60,7 +60,7 @@ go version go1.23.2 linux/amd64
 - [fmt.Errorf]でerrorはラップできる
   - 基本的にラップしてメッセージを追加したほうがよい
   - ただし[io.EOF]などはラップしてはいけない
-- [errors.Is], [errors.As]でerrorを判別する
+- [errors.Is], [errors.As]/[errors.AsType]\([Go 1.26]以降\)でerrorを判別する
   - `os.Open`のerrorの判別は[fs.ErrNotExist]などと比較するとよい
 - `error`を実装する型を定義する際には以下を気を付ける
   - method receiverはpointerのほうが良い
@@ -90,7 +90,7 @@ type error interface {
 `error`型の値がnon-nilであるとき、`Error`は返り値でerrorが何に関してなのかとか、どうして起きたのかとかを説明します。
 
 `error`はさらにほかのerrorをラップすることで木構造を構築することがあり、その木構造の中に特定の型や、特定の値を含むことで、どのようなerrorであったのか判定に使われることがあります。
-値や型は後述する[errors.Is]や[errors.As]で探索されます。
+値や型は後述する[errors.Is]や[errors.As]/[errors.AsType]\([Go 1.26]以降\)で探索されます。
 
 ## 基本: 失敗ならerr != nil
 
@@ -158,11 +158,11 @@ if err != nil {
 - errorは基本的に、特定の値(pointerなど)で特定できるものと、型で特定できるものがある
   - e.g. 値 => [io.EOF](https://pkg.go.dev/io#EOF), [net.ErrClosed](https://pkg.go.dev/net@go1.22.3#ErrClosed), [(os/exec).ErrNotFound](https://pkg.go.dev/os/exec@go1.22.3#ErrNotFound)など
   - e.g. 型 => [\*(encoding/json).SyntaxError](https://pkg.go.dev/encoding/json@go1.22.3#SyntaxError), [\*(io/fs).PathError](https://pkg.go.dev/io/fs@go1.22.3#PathError)
-- 取り合えず[errors.Is], [errors.As]を使っておけばよい
+- 取り合えず[errors.Is], [errors.As]/[errors.AsType]\([Go 1.26]以降\)を使っておけばよい
 
-### errors.Is, errors.As
+### errors.Is, errors.As, errors.AsType(Go 1.26以降)
 
-[errors.Is]でerrorが特定の**値**を含むのかどうか、[errors.As]でerrorが特定の**型**を含むのかどうかを判定できます。
+[errors.Is]でerrorが特定の**値**を含むのかどうか、[errors.As]/[errors.AsType]\([Go 1.26]以降\)でerrorが特定の**型**を含むのかどうかを判定できます。
 
 `Go`におけるerrorは木構造を持てます。木構造の構築のしかたは後述しますが、その木構造をdepth-firstで探索して特定の値を含むか、もしくは特定の型を含むかの判定を上記の二つの関数で行います。
 
@@ -181,7 +181,7 @@ if errors.Is(err, exec.ErrNotFound) {
 // continue working...
 ```
 
-### errors.As: errorが特定の型を含むかどうかの判別
+### errors.As/errros.AsType(Go 1.26以降): errorが特定の型を含むかどうかの判別
 
 前述の[\*(encoding/json).SyntaxError](https://pkg.go.dev/encoding/json@go1.22.3#SyntaxError)の例で、[errors.As]を利用すると以下のようになります。
 
@@ -314,7 +314,7 @@ https://github.com/golang/go/blob/go1.23.4/src/syscall/zerrors_windows.go#L6-L14
 
 ## errorのラッピング
 
-前述通りGoの`error`は木構造を持つことができ、[errors.Is], [errors.As]を用いることでその木構造をdepth-firstに探索したマッチができます。
+前述通りGoの`error`は木構造を持つことができ、[errors.Is], [errors.As]/[errors.AsType]\([Go 1.26]以降\)を用いることでその木構造をdepth-firstに探索したマッチができます。
 木構造をたどるには`interface { Unwrap() error }`もしくは`interface { Unwrap() []error }`の実装をチェックし、呼び出すわけですが、この語彙を逆にして、`error`を子ノードとしてもつ`error`を作成することを「ラップする」/「ラッピング」などと呼びます。
 その方法について以下で述べます。
 
@@ -1882,6 +1882,7 @@ func (e *gathered) Format(state fmt.State, verb rune) {
 
 [Go]: https://go.dev/
 [Go 1.23]: https://tip.golang.org/doc/go1.23
+[Go 1.26]: https://tip.golang.org/doc/go1.26
 [C++]: https://en.wikipedia.org/wiki/C%2B%2B
 [Node.js]: https://nodejs.org/en
 [TypeScript]: https://www.typescriptlang.org/
