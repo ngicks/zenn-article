@@ -83,14 +83,9 @@ zenn上で[zellij]の記事が少なかったので応援記事を書こうと�
 [zellij]では`PANE` modeで`f`を押すとfocusされたpanが画面いっぱいに広がってほかのpaneが非表示になる機能があります。
 これが思いのほか便利だったため、[tmux]でも利用したいと思います。
 
-これに当たるのは`tmux`ではzoomです。デフォルトでは`prefix >`で表示されるメニュー上でしかbindが存在しないため、適当に設定します。
+これに当たるのは`tmux`ではzoomです。デフォルトでは `prefix >`で表示されるメニュー上~~でしかbindが存在しないため、適当に設定します。~~もしくは`prefix z`で切り替えることができます。
 
-```diff tmux.conf: ~/.config/tmux/tmux.conf
-+unbind -T prefix f
-+bind-key -T prefix f resize-pane -Z
-```
-
-`prefix f`はデフォルトだと`command-prompt { find-window -Z "%%" }`がふられていますね。
+~~`prefix f`はデフォルトだと`command-prompt { find-window -Z "%%" }`がふられていますね。~~
 
 `zellij`ではfullscreen時はtabのの名前の末尾に`(FULLSCREEN)`と表示されて分かりやすいです。この挙動をパクるためにはstatus rightにzoomかnormalなのかを表示することにしましょう。
 
@@ -200,7 +195,7 @@ tmux display-popup -w 90% -h 90% $c_opt -E "sh -c '${editor_cmd_str:1}' --"
 
 ### sync-modeのbind
 
-[zellij]だと`Tab` modeの`s`がsync modeに割り当てられていて、ずいぶん便利だなと思わされました。
+[zellij]だと ~~`Tab`~~ `Pane` modeの`s`がsync modeに割り当てられていて、ずいぶん便利だなと思わされました。
 [tmux]ではデフォルトだと特にbindがないため`prefix :`でプロンプトを表示して`set-window-option synchronize-panes on`と打ち込む必要があって面倒で使っていませんでした。
 やっぱbindしたほうがいいですね(あたりまえ)
 
