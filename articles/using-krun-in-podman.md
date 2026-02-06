@@ -354,6 +354,7 @@ lrwx------ 1 ngicks ngicks  64 Feb  6 01:06 52 -> anon_inode:kvm-vcpu:15
   - ただし、interfaceが存在しない(`ls /sys/class/net/ -la`に`lo`しかない)
     - 普通の(？)コンテナ環境ではドライバによって`tap`デバイスがあったりします。
     - iface情報見て何かするアプリはうまく動かなくなるかもしれないですね。
+- コンテナ内では`tty`が`not a tty`を返したり、`htop`のようなTUIアプリが部分的にEnterを受け付けなかったり、interactive shellを利用するには困難さがあります。
 
 ## おわりに
 
