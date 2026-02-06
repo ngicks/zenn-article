@@ -1,12 +1,12 @@
 ---
-title: "libkrunをpodman container runで(普通に)使えるようにする"
+title: "libkrunをpodmanで(普通に)使えるようにする"
 emoji: "⛓️"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["podman", "libkrun"]
-published: false
+published: true
 ---
 
-## libkrunをpodman container runで(普通に)使えるようにする
+## libkrunをpodmanで(普通に)使えるようにする
 
 ビルドしたり、バイナリを配置したりのセットをして[libkrun]を使うだけの記事です。
 
@@ -152,7 +152,7 @@ https://github.com/containers/crun/blob/1.26/krun.1.md#description
 ことがわかりました。
 
 前述通り、[podman-static]でビルドする`crun`はstatic binaryだし、`nix`配布の`crun`は`+LIBKRUN`がついていないので有効になっていません。
-自前でビルドする必要がありそうです。
+自前でビルドする必要があるようです。
 
 ### ビルド
 
@@ -346,11 +346,13 @@ lrwx------ 1 ngicks ngicks  64 Feb  6 01:06 52 -> anon_inode:kvm-vcpu:15
 
 他にも以下も確認しました。
 
-- `--mount type=bind`は機能しました
+- `--mount type=bind`
 - `dmesg`のログタイムスタンプからコンテナごとに別のVMが動作していること
-- ネットワークはinterfaceが存在しない(`ls /sys/class/net/ -la`に`lo`しかない)のに通信(`apt update`)は成立します。
-  - 普通の(？)コンテナ環境ではドライバによって`tap`デバイスがあったりします。
-  - iface情報見て何かするアプリはうまく動かなくなるかもしれないですね。
+- 外部への通信が成立すること
+  - なぜかはここを参照: https://rheb.hatenablog.com/entry/libkrun-networking
+  - ただし、interfaceが存在しない(`ls /sys/class/net/ -la`に`lo`しかない)
+    - 普通の(？)コンテナ環境ではドライバによって`tap`デバイスがあったりします。
+    - iface情報見て何かするアプリはうまく動かなくなるかもしれないですね。
 
 ## おわりに
 
