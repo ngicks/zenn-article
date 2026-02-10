@@ -62,16 +62,28 @@ zenn上で[zellij]の記事が少なかったので応援記事を書こうと�
 
 - 画像が表示できない:
   - [sixel](https://en.wikipedia.org/wiki/Sixel)や[kitty Terminal graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)などのプロトコルを使うとterminalでも画像の表示ができます。
-  - [ここ](https://github.com/folke/snacks.nvim/blob/fe7cfe9800a182274d0f868a74b7263b8c0c020b/docs/image.md)などで言及されていますが、`tmux`はこれらのプロトコルをpassthroughする設定がありますが[zellijはまだ未対応です](https://github.com/zellij-org/zellij/issues/775)。nestした`zellij` sessionの取り扱いにために必要であるため、作者自身にも実装する動機が存在するみたいです
+  - [#4336](https://github.com/zellij-org/zellij/issues/4336)曰く、以下の理由でこれ以上の対応が難しいらしい
+    - `zellij`は`sixel`をサポートするが、時代遅れであるのでこれ以上手をかけるつもりはなく
+    - `kitty Terminal graphics protocol`は`tmux`の非明示的挙動に依存しているところがある
+    - 非明示的挙動をreverse engineerするぐらいなら新しいpassthrough protocolを作り直したほうが良い
+    - その場合`Kitty`側の調節も必要である
+  - いつか実装されるかもしれないが、近いうちではなさそうです。
   - (WSLgなどのおかげで適当な画像ビューワーをterminalから起動するのでも別に構わないんですが、フローが途切れるのと、GUIの転送は`ssh`経由だと気になるほど遅くなるので避けたいんですよね。terminalで画像を表示するプロトコルはescape sequenceの後にbase64エンコードされた画像を文字列で送る形式なので多分こっちのほうがオーバーヘッドが少ないです。)
 - 外部からコマンドを送るときにpaneが指定できない([#4474](https://github.com/zellij-org/zellij/issues/4474))
-  - セッション内から各種コマンドを実行すると問題なく動作しますが、セッション外からコマンド実行する場合、どこで実行するかを指定できません。
-  - `zellij run --floating -- ${command}`でコマンドをfloating paneで実行するときに、paneを指定できないため、最初のclientが現在focusしているtabで実行されてします。
-  - [zellij action write-chars](https://zellij.dev/documentation/cli-actions.html#write-chars)というpaneに文字を打ち込むcliコマンドがpaneを指定できない
+  - セッション外からコマンド実行する場合や、別のpaneに対してアクションを行いたいとき、どのpaneかを指定できません。
+  - アクションの例:
+    - floating paneの表示:
+      - `zellij run --floating -- ${command}`でコマンドをfloating paneで実行できる
+    - paneへの書き込み:
+      - [zellij action write-chars](https://zellij.dev/documentation/cli-actions.html#write-chars)で、paneに文字を打ち込めます(`tmux send-keys`みたいなもの)
+  - paneを指定できないため、おそらくどちらも「最初にアタッチしたのclientが現在focusしているtab」で実行されます。
   - (`zellij -s ${session_name}`でセッションの指定はできる)
 
 `write-chars`でpaneを指定できないのが致命的で、スクリプトから一気にpaneをいじるようなことができなくなっています。
-以前の記事([zellij floating windowをpinentry-cursesのフロントエンドにする](https://zenn.dev/ngicks/articles/pinentry-in-zellij-floating-window))で説明した通り筆者は`zellij`のfloating paneを`pinentry-curses`のフロントエンドとして利用しているんですが、指定したpane(tab)にfloating paneを表示する機能がないためちょっと困っているのもあります。
+現状の代替案はlayoutを用いることで、paneを分割して何かのコマンドを実行したいだけならこちらで事足ります。
+
+以前の記事([zellij floating windowをpinentry-cursesのフロントエンドにする](https://zenn.dev/ngicks/articles/pinentry-in-zellij-floating-window))で説明した通り筆者は`zellij`のfloating paneを`pinentry-curses`のフロントエンドとして利用しています。
+複数のclientから同じセッションにログインしたいから`zellij`を用いているのに、先にログインしたclientがアタッチしたタブにいちいち切り替えないといけなくてちょっと面倒なんですよね。
 
 ## tmuxでもzellijで便利だったところを使いたい
 
@@ -86,6 +98,28 @@ zenn上で[zellij]の記事が少なかったので応援記事を書こうと�
 これに当たるのは`tmux`ではzoomです。デフォルトでは `prefix >`で表示されるメニュー上 ~~でしかbindが存在しないため、適当に設定します。~~ もしくは`prefix z`で切り替えることができます。
 
 ~~`prefix f`はデフォルトだと`command-prompt { find-window -Z "%%" }`がふられていますね。~~
+
+`zellij`ではfullscreen時はtabのの名前の末尾に`(FULLSCREEN)`と表示されて分かりやすいです。この挙動をパクるためにwindow名の末尾に`[Z]`というマークをつけるようにします。
+
+```bash ~/.config/tmux/set_status_mid.sh
+. ~/.config/tmux/color_scheme.sh
+
+zoom_on_color="#[fg=${_tmux_color_text_dark}#,bg=${_tmux_color_5}]"
+z_flag="#{?window_zoomed_flag,${zoom_on_color}[Z],}#[fg=colour254,bg=${_tmux_color_2}]"
+
+tmux set-option -g status-bg "${_tmux_color_0}"
+tmux set-option -g status-fg "colour25
+tmux setw -g window-status-format "| #I: #W #{?window_zoomed_flag,[Z],}|"
+tmux setw -g window-status-current-format "#[fg=colour254,bg=${_tmux_color_2}]| #I: #W ${z_flag}|"
+```
+
+color scheme(`~/.config/tmux/color_scheme.sh`)次第ですが下記のような表示になります。
+
+![status-mid-zoom-flag](/images/revisiting-tmux/status-mid-zoom-flag.png)
+
+ぱっと見で分かるので気に入っています。
+
+:::details EDIT(2026-02-10)前の設定
 
 `zellij`ではfullscreen時はtabのの名前の末尾に`(FULLSCREEN)`と表示されて分かりやすいです。この挙動をパクるためにはstatus rightにzoomかnormalなのかを表示することにしましょう。
 
@@ -105,13 +139,14 @@ STATUS_RIGHT="${STATUS_RIGHT_ZOOM_FLAG}${STATUS_RIGHT_TIMER}"
 tmux set-option -g status-right "${STATUS_RIGHT}"
 ```
 
+別にtab名を変更してもいいんですが、状態で幅ががたがた変わるのはちょっと嫌かなと思ったのでこうしています。
+:::
+
 (`tmux.conf`から呼び出してます。)
 
 ```tmux.conf:~/.config/tmux/tmux.conf
 run-shell "$SHELL ~/.config/tmux/set_status_right.sh"
 ```
-
-別にtab名を変更してもいいんですが、状態で幅ががたがた変わるのはちょっと嫌かなと思ったのでこうしています。
 
 ### Edit Scrollback
 
