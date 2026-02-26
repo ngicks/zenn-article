@@ -15,6 +15,23 @@ published: true
 ただ、ネットにはセットアップして使えるようにするまでの記事はあまりないように見受けられます。
 となると多分普通は簡単にできるんだと思いますが、筆者の環境ではそうではありませんでした。
 
+## EDIT: 2026-02-26: TUIアプリがEnter受け付けないやつは直してもらえてそう
+
+報告しときました
+
+[github.com/containers/podman#28067](https://github.com/containers/podman/issues/28067)
+
+なんかめっちゃ親切なお返事書いてくれてますね。こっちは問題が周知できてればいいんで別に時間かかってもいいですよ・・・って答えるのもなんか変だから何も書いてないです。
+
+直してもらえそうです。
+
+[github.com/containers/libkrun#563](https://github.com/containers/libkrun/pull/563)
+
+[github.com/containers/libkrun#562](https://github.com/containers/libkrun/issues/562)で問題の原因が説明されています。
+かつての設定の仕方だとraw modeに入るときのビットクリアがからないところがあるので`CR` -> `LF`の変換が起きていたということらしいです。
+
+[cfmakeraw(3)](https://man7.org/linux/man-pages/man3/termios.3.html)を呼べば勝手にいい感じになるらしい。勉強になりますね。
+
 ## 環境
 
 記事の想定環境は、wsl2上で動作するUbuntuにパッケージマネージャとしての[nix]を追加したものです。
@@ -355,6 +372,9 @@ lrwx------ 1 ngicks ngicks  64 Feb  6 01:06 52 -> anon_inode:kvm-vcpu:15
     - 普通の(？)コンテナ環境ではドライバによって`tap`デバイスがあったりします。
     - iface情報見て何かするアプリはうまく動かなくなるかもしれないですね。
 - コンテナ内では`tty`が`not a tty`を返したり、`htop`のようなTUIアプリが部分的にEnterを受け付けなかったり、interactive shellを利用するには困難さがあります。
+  - (EDIT 2026-02-26)
+    - 報告しときました: [github.com/containers/podman#28067](https://github.com/containers/podman/issues/28067)
+    - 直してもらえそうです: [github.com/containers/libkrun#563](https://github.com/containers/libkrun/pull/563)
 
 ## おわりに
 
