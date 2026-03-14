@@ -33,7 +33,7 @@ published: true
 
 ## EDIT NOTE
 
-2025-12-24: go1.26で追加された[errors.AsType]を追記。go1.26はrc1なのでまだ使えません。[errors.As]の第二引数が任意のinterfaceをとれる野を追記。
+2025-12-24: go1.26で追加された[errors.AsType]を追記。~~go1.26はrc1なのでまだ使えません。~~ [errors.As]の第二引数が任意のinterfaceをとれる野を追記。
 
 ## error handling
 
