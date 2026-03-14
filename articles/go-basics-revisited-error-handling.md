@@ -33,7 +33,8 @@ published: true
 
 ## EDIT NOTE
 
-2025-12-24: go1.26で追加された[errors.AsType]を追記。~~go1.26はrc1なのでまだ使えません。~~ [errors.As]の第二引数が任意のinterfaceをとれる野を追記。
+- 2025-12-24: go1.26で追加された[errors.AsType]を追記。~~go1.26はrc1なのでまだ使えません。~~ [errors.As]の第二引数が任意のinterfaceをとれる野を追記。
+- 2026-03-14: [errors.AsType]は広く利用可能です。[Go 1.26](https://go.dev/doc/go1.26)は[2026-02-10にリリースされました](https://go.dev/doc/devel/release#go1.26.0)。
 
 ## error handling
 
@@ -223,7 +224,7 @@ if errors.As(err, &bErr) {
 }
 ```
 
-Go1.26以降では、[errors.AsType]を使うこともできます。(まだRelease Candidate 1なので使えません!)
+Go1.26以降では、[errors.AsType]を使うこともできます。
 `AsType`は`As`と違い、対象は`error`を実装している必要があります。
 
 ```go
@@ -1895,7 +1896,7 @@ func (e *gathered) Format(state fmt.State, verb rune) {
 [errors.New]: https://pkg.go.dev/errors@go1.23.4#New
 [errors.Is]: https://pkg.go.dev/errors@go1.23.4#Is
 [errors.As]: https://pkg.go.dev/errors@go1.23.4#As
-[errors.AsType]: https://pkg.go.dev/errors@go1.26rc1#AsType
+[errors.AsType]: https://pkg.go.dev/errors@go1.26.1#AsType
 [errors.Join]: https://pkg.go.dev/errors@go1.23.4#Join
 [io.EOF]: https://pkg.go.dev/io@go1.23.4#EOF
 [fs.ErrNotExist]: https://pkg.go.dev/io/fs@go1.23.4#ErrNotExist
