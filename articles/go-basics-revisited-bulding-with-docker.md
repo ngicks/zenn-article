@@ -39,6 +39,8 @@ published: true
 - コンテナへの`Go`アプリケーションのビルド方法
   - cooporate proxyあり/なし両方版
 
+を述べていきます。
+
 今回の記事は別に`Go`にばかり関係するというわけでもないですね。
 
 ## EDIT NOTE
@@ -49,11 +51,14 @@ published: true
 
 - 会社の同僚
 - 今まで[Go]を使ってこなかった
+- コマンドラインを操作できる
 - 高校レベルの英語読解能力
 
 ## 環境
 
-win11のwsl2インスタンス内で動作させます。[Docker Desktop](https://www.docker.com/products/docker-desktop/)をインストールした場合/PCに直接Linuxをインストールした場合でも基本的に同様になると思います。
+win11のwsl2インスタンス内で動作させます。
+
+[Docker Desktop]や[Rancher Desktop]をインストールした場合/PCに直接Linuxをインストールした場合でも基本的に同様になると思います。
 
 ```
 $ wsl --version
@@ -89,8 +94,9 @@ podman version 5.7.0
 
 コンテナはアプリをひとまとめにして隔離環境で動作させる仕組みのことです。
 
-以下のようなことはよく起きます。なぜでしょう？: [Node.js]や[Python]でスクリプトを書いて自分の環境ではうまく動くことがわかりました。同僚にも使ってもらおうと、スクリプトファイルを渡すとうまく動かない。同僚はあなたに失望し、ため息を付いて顔を背ける。
+以下のようなことはよく起きます: [Node.js]や[Python]でスクリプトを書いて自分の環境ではうまく動くことがわかりました。同僚にも使ってもらおうと、スクリプトファイルを渡すとうまく動かない。同僚はあなたに失望し、ため息を付いてあなたのもとから立ち去る。
 
+なぜでしょう？
 大抵の場合は以下のような理由です。
 
 - [Node.js], [Python]自体のバージョンが異なる
@@ -109,7 +115,7 @@ podman version 5.7.0
 コンテナ内部は、小さな「そのアプリだけ入ったLinux」みたいな状態になります。
 ディレクトリー(フォルダ）構造はそのアプリ用のものが与えられ、必要なパスに必要な設定ファイルなどが配置されます(例えば、sambaに対しては`/etc/smb.conf`のような感じ)。
 
-同僚に配布すするものをコンテナに変えれば動かないと苦情を受けることは基本的になくなるわけです。
+同僚に配布するものをコンテナに変えれば動かないと苦情を受けることは基本的になくなるわけです。
 
 さらに、そのアプリを環境ごと切り出せたことで、以下が容易に行えます。
 
@@ -124,7 +130,7 @@ podman version 5.7.0
 
 ※コンテナの動作方式によっては読める情報もあります。例えばカーネルメッセージ(dmesg)などです。セキュリティーのためのものではないということだけ覚えてけばよいです
 
-### ざっくり３つの要素を覚えておけば良い
+### ざっくり覚えるべき３要素
 
 アプリをコンテナで包んで動作させるには大体３つの要素を覚えておけばよいです。
 
@@ -132,168 +138,239 @@ podman version 5.7.0
 - `Image`: `Container`の雛形となるもの
 - `Container`: 実際に動作するプロセス（アプリ）や、管理用のデータのこと
 
-#### Containerfile
+![3-major-elements-of-container](/images/go-basics-revisited-bulding-with-docker/3-major-elements-of-container.drawio.png)
 
-![concept-of-container](/images/go-basics-revisited-bulding-with-docker/concept-of-container.png)
+コンテナを配布する～などと言っていますが、実際に配布しているのは`Image`で、各環境で`Container`としてそれらを動作させます。
 
-コンテナは「そのアプリだけ入ったLinuxシステムみたいなやつ」を隔離した環境で動かすアプリの動作方式などのことを言います。
+`Containerfile`(`Dockerfile`)は簡単に`Image`を記述できるように作られた設定ファイルのフォーマットです。
+ほかの`Image`をさらに拡張したり、ローカルにあるファイルを`Image`にコピーしたり、シェルスクリプトを動作させてプログラムをビルドしたり、`apt-get`/`dnf`でパッケージを導入したりできます。
+`Container`の実行時に`Container`内で実行するコマンドや環境変数も設定することができます。
 
-コンテナ内ではファイルシステムを好きにいじっていいですし、そのアプリ専用のライブラリとかが全部あるべき場所にある状態にできます。`samba`に対する`/etc/smb.conf`みたいに、決まりきったパスの設定ファイルを読み込むアプリがある場合、設定ファイルのパスを変更できなかったらそのアプリは同時に1つしか動かすことができませんが、コンテナではお互い隔離されるため、同じパス(`/etc/smb.conf`)でもコンテナ同士では異なったファイルを読み込ませることができます。
-また、ネットワークのポートについても同様で、コンテナ内のポートは、ホスト側に公開されるときに別のポートに割り当てることができます。
+`Container`は`Image`を実行したインスタンスのことをさします。
+`Image`で設定された各種設定から一部ないし全部変更することもできます。
+また、`Image`作成時には決められないようなこと、例えば`Container`内のポートをホスト側のどのポートにつなげるかとかここで設定します。
 
-![objects-relation](/images/go-basics-revisited-bulding-with-docker/objects-relation.webp)
+### Dockerとかpodmanとかいろいろあるけど何使えばいいの?
 
-コンテナはイメージというコンテナのテンプレートのようなものから作成されます。イメージは`Dockerfile`(`Containerfile`)という、簡単なsyntaxで構成されたテキストファイルをもとに作成することができます。
+- とりあえず[Docker]でいいです。
+  - 使ってる人多いからです。
+  - GPUを使う設定はこっちのほうが簡単だと思います。
+- 所属組織の都合とか、あえて使いときとかによっては[podman]含めて何でも使えばいいです。
 
-`Dockerfile`(`Containerfile`)で、`apt-get`でライブラリやアプリを導入したり、`go build`などでアプリケーションをビルドしたりして、「アプリ」と「アプリが動作する環境」を作るためのビルドスクリプトを記述します。
-ちなみに`Dockerfile`と`Containerfile`は仕様上全く同じものです。コンテナエコシステムが広がるにしたがって`Docker`以外のものが増えて来たので固有名詞である`docker-`というのを消そうという動きがあります。
+どう違うかざっくり
 
-`podman image build`/`docker image build`などのコマンドで`Dockerfile`(`Containerfile`)をビルドしてイメージを作成します。
-イメージはそのような方法で作られた、「アプリを含んだファイルシステム」と、環境変数・エントリーポイント(=コンテナ実行時に実行されるコマンド)などを含んだ設定ファイルからなります。
+- [Docker]:
+  - 草分け的存在
+  - ググると記事がいっぱい出てくる
+- [podman]:
+  - daemon(コンテナ管理用のプロセス)なしの設計にされているため耐障害性が高い
+    - 保存している状態が壊れてもすべて破棄して一から作り直すような運用にしやすい。
 
-コンテナは、イメージをもとに作成される、「実行可能なインスタンス」です。
-コンテナの隔離環境は、中で動いているアプリから見ると普通のLinuxみたいに見えて、ファイルシステムに書き込みを行ったりできます。一方で、イメージはリードオンリーで不変ですので、イメージからコンテナを作るには書き込みができる領域を確保する必要があります。また、イメージでは決められない「どのホストのポートをコンテナのどのポートに公開するか」とか、「どのパスにどのボリュームをマウントするか」などのコンテナ固有の情報が含まれます。
+`dockerd`(=`docker`のdaemon; コンテナを管理するプロセス)が動いているPCにログインできるような状況で運用するなら[Docker]、
+動いてる環境においそれと入れないときは[podman]がお勧めです。
 
-### 利点
+### 実際動かしてみる
 
-コンテナシステムの利点は以下などがあると考えられます。
+```
+# imageのダウンロードのみ行う。
+podman image pull docker.io/plantuml/plantuml-server:jetty-v1.2026.2
 
-- スケール性:
-  - アプリ単位の隔離環境を用意するため、同じアプリを容易に複数動作させられる。
-  - 依存関係をすべて含むため、複数のホストマシンで分散して動作させられる。
-  - アプリ単位、つまり1プロセス-1コンテナの粒度で分割するのがふつうであるため、必要な部分だけを稼働数を増減することが容易
-- 配布の容易性:
-  - イメージをファイルとして保存するためのフォーマットが規定されたことで、容易に共有が可能
-- 管理の容易性:
-  - 隔離されていることでホスト環境を汚さない(=アンインストール時に消し忘れそうなものがない)
+# containerの作成
+podman container create --name plantuml --init --env PLANTUML_LIMIT_SIZE=8192 -p 127.0.0.1:4433:8080/tcp docker.io/plantuml/plantuml-server:jetty-v1.2026.2
 
-コンテナを調べていると、よく「KVM/Hypervisor仮想化と違ってゲストOSがないので軽量」という言い回しがされるように思います
+# 環境変数のリスト: https://github.com/plantuml/plantuml-server/blob/master/README.md
 
-参考:
+# containerの実行
+podman container start plantuml
 
-- [コンテナ型の仮想化を基礎から学ぶ！従来の技術との違いやメリットを解説 ](https://www.ctc-g.co.jp/keys/blog/detail/containerized-virtualization)
-- [コンテナ技術を他の仮想化技術と比較しながら整理](https://qiita.com/n0mura/items/b57800356eb6c59be7d9)
-- [サーバ仮想化技術とコンテナ技術の違い](https://jpn.nec.com/cloud/service/container/comparison.html)
-- [コンテナ型仮想化とは、クラウド展開に便利な進化中の仮想化技術](https://insights-jp.arcserve.com/container-virtualization)
-- [コンテナ化と仮想化：7つの技術的違い](https://www.trianz.com/ja/insights/containerization-vs-virtualization)
+# image pull + container create + container start
+podman container run -d --name plantuml --init --env PLANTUML_LIMIT_SIZE=8192 -p 127.0.0.1:4433:8080/tcp docker.io/plantuml/plantuml-server:jetty-v1.2026.2
+```
 
-実際[dockerはlinux kernel機能のnamespaceを使用して隔離環境を作成する](https://docs.docker.com/get-started/docker-overview/#the-underlying-technology)ため`docker`に関しては普通はこの言説のとおりだと思います。
-ただし別段その方式に限らなければならないわけではなく、実際に`docker`から利用可能なコンポーネントである[kata-container](https://katacontainers.io/)(`QEMU/KVM`や`Firecracker`など)や[windows containerのrunhcs](https://learn.microsoft.com/en-us/virtualization/windowscontainers/deploy-containers/containerd#runhcs)(`Hyper-V`)などはVMを使ってコンテナの隔離環境を作成します。
-[OCI Runtime Spec](https://github.com/opencontainers/runtime-spec/blob/main/spec.md)上でも隔離環境の作成方法に指定はありません。
+[PlantUML](https://plantuml.com)はテキストから図を作成することができるソフトウェアです。
+`Java`で作られているので`jar`が配布物で`Java VM`
+ウェブブラウザから`localhost:4433`にアクセスすると
 
-この事実からゲストOSがないことがコンテナの本質ではなく、前述のアプリ配布エコシステムの成立と、1プロセス-1コンテナの粒度で隔離することが目指したいものだと言えます。
+各種オプションは[dockerdocs - docker cli reference - docker container run](https://docs.docker.com/reference/cli/docker/container/run)を参考にします。
 
-...という説明から前述の「そのアプリだけ入ったLinuxシステムみたいなやつ」という説明も正確でないことがわかります(windowsやfreebsdのcontainerがありますから)。ですが、筆者の観測する限り大抵コンテナと言ったらLinuxです。
+- `--name`
+  - コンテナの名前を指定する。
+  - 指定しないと適当な名前がつく。
+  - `docker container ...`の各コマンドはコンテナの名前もしくはIDで指定を行う。
+  - 名前はシステム内で一意である必要がある
+- `--init`
+  - とりあえずつけておけばよいです。
+  - `Image`によってはもとから`init`を含むものがあるのでそういう場合はこのオプションはつけないほうが良いです。
+  - PID=1 problemの解消のためのオプション
+    - コンテナはPID空間も隔離するので、コンテナ内のアプリはPID=1で起動します。
+    - `--init`がないと,
+      - 終了したがプロセス管理テーブルに情報が残り続けるzombie processの回収がされない
+      - signalのデフォルトハンドラーが実行されなくなるため、コンテナ終了要求に応答しなくなる
+- `--env`
+  - 環境変数の設定
+- `-p`,`--expose`
+  - `[[host_ip:]host_port:]container_port[/protocol]`のフォーマットでコンテナ内のポートをホストポートにつなげる
+  - なくてもコンテナ内からのリクエストはできます
+  - 必要なのはコンテナ内でサーバーを動かす際です
+- `-d`, `--detach`
+  - コンテナ開始時にターミナルをdeatchする
+  - つけないと呼び出したターミナルにコンテナで実行されるアプリのログが流れ続ける
 
-### Docker / podman ?
+### rootlessとかってあるけどなに？
 
-コンテナランタイムです。
+コンテナを動作させるのにroot(UID=0)を用いるものをrootful,
+逆にrootが関与しない場合はrootlessと呼びます。
 
-- イメージをpullしたり、buildしたり、
-- コンテナを作成/実行したり
-- イメージ/コンテナの作成/停止/実行をしたり
+基本的なrootlessの目的はセキュリティーを強めることです。
 
-するものです。
-
-[Docker]はこの分野の草分け的存在です。`Docker, Inc.`開発。開発者ツールとしてはかなりポピュラーだと思います。
-[podman]は`Docker`より後発のランタイム。`Red Hat`開発。rootless by default, daemonlessなどいろいろ進んだ機能が多い。手元で動かすなら`docker`より扱いが楽なこともしばしば。
-
-全く違うところが作っているので中身の作りは違いますが、コマンドとしては互換性があります。
-
-version 1.0.0のリリース時期は`docker`のほうが速い:
-
-- `Docker`: [2014-06](https://docs.docker.com/engine/release-notes/prior-releases/#100-2014-06-09)
-- `Podman`: [2019-01](https://github.com/containers/podman/releases/tag/v1.0.0)
-
-### rootless？
-
-なんかコンテナ周りの話を読んでると`rootless`って言う語がよく言われていませんか？
-
-これはその言葉のとおり、`root`以外のユーザーでコンテナデーモンを動かすということをさします。
-
-コンテナを成立させるために使われるlinux kernelの機能などは、普通にすると`root`権限が必要です。
-「そのアプリだけが入ったLinuxシステムみたいなやつ」を成立させるのは「アプリが入っているファイルシステム」、独立したネットワーク/pid/ユーザー/グループ空間が必要です。ファイルシステムは複数のimage layerを重ね合わせることで成り立っています(いわゆる`uniom mount filesystem`)。普通`mount`コマンドを用いると`sudo`が必要ですから、そこから普通は`root`権限が必要であるとわかると思います。
-
-`Docker`は`dockerd`という[デーモンプロセス](<https://en.wikipedia.org/wiki/Daemon_(computing)>)がイメージやコンテナの状態を管理し、`docker`コマンドがそこにリクエストをするというサーバー・クライアント型ソフトウェアです。
-
-- `dockerd`を自由に操作できる攻撃が成立すると、攻撃できる範囲が非常に広くなってしまいます。
-- `dockerd`が`root`で動作しているとコンテナを`root`で動作させることも可能です。実際特に設定しなければコンテナはuid=0, つまり`root`で動作します。コンテナ内の`root`はコンテナ外=ホストでの`root`であるので、もし仮にコンテナに攻撃が成立すると、マウントしているvolume内の`root`権限を必要とするファイルが読み書きされてしまいます。
-
-`rootless`である場合、`dockerd`がユーザーの権限で動作するため、コンテナの`root`はコンテナ外ではそのユーザーとなります。
-そのため攻撃成立後にできることが狭くなり、安全性が増します。
+daemonを用いる動作形式では基本的にdaemonがrootか否かをさします。
+`dockerd`がrootで動作しているとき、`docker`コマンドを実行するユーザーがnon-rootであったとしても、自由に操作できればrootで何でもできるのと同じです。
 
 ## Reference
 
-これ以上の詳細な情報は公式的なドキュメントへお進みください。
+各種リファレンス
 
 - Docker Guide: https://docs.docker.com/guides
 - Dockerfile reference: https://docs.docker.com/reference/dockerfile
 - Docker Cli Reference: https://docs.docker.com/reference/cli/docker
 
-(`podman`はcliは`Docker`互換なのでreferenceも`Docker`のものを見たらいい。違いが出るところまで踏み込みません)
+([podman]はcliは[Docker]互換なのでreferenceも`Docker`のものを見たらいい。)
 
-## Docker / podman(-static)のインストール方法
-
-`Docker`と`podman`のインストール方法について述べます。`podman`のほうは[podman-static]を用いるため、やや変則的な方法になります。
-[podman-static]のビルドには`Docker`が必要なことに注意してください。
+## コンテナランタイムのインストール
 
 ### Docker
 
-以下の2つが代表的なインストール方法かと思います
+#### 方法
 
-- `Docker Desktop`や[Rancher Desktop](https://rancherdesktop.io/)を利用する方法
-- [Install Docker Engine](https://docs.docker.com/engine/install/): 公式の手続きに基づいてインストールする方法
+大体以下の方法があります。
 
-ただし`Docker Desktop`は[従業員250人以上もしくは年間売り上げ$10 million(≒15.6億円)で有料ライセンスが必要となる](https://docs.docker.com/subscription/desktop-license/)ことに注意です。
-`Rancher Desktop`はほぼ`Docker Desktop`と同じようなことをするOSSでこちらは`Apache-2.0` licenseです。起動が遅かったりするのでwindows側から`docker`コマンドをたたきたいとかでない限りはおすすめしません。
+[Install Docker Engine]: https://docs.docker.com/engine/install/
 
-[Install Docker Engine](https://docs.docker.com/engine/install/)についてのみ説明します。
+| 方法                    | いつ使う？                             | 利点                                          | 欠点                                                                |
+| :---------------------- | :------------------------------------- | :-------------------------------------------- | :------------------------------------------------------------------ |
+| [Install Docker Engine] | 環境がLinuxなとき。                    | サーバーにdockerを入れる方法。普通。          | 環境がLinuxである必要がある。VSCodeのRemoteでアタッチできるのか不明 |
+| [Docker Desktop]        | 環境がWindows/Macなとき、GUIが欲しい時 | Windows/Macマシンで`docker`コマンドを利用可能 | 大きな企業では使用不可(※)                                           |
+| [Rancher Desktop]       | 同上                                   | 同上                                          | Docker Desktopに比べて機能が少ない                                  |
+
+※`Docker Desktop`は[従業員250人以上もしくは年間売り上げ$10 million(≒16億円)で有料ライセンスが必要となる](https://docs.docker.com/subscription/desktop-license/)
+
+Windows環境ではwslに[Install Docker Engine]の方法で`docker`をインストールするのがおすすめかと思います。
+`Docker Desktop`など固有の躓きどころに引っ掛からないのと、結局サーバーを整備する際には[Install Docker Engine]相当の方法で導入することになると思いますので。
+
+[Docker Desktop], [Rancher Desktop]はWindows/Macでも`Docker`を実行可能とします。仕組みは単純でwsl(on Windows)/[Docker VMM](https://docs.docker.com/desktop/features/vmm/#docker-vmm) (on Mac with Apple Silicon)などを用いて、コンテナランタイムを動かすのに必要なLinux環境をVMで動作させます。
+手元のマシンの`docker`コマンドは、そのVM内の`dockerd`に対する指令となるようにプロキシとなります。こうすることであたかもホストで`docker`が動作しているかのように扱えます。
+
+#### Install Docker Engine
+
+[Install Docker Engine]についてのみ説明します。
 
 ```bash
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -Cue
 
 # Add Docker's official GPG key:
-sudo -E apt-get update
-sudo -E apt-get install -y ca-certificates curl
-
-sudo -E install -m 0755 -d /etc/apt/keyrings
+sudo -E apt update
+sudo -E apt install ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
 sudo -E curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo -E chmod a+r /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
 
 # Add the repository to Apt sources:
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
 
-sudo -E apt-get update
-sudo -E apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo apt update
 ```
 
-`rootless`で実行したい場合は追加で下記も実施します。開発環境のdockerとしては`rootless`にしておくほうがお勧めです。
+最新をインストールしたい場合:
+
+```bash
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+特定のバージョンをインストールしたい場合:
+
+```bash
+apt list --all-versions docker-ce
+VERSION_STRING=5:29.3.0-1~ubuntu.24.04~noble
+sudo -E apt install docker-ce=$VERSION_STRING docker-ce-cli=$VERSION_STRING containerd.io docker-buildx-plugin docker-compose-plugin
+```
+
+ある程度古いバージョンはリストから消えていきます。
+基本は最新いいんじゃないかと思います。というのもたまにバグ修正で意図しない挙動が修正されるため、バグに依存したシステムを作りこむ前に直されてしまったほうがいいからです。
+
+#### rootless化
+
+`rootless`化も併せて行います。
+[Docker Desktop]や[Rancher Desktop]では基本不要です。そもそもrootles化できないかも。
 
 https://docs.docker.com/engine/security/rootless/
+
+```bash
+sudo -E apt-get update
+sudo -E apt-get install -y uidmap
+sudo systemctl disable --now docker.service docker.socket
+dockerd-rootless-setuptool.sh install
+```
+
+適当なshellscriptファイルを作成します
+
+```bash: docker.sh
+export DOCKER_HOST=unix:///run/user/$(id -u)/docker.sock
+```
+
+`.zshenv`や`.bashrc`からロードします。
+
+```bash
+. ~/.config/loginscript/docker.sh
+```
 
 筆者の環境では`rootless`化すると`docker-credential-pass`が`PATH`に見つからないというエラーでビルドが行えなかったので下記から落として適当な位置に置きました。
 
 https://github.com/docker/docker-credential-helpers
 
-```
-$ cd $(mktemp -d)
-$ curl -L https://github.com/docker/docker-credential-helpers/releases/download/v0.9.4/docker-credential-pass-v0.9.4.linux-amd64 -o docker-credential-pass
-$ chmod +x docker-credential-pass
-$ mv docker-credential-pass ~/.local/bin
+```bash
+cd $(mktemp -d)
+curl -L https://github.com/docker/docker-credential-helpers/releases/download/v0.9.5/docker-credential-pass-v0.9.5.linux-amd64 -o docker-credential-pass
+chmod +x docker-credential-pass
+mkdir -p ~/.local/bin
+mv docker-credential-pass ~/.local/bin
+cd -
 ```
 
 ### podman
 
-[podman-static]を利用してビルドします。
+#### 方法
+
+[Podman Installation Instructions]: https://podman.io/docs/installation
+[podman desktop]: https://podman-desktop.io/
+
+| 方法                               | いつ使う？                              | 利点                                          | 欠点               |
+| :--------------------------------- | :-------------------------------------- | :-------------------------------------------- | :----------------- |
+| [Podman Installation Instructions] | 環境がWindows/Mac/Linuxなとき。         | もっとも普通。                                |                    |
+| [podman-static]                    | 環境がLinuxかつstaticにビルドしたいとき | 環境依存度が低い                              | 一部機能が使えない |
+| [podman desktop]                   | GUIが欲しい時                           | Windows/Macマシンで`podman`コマンドを利用可能 |                    |
+
+[podman]は[Docker]と違い単体でWindows/Macで動作する機能があるため、[podman desktop]は単純にGUIが必要な時に用いるものなのだと思います。
+ちなみに、仕組みは[Docker Desktop]と同様にVMでLinuxを動作させ、その中でpodmanコマンドを実行するようなプロキシを立てることで行います([podman machine](https://docs.podman.io/en/stable/markdown/podman-machine.1.html))
 
 [podman-static]は`static`(=動的にロードされるライブラリがない=ホスト環境に対する依存性が低い)に`podman`をビルドするためのスクリプト集です。ちなみに`docker`コマンドが必要です。
 
-repositoryをcloneして下記を実行し、`./build/asset/podman-linux-amd64`以下のファイルを適当なところにコピーしたら完了です。
+インストール方法は特に説明必要そうに見えないのでので省略。もとからrootlessなので特に追加の手順や気を付けどころもないと思います。
+[podman-static]についてのみ下記で述べます。
+
+#### podman-static
+
+TODO: 先に
+
+[podman-static]のrepositoryをcloneして下記を実行し、`./build/asset/podman-linux-amd64`以下のファイルを適当なところにコピーしたら完了です。
 
 実行する前に、スクリプトの内容はよく読んでおきましょう: https://github.com/mgoltzsche/podman-static/blob/master/Dockerfile
 
@@ -1475,6 +1552,8 @@ private gitを使うさいのビルド方法は結構難儀しましたが、あ
 [git]: https://git-scm.com/
 [Git Credential Manager]: https://github.com/git-ecosystem/git-credential-manager?tab=readme-ov-file
 [Docker]: https://www.docker.com/
+[Docker Desktop]: https://www.docker.com/products/docker-desktop/
+[Rancher Desktop]: https://rancherdesktop.io/
 [podman]: https://podman.io/
 [podman-static]: https://github.com/mgoltzsche/podman-static
 [Dockerfile]: https://docs.docker.com/build/concepts/dockerfile/
