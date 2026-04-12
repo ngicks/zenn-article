@@ -192,16 +192,30 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83/config/nvim/lua/ngpack/init.lua#L26-L40
 
-plain lua tableを列挙することで管理、適当な関数で`NgPackSpecPlain[]` -> `NgPackSpec[]`に変換し、高級なメソッドでいろいろ管理する形にしてます。
+plain lua tableを列挙することで管理、適当な関数で`NgPackSpecPlain[]` -> `NgPackSpec[]`に変換し、高級なメソッドを使っていろいろ機能の実現をするようにしています。
 methodがあるといろいろ便利ですが、tableでplugin listを管理するところでいちいち`NgPackSpec:new`を呼び出してらんないですからね。
 
 tableでプラグインを管理します。
 
 https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83/config/nvim/lua/ngcfg/plugins/list.lua
 
-`lazy.nvim`でいうところの`build`を`pack_changed_pre`/`pack_changed`の二つに分割し、`string`でshellやvimコマンドを指定できる機能をドロップした以外は変更した以外は`lazy.nvim`のspecそのままでほとんど流用できています。
-しいて言えば`dep`フィールドを展開したぐらいです(`codex`に展開してって言ったら終わった)
-`vim.pack`には`dep`を記述して起動順序を指定するようなことはできません。`dep`フィールド自体はあるんですが今はなにも使われておらず、使われるとしてもtopological sortのヒントとして使われるのみになる想定です。
+`lazy.nvim`のplugin specをそのまま利用する方針にしています。とはいえ筆者は限られた機能しか使っていなません。
+以下の定義を再利用しています。
+
+- `opts`
+- `config`
+- `build`
+- `init`
+- `dependencies`
+
+ただしそのままとはいかないので以下のように変更しています。
+
+- `build` -> `pack_changed_pre`/`pack_changed`に分割し
+- `dependencies` -> `dep`に変更し、単にtopological sortのヒントにのみ利用(未実装)
+
+https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83/config/nvim/lua/ngpack/init.lua#L310-L352
+
+メインの処理は大体以下の流れです。
 
 - `Plain`版spec -> methodあり版specに変換
 - `init`実行
@@ -209,8 +223,6 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 - `vim.pack.add`実行
 - `"core"`(non-lazy)扱いされたspecの各種`setup`実行
 - `vim.schedule`で`"ui"`(かんたんlazy)のspecの`setup`実行をスケジュール
-
-https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83/config/nvim/lua/ngpack/init.lua#L310-L352
 
 #### メインパッケージ名推定
 
@@ -223,8 +235,9 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
   - [nvim-tree/nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons)は`"nvim-web-devicons"`
   - [rcarriga/nvim-notify](https://github.com/rcarriga/nvim-notify)は`"notify"`
 
-理屈上各プラグインのディレクトリに入って`./plugin`か`./lua`以下を読めばいいんですが、ここでioしたくないですよね。
-基本は`.nvim`をドロップするだけにして、それ以外のケースに備えてspecに`main`を追加して指定できるようにして終わりにしておきました
+理屈上各プラグインのディレクトリに入って`./plugin`か`./lua`以下を読めばいいんですが、ここでioしたくはありません。
+
+余計なことはせずに`.nvim`をドロップするだけにして、それ以外のケースに備えてspecに`main`を追加して指定できるようにして終わりにしておきました
 
 https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83/config/nvim/lua/ngpack/init.lua#L112-L122
 
@@ -248,7 +261,9 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 lockfileと実際のrepositoryがあるので、その二つの状態がdesyncすることは普通に起こります。
 
-`:checkhealth vim.pack`で状態の検知ができます。
+`:checkhealth vim.pack`で異常状態の検知ができます。
+
+`vim.pack.update(nil, {offline = true})`で基本的には異常状態を解決できます。
 ただし[#38931](https://github.com/neovim/neovim/pull/38931)である通り、すでにrepositoryの状態がアップデート対象であるとき、このdesync状態が解決できません。`XDG_CONFIG_HOME`がread-onlyとなるようなセットアップ・・・つまり筆者のように`nix`の`home-manager`を使っているとこの状態が容易に起きます。
 
 基本はlockファイルの当該エントリを消して`vim.pack.update`を行うのが筋かと思います。
