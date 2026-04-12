@@ -14,9 +14,9 @@ published: false
 リリースされたら即行で報告がブワーッと上がるかと思いましたがredditでいくつか見たぐらい(単に観測範囲の問題かもしれません)
 zennでは[この記事](https://zenn.dev/knsh14/articles/nvim-pack-2025-07-25)を見た以外にはなかったのでせっかくなので賑わしておきます。
 
-### vim.pack
+## vim.pack
 
-#### vim.packとは
+### vim.packとは
 
 https://neovim.io/doc/user/pack/#vim.pack
 
@@ -30,7 +30,7 @@ https://neovim.io/doc/user/pack/#vim.pack
 
 とあるようにまだexperimentalなのでいろいろな機能が追加されるようですが普通に使う分には確かに困りません。
 
-#### ワークフロー
+### ワークフロー
 
 `init.lua`、もしくはインタラクティブに`vim.pack.add`を実行し、`git clone` + `:packadd`を行います
 
@@ -80,13 +80,13 @@ https://neovim.io/doc/user/pack/#vim.pack
 筆者環境は`nix`の`home-manager`で管理されていますので`${XDG_CONFIG_HOME:-$HOME/.config}/`以下がread-onlyとなります。
 インタラクティブにプラグイン状態を操作するには`XDG_CONFIG_HOME`の変更が必要でそこそこ面倒なので普段はやらないわけです。
 
-#### 関連issue
+### 関連issue
 
 `vim.pack, start/opt packages, 'packpath'`関連issueは`packages` labelがつけられるようです。今後どうなっていくかなどは他のissueも見て見るとよいでしょう。
 
 https://github.com/neovim/neovim/issues?q=state%3Aopen%20label%3Apackages
 
-### 移行すべき？
+## 移行すべき？
 
 - [lazy.nvim]の高級な`setup`自動呼出しやlazy-loadingの挙動は全くないため、それが必要である場合は移行できません。
 - [mini.deps]の[再実装であることは明記](https://github.com/neovim/neovim/pull/34009)されてるので`mini.deps`を利用している方は移行できるかも
@@ -97,7 +97,7 @@ https://github.com/neovim/neovim/issues?q=state%3Aopen%20label%3Apackages
 移行は[codex]を使って`gpt-5.4 medium`を叩いて大まかにできたので特に困らなかったです。
 公式にこういった機能がメンテされるのは非常に助かりますね。
 
-### lazy.nvimにあってvim.packにないもの
+## lazy.nvimにあってvim.packにないもの
 
 筆者は[lazy.nvim]を使用してpluginの管理をしていました。おそらく多くの人もそうだったのではないかと思います。
 `lazy.nvim`ではできたけど`vim.pack`単体ではできないところから移行すべきなのかがわかるのではないかと思います。
@@ -141,7 +141,7 @@ https://github.com/neovim/neovim/issues?q=state%3Aopen%20label%3Apackages
 
 ![confirmation-buffer-lsp-hover](/images/neovim-migrate-from-lazynvim-to-vimpack/confirmation-buffer-lsp.png)
 
-### 移行のためにラッパーを作ろう
+## 移行のためにラッパーを作ろう
 
 上記にあげた`setup`自動呼出しなんかはなくなると困るので移行するなら追加の実装が必要です。
 ということで一通りやっておきました。
@@ -184,7 +184,7 @@ https://github.com/ngicks/dotfiles/tree/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 `lock.lua`はおまけだから抜くとしても大体500行あります。と考えると実装しすぎなので`lazy.nvim`のままでよくないかという気もしますね。
 もちろん今後の`vim.pack`の発達によって行数が減ったり、逆に機能の追加でほしい機能が増えて行数が増えるとか、そういうこともあり得ます。
 
-#### 基本構造
+### 基本構造
 
 tableで管理する`Plain`版ともろもろのmethodがついてる版で分けるようにしました。
 
@@ -224,7 +224,7 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 - `"core"`(non-lazy)扱いされたspecの各種`setup`実行
 - `vim.schedule`で`"ui"`(かんたんlazy)のspecの`setup`実行をスケジュール
 
-#### メインパッケージ名推定
+### メインパッケージ名推定
 
 `setup`自動実行のために、`require("mod").setup`の`"mod"`の名前を推定する必要があります。
 
@@ -241,7 +241,7 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83/config/nvim/lua/ngpack/init.lua#L112-L122
 
-#### setup呼び出し
+### setup呼び出し
 
 `lazy.nvim`の`opts`, `config`を再現して、結果を引数に`setup`を呼び出します。
 
@@ -257,7 +257,7 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 具体的にいうと[hrsh7th/nvim-cmp](https://github.com/hrsh7th/nvim-cmp)がcallableな`table`でした。
 
-#### desync検知
+### desync検知
 
 lockfileと実際のrepositoryがあるので、その二つの状態がdesyncすることは普通に起こります。
 
@@ -274,9 +274,9 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 `codex`叩いたあとそんなにレビューしてないのでちゃんと動いてるのかは不明。
 
-### そのほかの発見など
+## そのほかの発見など
 
-#### async/awaitの使用
+### async/awaitの使用
 
 内部でasync/awaitが使われています。例えばここ。
 
@@ -304,7 +304,7 @@ https://github.com/neovim/neovim/blob/fa22a78d2a5524839437ad04a4e3ba6ff6633de6/r
  ...vim-unwrapped-0.12.1/share/nvim/runtime/lua/vim/pack.lua:245: fatal: unable to access 'https://github.com/kevinhwang91/nvim-bqf/': Could not resolve host: github.com
 ```
 
-### おわりに
+## おわりに
 
 標準機能でこういったものがサポートされるのは非常に助かりますね。
 
