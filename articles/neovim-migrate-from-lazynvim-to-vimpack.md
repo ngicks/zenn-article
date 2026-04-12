@@ -254,6 +254,18 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 `codex`叩いたあとそんなにレビューしてないのでちゃんと動いてるのかは不明。
 
+### そのほかの発見など
+
+#### async/awaitの使用
+
+内部でasync/awaitが使われています。例えばここ。
+
+https://github.com/neovim/neovim/blob/fa22a78d2a5524839437ad04a4e3ba6ff6633de6/runtime/lua/vim/pack.lua#L232-L254
+
+そのおかげで大量に`git`コマンドを同時使用するせいか、DNSのところでエラーがしょっちゅうおきます。
+
+内部のDNSスタブのキャッシングが機能していないのかも・・・
+
 ```
 # Error ────────────────────────────────────────────────────────────────────────
 
@@ -270,8 +282,13 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 ## nvim-bqf
 
  ...vim-unwrapped-0.12.1/share/nvim/runtime/lua/vim/pack.lua:245: fatal: unable to access 'https://github.com/kevinhwang91/nvim-bqf/': Could not resolve host: github.com
-
 ```
+
+### おわりに
+
+標準機能でこういったものがサポートされるのは非常に助かりますね。
+
+記事のとおり、lazy-loadingにまつわるもろもろの機能が実装されていないので[lazy.nvim]や[mini.deps]などから移行するかはどのぐらいそれらの機能を使っているかで判断したらよいのではないかと思います。
 
 [neovim 0.12]: https://neovim.io/doc/user/news-0.12/
 [vim.pack]: https://neovim.io/doc/user/pack/#vim.pack
