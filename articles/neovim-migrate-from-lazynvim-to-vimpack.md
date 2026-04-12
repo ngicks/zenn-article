@@ -157,7 +157,7 @@ https://github.com/ngicks/dotfiles/tree/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 - `vim.pack.add`を1度しか呼び出さないようにラップ
 - `setup`自動呼出し
   - それに伴って`lazy.nvim`の`opts` / `config`の再現
-- 簡易lazy-loading: 以下の3つplugin specの`phase`というキーで指定させ、挙動を変更
+- 簡易lazy-loading: 以下の3つのカテゴリを設定し、plugin specの`phase`というキーで指定させ、loadタイミングを変更
   - `"core"`: non-lazy
   - `"ui"`: `vim.schedule`でsetup実行をいったん遅延するのみ。
   - `"lazy"`: `load`関数を明示的に呼び出してsetupを実行するもの
