@@ -3,7 +3,7 @@ title: "[neovim]lazy.nvimからvim.packへの移行"
 emoji: "🚚"
 type: "tech" # tech: 技術記事 / idea: アイデア
 topics: ["neovim"]
-published: false
+published: true
 ---
 
 ## \[neovim\]vim.packへの移行
@@ -160,7 +160,7 @@ https://github.com/ngicks/dotfiles/tree/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 - 簡易lazy-loading: 以下の3つのカテゴリを設定し、plugin specの`phase`というキーで指定させ、loadタイミングを変更
   - `"core"`: non-lazy
   - `"ui"`: `vim.schedule`でsetup実行をいったん遅延するのみ。
-  - `"lazy"`: `load`関数を明示的に呼び出してsetupを実行するもの
+  - `"lazy"`: `load`関数を明示的に呼び出して`setup`を実行するもの
   - 各種イベント/コマンドスタブは設定するのが大変だからドロップ
 - `build`再現
   - `PackChangedPre`/`PackChanged`イベントでビルドを行えるように
@@ -280,7 +280,7 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 ### async/awaitの使用
 
-内部でasync/awaitが使われています。例えばここ。
+[Prepare for version 1.0](https://github.com/neovim/neovim/issues/20451)で述べられている[async/await](https://github.com/neovim/neovim/issues/19624)が内部的に使われています。例えばここ。
 
 https://github.com/neovim/neovim/blob/fa22a78d2a5524839437ad04a4e3ba6ff6633de6/runtime/lua/vim/pack.lua#L232-L254
 
