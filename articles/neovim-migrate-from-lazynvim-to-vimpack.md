@@ -241,7 +241,7 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83/config/nvim/lua/ngpack/init.lua#L112-L122
 
-### setup呼び出し
+### setup呼び出し時、callable tableに注意
 
 `lazy.nvim`の`opts`, `config`を再現して、結果を引数に`setup`を呼び出します。
 
