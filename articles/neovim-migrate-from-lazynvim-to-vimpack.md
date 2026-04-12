@@ -133,7 +133,8 @@ https://github.com/neovim/neovim/issues?q=state%3Aopen%20label%3Apackages
   - インストール時/バージョン変更時に事項されるcallback
   - [PackChangedPre/PackChanged](https://neovim.io/doc/user/pack/#PackChangedPre)イベントをフックすれば似たようなことはできます。
 - `dependencies`
-  - 依存関係でsortしたりできるものです。
+  - 依存先を指定できます
+  - 依存先は依存もとよりロード順序が先に置かれるのだと思われます。
 
 などなど、これらを使っている場合は移行しないで`lazy.nvim`を使い続けるなり、自前で実装するなり必要です。
 
