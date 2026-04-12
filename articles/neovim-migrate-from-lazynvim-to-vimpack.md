@@ -107,7 +107,7 @@ https://github.com/neovim/neovim/issues?q=state%3Aopen%20label%3Apackages
 |                       | `lazy.nvim` | `vim.pack`                                                  |
 | :-------------------- | :---------- | :---------------------------------------------------------- |
 | tableでのpluginの管理 | ⭕          | ⭕                                                          |
-| 管理TUI               | ⭕          | `vim.pack.update`時に確認buffer+lspはある                   |
+| 管理TUI               | ⭕          | `vim.pack.update`時にconfirmation buffer+lspはある          |
 | lazy-loading          | ⭕          | `vim.pack.add(..., {load = false})`し、手動で`:packadd`する |
 | `setup`自動呼出し     | ⭕          |                                                             |
 | `init`                | ⭕          |                                                             |
@@ -116,7 +116,7 @@ https://github.com/neovim/neovim/issues?q=state%3Aopen%20label%3Apackages
 
 - 管理TUI:
   - `:Lazy`で管理TUIがが立ち上がります。
-  - `vim.pack.update`時にアップデートの確認バッファが立ち上がりますが、これには専用のLSPが存在しています。
+  - `vim.pack.update`時にアップデートのconfirmation bufferが立ち上がりますが、これには専用のLSPが存在しています。
 - lazy-loading:
   - 各種イベント、コマンドスタブによる遅延ロードなどを行う機能
     - コマンドスタブによる遅延ロードは`lazy.nvim`側が`:CommandName`で実行できるコマンドを登録して起き、実行をフックして対応するプラグインの`setup`を実行するものです。
