@@ -199,7 +199,9 @@ tableでプラグインを管理します。
 
 https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83/config/nvim/lua/ngcfg/plugins/list.lua
 
-`buid`を`pack_changed_pre`/`pack_changed`に変更した以外は`lazy.nvim`のspecそのままなのでほとんど流用できています。しいて言えば`dep`フィールドを展開したぐらいです(`codex`に展開してって言ったら終わった)
+`lazy.nvim`でいうところの`build`を`pack_changed_pre`/`pack_changed`の二つに分割し、`string`でshellやvimコマンドを指定できる機能をドロップした以外は変更した以外は`lazy.nvim`のspecそのままでほとんど流用できています。
+しいて言えば`dep`フィールドを展開したぐらいです(`codex`に展開してって言ったら終わった)
+`vim.pack`には`dep`を記述して起動順序を指定するようなことはできません。`dep`フィールド自体はあるんですが今はなにも使われておらず、使われるとしてもtopological sortのヒントとして使われるのみになる想定です。
 
 - `Plain`版spec -> methodあり版specに変換
 - `init`実行
