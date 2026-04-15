@@ -280,6 +280,10 @@ https://github.com/ngicks/dotfiles/blob/abe0ab9ed80ae49fc1b287a3d52e0475b6361d83
 
 `codex`叩いたあとそんなにレビューしてないのでちゃんと動いてるのかは不明。
 
+EDIT 2026-04-15: ファイル書き込み部分が全然駄目だった。vim.packの内部を真似て以下のように変更
+
+https://github.com/ngicks/dotfiles/commit/b99d97b837d830ff3d7281946cf2e8ad0d8fffde
+
 ## そのほかの発見など
 
 ### async/awaitの使用
