@@ -45,6 +45,7 @@ published: false
 このように、気軽に大量の同時並行を記述できることが`Go`の大きなセールポイントの1つとなっています。
 
 同時処理な処理に起こりやすい問題として、*Race Condition*と呼ばれるものがあります。これは、複数の処理の実行や完了のタイミングがOSのスケジューリングなどによってばらばらになることで、実行結果が一定にならないことをさします。
+この問題を起こさないためには、処理の順序をお互いに待つために`sync.Mutex`や`channel`を用いて処理の終了を待ち受ける必要があります。
 
 この記事では、*Race Condition*を避けながら*Concurrent*な処理を記述する方法について述べます。
 
@@ -62,6 +63,12 @@ published: false
 ❯ go version
 go version go1.26.2 linux/amd64
 ```
+
+## TL;DR
+
+- [net/http]でHTTPサーバーを作るとハンドラは必ず新しい`goroutine`で実行される
+- `Go`をビルドするコマンドに`-race`フラグを渡すと、*Data Race*を検知する組み込み機能が有効になります。
+  - *Data Race*は複数の`goroutine`が同時に同じデータにアクセスするとおきます。*Race Condition*の中の一つです。
 
 --- ここから下、前のまま---
 
@@ -1727,17 +1734,18 @@ private gitを使うさいのビルド方法は結構難儀しましたが、あ
 
 <!-- references to sdk library -->
 
-[panic]: https://pkg.go.dev/builtin@go1.24.2#panic
-[errors.New]: https://pkg.go.dev/errors@go1.24.2#New
-[errors.Is]: https://pkg.go.dev/errors@go1.24.2#Is
-[errors.As]: https://pkg.go.dev/errors@go1.24.2#As
-[errors.Join]: https://pkg.go.dev/errors@go1.24.2#Join
-[fmt.Errorf]: https://pkg.go.dev/fmt@go1.24.2#Errorf
-[fs.ErrNotExist]: https://pkg.go.dev/io/fs@go1.24.2#ErrNotExist
-[http.Server]: https://pkg.go.dev/net/http@go1.24.2#Server
-[*http.Server]: https://pkg.go.dev/net/http@go1.24.2#Server
-[io.EOF]: https://pkg.go.dev/io@go1.24.2#EOF
-[io.Reader]: https://pkg.go.dev/io@go1.24.2#Reader
-[io.Writer]: https://pkg.go.dev/io@go1.24.2#Writer
-[syscall.Errno]: https://pkg.go.dev/syscall@go1.24.2#Errno
-[text/template]: https://pkg.go.dev/text/template@go1.24.2
+[panic]: https://pkg.go.dev/builtin@go1.26.2#panic
+[errors.New]: https://pkg.go.dev/errors@go1.26.2#New
+[errors.Is]: https://pkg.go.dev/errors@go1.26.2#Is
+[errors.As]: https://pkg.go.dev/errors@go1.26.2#As
+[errors.Join]: https://pkg.go.dev/errors@go1.26.2#Join
+[fmt.Errorf]: https://pkg.go.dev/fmt@go1.26.2#Errorf
+[fs.ErrNotExist]: https://pkg.go.dev/io/fs@go1.26.2#ErrNotExist
+[http.Server]: https://pkg.go.dev/net/http@go1.26.2#Server
+[*http.Server]: https://pkg.go.dev/net/http@go1.26.2#Server
+[io.EOF]: https://pkg.go.dev/io@go1.26.2#EOF
+[io.Reader]: https://pkg.go.dev/io@go1.26.2#Reader
+[io.Writer]: https://pkg.go.dev/io@go1.26.2#Writer
+[net/http]: https://pkg.go.dev/net@go1.26.2
+[syscall.Errno]: https://pkg.go.dev/syscall@go1.26.2#Errno
+[text/template]: https://pkg.go.dev/text/template@go1.26.2
