@@ -67,13 +67,17 @@ func (r *TypedReader) Read[V any](p []V) (int, error) { /* ... */ }
 
 ## go/ast, go/typesのAPI変更はない
 
+文法の変更となるため、linterその他が影響を受けることが確実です。
+
+linterなど`Go`のソースコードを解析して何かを行うプログラムは`go/ast`と`go/types`を利用します。
+
 - https://pkg.go.dev/go/ast#FuncDecl
 - https://pkg.go.dev/go/types#Signature
 
 両者見てわかる通り、型上generic methodsを表現できるのでAPIの変更自体はありません。
 
-ないのですが、`go/ast`, `go/types`を利用するコードが今までなかったgeneric methodsのパターンに対応できるかというとそういうわけではないと思います。
-プロポーザル上でも言及されていますが、メンテされているツールが追従しきるまで「経験上1～２メジャーリリース程度かかる」でしょう。
+ないのですが、「method receiverとtype paramがどちらもnon-nil」というパターンは今までありえなかったわけですから、ツールによってはうまく動かなくなるでしょう。
+プロポーザル上でも言及されていますが、メンテされているツールが追従しきるまで「経験上1～２メジャーリリース程度かかる」こととなるでしょう。
 
 ## gotipで試そう
 
