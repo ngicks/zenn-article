@@ -14,7 +14,7 @@ iteratorをmethod chainで処理できようなヘルパーを作ってみるこ
 
 ## 対象読者
 
-- [The Go Programming Language](https://go.dev/)に対してある程度習熟している
+- [The Go Programming Language](https://go.dev/)にある程度習熟している
 - generic methodsに興味があるが自分で試すほどじゃない
 
 ## Proposalの概要
