@@ -158,7 +158,7 @@ func (f SeqIterable2[K, V]) Reduce[Sum any](reducer func(Sum, K, V) Sum, sum Sum
 
 ### 引数には`iter.Seq`の代わりに`~func(yield func(V) bool)`を使う
 
-genericsの一般的な原則としてconcreteな型を受け取るより`T2 ~T1`を受けたほうがよいのですが、iteratorを`iter.Seq`以外で処理することはないのでこれを受け取るように書かれた関数が多いのではないかと思います。
+genericsの一般的な原則としてconcreteな型を受け取るより`T2 ~T1`を受けたほうがよいのですが、iteratorを`iter.Seq`以外で処理することはないと思われるので、これを受け取るように書かれた関数がほとんどなのではないかと思います。
 
 今回ラップした型(`SeqIterable`)と`iter.Seq`どっちも受け取りたいので、シグネチャを変えたほうがよさそうです。
 
