@@ -63,7 +63,7 @@ func (r *TypedReader) Read[V any](p []V) (int, error) { /* ... */ }
   - [Go FAQ: Why does Go not support methods with type parameters?](https://go.dev/doc/faq#generic_methods)でもはっきりとgeneric methodsを実装することはないと言っていました。
 - 今回のproposalではgeneric methodsはinterfaceを実装しないということでacceptedとなりました
 
-現時点では`GOEXPERIMENT`ガード付きで実装されていますが、[コメント](https://github.com/golang/go/issues/77273#issuecomment-4360427977)を読む限り`Go 1.27`では`GOEXPERIMENT`ガードなしで導入されるようです。
+現時点(2026-05-13)では`GOEXPERIMENT`ガード付きで実装されていますが、[コメント](https://github.com/golang/go/issues/77273#issuecomment-4360427977)を読む限り`Go 1.27`では`GOEXPERIMENT`ガードなしで導入されるようです。
 
 ## go/ast, go/typesのAPI変更はない
 
