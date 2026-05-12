@@ -14,7 +14,7 @@ iteratorをmethod chainで処理できようなヘルパーを作ってみるこ
 
 ## 対象読者
 
-- [The Go Programming Language](https://go.dev/)に対してある程度の習熟している
+- [The Go Programming Language](https://go.dev/)に対してある程度習熟している
 - generic methodsに興味があるが自分で試すほどじゃない
 
 ## Proposalの概要
@@ -37,7 +37,7 @@ func (o Option[V1]) Map[V2 any](mapper func(V1) V2) Option[V2] {
 }
 ```
 
-Go 1.27以前の`Go`では`[V2 any]`の部分で文法エラーでした。
+Go 1.27より前の`Go`では`[V2 any]`の部分で文法エラーでした。
 
 generics methodsはinterfaceを満たしません。
 
@@ -126,7 +126,7 @@ type SeqIterable[V any] iter.Seq[V]
 type SeqIterable2[K, V any] iter.Seq2[K, V]
 ```
 
-### 型を変更するmethod
+### 型を変換するmethod
 
 型を変換するmethodが実装できてなんか変な感じしますね。
 
@@ -179,7 +179,7 @@ genericsの一般的な原則としてconcreteな型を受け取るより`T2 ~T1
 +}
 ```
 
-### EqualとかCollect2はmethodに実装できない
+### `iter.Seq[V]`の`V`に制約が必要な処理はmethodで実装できない
 
 以下は実装できません
 
