@@ -117,7 +117,7 @@ https://github.com/ngicks/go-iterator-helper/commit/9bb630d9f07c58175fd3def6c651
 
 ### `iter.Seq` / `iter.Seq2`をラップした型を作る
 
-iteratorを処理したいので、それをラップ下方を作り、そこにmethodを追加します。
+iteratorを処理したいので、それをラップした型を作り、そこにmethodを追加します。
 
 元から単なる`iter.Seq[V]` / `iter.Seq2[K, V]`のラッパーとなる型を定義していたのでこれに対するmethodとして実装します。
 
