@@ -210,27 +210,31 @@ func (f SeqIterable2[K, V]) Collect() map[K]V {
 ```
 
 これらのケースでは`SeqIterable[V]`の`V`や`SeqIterable2[K, V]`の`K`が`comparable`である必要があるためです。
-`Rust`だとこういうのはできるんですが`Go`ではできません。微妙にかゆいところに手が届かないケースもあります。
+`Rust`だとこういうのはできるんですが`Go`ではできません。微妙にかゆいところに手が届かないケースです。
 
 代わりに以下みたいな形でも実装できます。
 
 ```go
-type From[V any] interface{
+type From[V any, F From[V, F]] interface{
+  Init() F
   From(seq iter.Seq[V])
 }
 
-type From2[K, V any] interface{
+type From2[K, V any, F From2[K, V, F]] interface{
+  Init() F
   From2(seq iter.Seq2[K, V])
 }
 
-func (f SeqIterable[V]) CollectInto[F From[V]]() F {
+func (f SeqIterable[V]) CollectInto[F From[V, F]]() F {
   out := *new(F)
+  out = out.Init()
   out.From(iter.Seq[V](f))
   return out
 }
 
-func (f SeqIterable2[K, V]) CollectInto[F From2[K, V]]() F {
+func (f SeqIterable2[K, V]) CollectInto[F From2[K, V, F]]() F {
   out := *new(F)
+  out = out.Init()
   out.From2(iter.Seq2[K, V](f))
   return out
 }
@@ -239,10 +243,11 @@ func (f SeqIterable2[K, V]) CollectInto[F From2[K, V]]() F {
 これはこれで別の厳しさがあります。
 
 - `From`のような自己を変更するmethodは通常method receiverがポインターであるため、`*new(F)`は`typed nil`となる
-- これを回避するためには`type FromImpl[V any] struct { v *V }`みたいな形で、ポインターのフィールドを持たせて底を変更させるとかになると思います。
+- これを回避するためには`Init`みたいなmethodもセットで必要になってくる
 
 迂遠であるのでこれをやりたい動機はないかなあという感じです。
-これに関しては今まで通りトップレベルの関数でやることになるでしょう。
+
+method receiverのtype paramに型制約が必要なケースでは今まで通りトップレベルの関数でやることになるでしょう。
 
 ## おわりに
 
