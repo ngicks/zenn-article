@@ -6,7 +6,7 @@ topics: ["go"]
 published: true
 ---
 
-# \[gotip\]generic methodsでメソッドチェーンでiteratorを処理する
+## \[gotip\]generic methodsでメソッドチェーンでiteratorを処理する
 
 https://github.com/golang/go/issues/77273
 
