@@ -123,12 +123,14 @@ https://github.com/ngicks/go-iterator-helper/commit/9bb630d9f07c58175fd3def6c651
 
 iteratorを処理したいので、それをラップした型を作り、そこにmethodを追加します。
 
-元から単なる`iter.Seq[V]` / `iter.Seq2[K, V]`のラッパーとなる型を定義していたのでこれに対するmethodとして実装します。
+元から単なる`iter.Seq[V]` / `iter.Seq2[K, V]`のラッパーとなる型を定義していました
 
 ```go
 type SeqIterable[V any] iter.Seq[V]
 type SeqIterable2[K, V any] iter.Seq2[K, V]
 ```
+
+各種アダプタはこれに対するmethodとして実装します。
 
 ### 型を変換するmethod
 
