@@ -10,7 +10,7 @@ published: true
 
 https://github.com/golang/go/issues/77273
 
-上記のproposalで述べられているgeneric methodsを試してみます。
+iteratorをmethod chainで処理できようなヘルパーを作ってみることで上記のproposalで述べられているgeneric methodsを試してみます。
 
 ## 対象読者
 
@@ -36,6 +36,8 @@ func (o Option[V1]) Map[V2 any](mapper func(V1) V2) Option[V2] {
   return Option[V2]{}
 }
 ```
+
+Go 1.27以前の`Go`では`[V2 any]`の部分で文法エラーでした。
 
 generics methodsはinterfaceを満たしません。
 
