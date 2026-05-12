@@ -220,7 +220,12 @@ func (f SeqIterable2[K, V]) CollectInto[F From2[K, V]]() F {
 }
 ```
 
-やる意味ないかな？
+これはこれで別の厳しさがあります。
+
+- `From`のような自己を変更するmethodは通常method receiverがポインターであるため、`*new(F)`は`typed nil`となる
+- これを回避するためには`type FromImpl[V any] struct { v *V }`みたいな形で、ポインターのフィールドを持たせて底を変更させるとかになると思います。
+
+迂遠であるのでこれをやりたい動機はないかなあという感じです。
 
 ## おわりに
 
