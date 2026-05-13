@@ -249,6 +249,33 @@ func (f SeqIterable2[K, V]) CollectInto[F From2[K, V, F]]() F {
 
 method receiverのtype paramに型制約が必要なケースでは今まで通りトップレベルの関数でやることになるでしょう。
 
+### method chainで呼び出してみる
+
+```go
+a := slices.Values([]int{1, 3, 5})
+b := slices.Values([]int{2, 4, 6})
+c := slices.Values([]int{7, 8, 9})
+
+sum := hiter.WrapSeqIterable(a).
+  MergeFunc(cmp.Compare[int], b).
+  Concat(c).
+  Limit(5).
+  Map(func(v int) string { return string([]rune{rune('a' - 1 + v)}) }).
+  Reduce(func(accum string, v string) string {
+    return accum + v
+  }, "")
+
+eq := a.EqualFunc(
+  func(x, y int) bool { return x == y },
+  slices.Values([]int{1, 3, 5}),
+)
+
+fmt.Println(sum, eq)
+
+// Output:
+// abcde true
+```
+
 ## おわりに
 
 - 文法増えると[dst](https://github.com/dave/dst)が追従できなくなるから反対派でしたが別にastのパターンが増えるわけではないので問題ありませんでした。
