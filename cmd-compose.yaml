@@ -1,0 +1,6 @@
+name: zenn
+commands:
+  zenn_preview:
+    args: 
+      - zenn
+      - preview
