@@ -52,18 +52,18 @@ cmdman attach drawio
 
 ```
 $ cmdman inspect drawio --format '{{.StateJSON.MonitorPID}}'
-3230863
+289157
 ```
 
 ```
-$ ps -o pid,ppid,pgid,sid,tty,stat,cmd -p 1027 -p 3230863 -p 3230871
+$ ps -o pid,ppid,pgid,sid,tty,stat,cmd -p 1181 -p 289157 -p 289167
     PID    PPID    PGID     SID TT       STAT CMD
-   1027    1026    1026    1026 ?        S    /init
-3230863    1027 3230863 3230863 ?        Ssl  /path/to/cmdman __monitor ...
-3230871 3230863 3230871 3230871 pts/28   Ssl+ /opt/drawio/drawio
+   1181    1180    1180    1180 ?        S    /init
+ 289157    1181  289149  289149 ?        Sl   /path/to/cmdman --data-dir /... --runtime-dir /... __monitor --id ...
+ 289167  289157  289167  289167 pts/44   Ssl+ /opt/drawio/drawio
 ```
 
-こういう感じ。
+こういう感じ。`PPID`(親PID)が`init`, `TT = ?`(`tty`なし), `PID != SID`なのでdaemonizeできていますね。
 
 monitorプロセスはcmdmanの隠しコマンドを実行する形。別のバイナリになってないのは手抜きです・・・
 
@@ -219,7 +219,18 @@ DISTRIB_CODENAME=noble
 DISTRIB_DESCRIPTION="Ubuntu 24.04.4 LTS"
 ```
 
-Native Linux / Macでも動くと思うけど特にMacでなにも試していない。
+```
+❯ tmux -V
+tmux 3.6a
+```
+
+```
+❯ cmdman --version
+version:     v0.0.11
+go version:  go1.26.3
+```
+
+Native Linux / Macでも動くと思うけど(特にMacで)なにも試していない。
 Github Actionsでテストぐらいは走らせようかなあ？
 
 ## 対象読者
@@ -228,6 +239,8 @@ Github Actionsでテストぐらいは走らせようかなあ？
 
 - Linux/POSIXシステムでコマンドを実行できること
 - [tmux]のある程度の習熟
+- [podman] / [docker compose]の動作モデル。
+  - 軽く説明しますが基本的には既知であるとします。
 - daemonizeだのptyだの言われてもなんとなくわかる
 - [Go]の読解
   - ほかのプログラミング言語が読み書きできればなんとなくわかる気も
@@ -240,7 +253,7 @@ Github Actionsでテストぐらいは走らせようかなあ？
 - [Go]でLLMのプロジェクトを動かすときの苦しみともがきを見たい
   - しかしてそこまで高度なことはしていない
 
-## Overview
+## Overview(TL;DR)
 
 TODO: やったことかく
 
@@ -387,7 +400,7 @@ terminal multiplexerのレイアウト操作をするもの
 私の要求は
 
 - (a)バックグラウンドでアプリを動作
-- (b)yamlファイルで順序を記述することで記述することで順序付きでアプリを起動
+- (b)yamlファイルで順序を記述することで、順序付きでアプリを起動
 - (c)yamlファイルでレイアウトを記述することで、tmuxなどでアプリを特定のレイアウトで表示
 - (d)tui管理
 
@@ -398,67 +411,145 @@ terminal multiplexerのレイアウト操作をするもの
 
 記事執筆にあたり調べているだけなので実は既存のものですべて満たせている可能性があるかもと思っていましたが、ドンピシャで満たすものはないのかもしれないです。
 
+## 設計方針
+
+基本的なアイデアは既存の[podman] / [docker compose] / [vde-layout]もしくは[zellij]のレイアウト記法を踏襲しています。
+
+- 基本機能:
+  - [podman]と同じくdaemonlessにします。
+    - つまり事前にdaemonを起動するひと手間がいらないようにします。
+    - コンテナ内で動作するllmにツールとして渡すことなどを考えると事前にdaemonを起動するようなワークフローは煩雑です。
+- `compose`機能:
+  - composeファイルの構文は[docker compose]とほぼ同じです。
+    - やれることが少ないのでかなりサブセットになっています。
+    - [docker compose]のcompose.yamlが`docker`コマンドのオプションを翻訳してファイルで書けるようになっている(厳密には違う[^1])のと同じく、`cmdman`の実行オプションをファイルで書いておけるフォーマットなので、`docker`がこうなっているのと同じ理由で似たようなフォーマットになっています。
+  - [docker compose]と同じく、基本のコマンド実行機能の上に、label（メタデータ)でプロジェクトを判別する構造にします。
+    - [docker]はすべてのコンテナが単一のnamespace内でフラットに管理されます。
+      - どのプロジェクトに参加しているコンテなのか、みたいな概念がないということです。
+    - [docker compose]はプロジェクトの概念が導入され、
+      - コンテナ名にプロジェクト名をprefixすることでプロジェクトの区別がつくようにし、
+      - Label(コンテナに結びつくメタデータ)でどのプロジェクトとかを記録します。
+    - namespaceの概念はあったほうがいいような気もしますが、この構造はかなり作りやすい！このアイデアはそのまま採用します。
+    - [docker compose]とは違い、特定のディレクトリに対して実行するコマンドセットという体になっています
+      - 筆者のよくやるワークフローが特定のディレクトリで`neovim`, `claude code`, `codex`を開くことなので、これを作業ディレクトリごとにできると便利だなと思ってこの決断になっています。
+      - `cmdman compose ps`などは`work_dir`に結び付いたプロジェクト一覧を表示することにしました。
+      - コマンド名はプロジェクト名だけではなく、working directoryのハッシュ値をprefixすることとします。
+    - `~/.config/cmdman/compose/`以下にあるcomposeファイルは
+- `mux`機能:
+  - tmuxのpaneを分割するshellscriptを再帰構造のyamlにしたような構文を用いることとします。
+    - この記法は[vde-layout]や[zellijのLayouts](https://zellij.dev/documentation/layouts.html)を参考にしました。
+  - [tmux固有のlayout機能](https://github.com/tmux/tmux/wiki/Getting-Started#window-layouts)を使うことも考えられますが、同等機能が[zellij]/[WezTerm]に恐らくないため、拡張の際に困りそうなのでこういった構文にしました。
+- `tui`機能:
+  - 動いてるコマンドとかを確認できる`tui`です
+  - `--popup`オプションで`tmux display-popup`内で動作するようにします。
+  - `podman container ls`してから`podman container stop ${id}`するのがいつも面倒なので、`tui`で見ながら操作できると便利かなと思って追加することにしました。
+
+[^1]: https://github.com/compose-spec/compose-spec#compose-specification より、`platform-agnostic`が明言されている。`docker`が`docker-compose`を開発していたころは`docker`コマンドをファイルで書いておけるものだったかもしれないが、のちに`compose-spec`として中立的な規格になった後からの追加は中立っぽくなっているように見える。
+
+### 基本機能
+
+基本機能部分は下記図のような感じ。
+
+![](/images/making-cmdman/architecture.jpg)
+
+`cmdman` cliコマンドは、いわゆる`monitor`プロセスを`daemonize`し、受け取った実行したいコマンドを子プロセスとして実行します。
+`--tty`オプションがついている場合は`pty`(Pseudo teleTYpewriter = 疑似ターミナル)をallocateしてターミナル付きでアプリを起動します。
+
+コマンドのログはlog-driverが`"none"`に指定されていない限り、log-driverを通じて書き込まれます。
+現状は`k8s-file`しかありません。ログローテーションでraceがないように工夫しているので実装形態は異なると思いますが、発想は[podman]のパクリです。podmanが`k8s-file`形式がデフォルトなのでそれがパクられています。
+
+状態は`commands.db`というSQLite3ファイルに書き込まれます。これも[podman]と一緒。
+
+コマンドが生成されたとか、開始したとか、終了したとか、削除されたとかは`event.log`に書き込まれます。
+これも[podman]の様式をそのままパクっていますが、実装形態は参考にしていないため異なります。こちらもrraceが翁ように気を遣っている。
+
 --- ここから先LLMポンだしセクション
 
-## できること
+## インストール
 
-機能の全体像を箇条書きで俯瞰する。詳細は後続セクションに譲る。
-
-- `docker`ライクなCLI: `run` / `create` / `start` / `stop` / `restart` / `rm` / `ls` / `logs` / `events` / `inspect` / `attach` / `wait` / `signal` / `send-keys`。
-- compose: `cmd-compose.yaml`を書いて`compose up`で一括起動。env展開と`after`による依存順序解決(トポロジカルソート)に対応。
-- mux: tmuxと統合して各プロセスをpane/windowに割り当てる仕組み。
-- TUI: 現状未実装。やりたいことだけ書いておく。
-
-## 使ってみる (Getting Started)
-
-最短で動かすところまでを示す。インストール → 単発の`run` → `logs`/`attach` → `compose up`の順。
+`go install`一発で入る、ぐらいの最短経路を書く。`mux`や`--popup`を使うなら`tmux`が要る、という前提も添える。
 
 ```shell
-# 単発で投げる
-cmdman run -- drawio
-
-# 走っているものを見る
-cmdman ls
-cmdman logs <name>
-cmdman attach <name>
+go install github.com/ngicks/cmdman/cmd/cmdman@latest
 ```
 
-- インストール方法(`go install`など)を書く。
-- daemonがいつ起動するのか(初回コマンドで自動起動するのか、明示起動なのか)に軽く触れる。
+- 動作確認した前提(`tmux`のバージョンなど)に軽く触れる。
+- 「中央のdaemonはいない」「`run`した時にコマンドごとのmonitorプロセスが勝手に立ち上がる」点をここで一言予告しておく。詳細はアーキテクチャ節に譲る。
 
-## compose
+## アーキテクチャ / 全体像
 
-このツールの目玉。`docker compose`を知っていれば読めるはず、というスタンスで書く。
+`cmdman`がどう動いているのかをざっくり解説する。`root.go`の自己紹介よろしく`podman without pods, tmux without terminals`を合言葉に、**中央daemonを持たず、コマンド1つにつきmonitorプロセス1つ**というモデルになっていることを最初に図(`/images/making-cmdman/`配下に置く想定)で示す。
 
-```yaml
-name: zenn
-commands:
-  zenn_preview:
-    args:
-      - zenn
-      - preview
-```
+### daemonlessなプロセスモデル
 
-- `commands`配下にコマンドを定義し、`args` / `env` / `after`を指定できることを説明する。
-- `${VAR}`展開とデフォルト値(`${INPUT_SLEEP:-3}`)、`after`の`condition: completed`による依存順序解決の例を、`example.compose.yaml`を引きながら示す。
-- 実際に筆者がこのzennリポジトリで`zenn preview`を回すのに使っている、という実例で締める。
+`cmdman <verb>`(Service/CLI)は短命でステートレス、状態はぜんぶディスク(SQLite)に置いてある、という割り切りから説明する。
 
-## 設計 / アーキテクチャ
+- `start`すると同じバイナリの隠しサブコマンド`__monitor`を`setsid`でdetachして再exec、stdioを`/dev/null`に飛ばして親から切り離す(`detach_posix.go`)。
+- CLI側はSQLiteのstateを50msごとにpollして`starting`→`running`を待つだけ、という非同期な作り。
+- monitorはPIDファイルに`flock`を取って多重起動を防ぎ、自分のPIDとsocketのパスをstateに書き込む。
+- `run` = `create` + `start`(+ お好みで`--attach`)である、という小ネタも。
 
-内部構造をざっくり解説する。深入りはせず、図(`images/architecture.drawio.svg`)を貼って各コンポーネントの役割を1行ずつ。
+### CLI ⇔ monitor間のIPC
 
-- daemon ⇔ CLI間の通信(protobuf / `pkg/api`)とstdioのパイプ方式(attach時の標準入出力の中継)。
-- プロセスの状態とログの永続化(`store` / `eventlog` / `logdriver`)、多重起動を防ぐためのfile lock。
-- composeの依存解決をどう実装したか(トポロジカルソートしてlayerごとに起動)。
-- tmux連携(`muxctl`)がどこに乗っているか。
+コマンドごとのunix socketの上でgRPCをしゃべる、という構成を説明する。
 
-## ハマったところ / 知見
+- protobufのスキーマから`buf generate`で生成しているコードの話。
+- socketのパスをstateに保存しているのでレジストリ的なものが要らない(どのCLIプロセスからでもsocketを見つけられる)点。
+- `Attach`(双方向stream) / `Subscribe`(ログのserver stream) / `WriteStdin` / `Signal` / `Stop` / `Status`というサービス定義をざっと並べる。
 
-実装中に詰まった点・面白かった点を拾う。書きながら埋めるセクション。
+### 状態とログの永続化
 
-- blocking commandの子プロセス管理、シグナルの伝播(`cmdsignals`)、ゾンビプロセス回避まわり。
-- attach時のTTY/raw modeの扱い、`send-keys`をどう実現したか。
-- daemonのライフサイクルと、CLIから見た「いつの間にか起動している」体験の作り込み。
+`modernc.org/sqlite`(pure-Go・CGOなし)を選んだ理由と、ログの取り回しを書く。
+
+- config / state / 終了コード履歴をSQLiteに持つ(WALモード、スキーマが古ければ`cmdman migrate`で移行)。
+- 子プロセスの出力をring buffer(スクロールバック) + ログファイル(`podman`のk8s-file形式) + broadcaster(ライブ配信)に**fan-out**している構造。
+
+### compose: 依存順序の解決
+
+`docker compose`相当の依存解決をどう実装したかを書く。`spec`→DAG→plan→reconcileの流れ。
+
+- `after`の`condition`をトポロジカルソートで解いてlayerごとに起動する話。
+- `${VAR}`展開やデフォルト値(`${INPUT_SLEEP:-3}`)も実装している点を`example.compose.yaml`を引きながら示す。
+- 締めとして、実際にこのzennリポジトリで`zenn preview`を常駐させるのに使っている、という実例。
+
+### mux / muxctl: 使い捨てのビューア
+
+`mux`の設計原則「multiplexerは使い捨てのビューア」を強調する。
+
+- セッションを閉じたり組み直したりしても、supervisedなプロセスは絶対に止まらない、という分離が肝。
+- `muxctl`はdriver非依存のspec、今は`tmux` driverだけ実装(`zellij`は枠だけ)、という現状。
+
+### TUI
+
+`bubbletea`製のTUIは**実装済み**(READMEの"not implemented"は直し忘れ)。`--popup`で`tmux popup`の中に出す話を書く。
+
+## 作り込みで気を付けたところ / ハマったところ
+
+こういう「アプリを裏で生かす」系を作るときのコアな気を付けどころを拾う。書きながら埋めるセクション。
+
+- blocking commandをどう生かし続けるか — `setsid`でセッションから切り離し、`Setpgid`でプロセスグループをまとめ、終了時はグループごとシグナルを送る話。
+- `tty`有効時はPTY(`creack/pty`)、無効時はpipe、という分岐とraw modeの扱い、`send-keys`/`attach`の実現方法。
+- シグナル伝播とゾンビプロセス回避(`cmdsignals`)、graceful shutdownの順序(SIGTERM→ctx cancel→子のプロセスグループへシグナル→`GracefulStop`)。
+- daemonlessゆえの「いつの間にか起動している」体験を、pollingと`flock`でどう破綻なく作ったか。
+
+## LLMにほぼ書かせた — どう作らせたか
+
+ここが本題。ソースはほぼ手でいじっていないが、それを成立させるためにした足場づくりについて書く。
+
+- **skills / hooks / instructionsをパッケージ管理**: `apm.yml`で自分の[agents-package]からskill(`go-edit-cobra` / `go-review-checklist`など)・hook・instructionを引いてきて、`AGENTS.md`を生成している構成を紹介する。
+- **編集のたびにlintを回すhook**: `PostToolUse`で`golangci-lint fmt` + `run`を毎回走らせて、`modernize`/`gocritic`で古い書き方を機械的に潰し、LLMの出力を矯正している話。
+- **context7 MCPで新しめのAPIを補う**: 別記事([go-os-root])でも触れた「新しいAPIは学習されてない」問題への対処。`bubbletea`や`compose-go`などの最新の使い方をMCP経由で引かせる。
+- **plan駆動 / 仕様を先に書く**: `doc/plan`配下にPLAN/STATEを置いて段階的に実装させたやり方(`compose`→`mux`→`tui`の順)。
+- **TUIアプリのフィードバックをどう与えるか**: [pinentryの記事][pinentry]で詰まった「TUIをLLMに評価させる」問題の続き。今回どう折り合いをつけたか。
+- **claude codeとcodexの使い分け / 雑感**: 2つを併用してみての得意不得意、どっちに何を任せたか。
+
+## Goでやるときの苦しみともがき
+
+`Go`でLLM主導のプロジェクトを回すときに踏んだ泥を書く。とはいえそこまで高度なことはしていない、という但し書き付きで。
+
+- ビルドタグ(`*_posix.go` / `linux` vs それ以外)が絡む部分で片側しか直してくれない、みたいなあるある。
+- gRPC/protobufの生成コードや、レイヤリング規約(`./cmd`にロジックを置かない等)をLLMに守らせる難しさ。
+- (書きながら追記)
 
 ## おわりに
 
@@ -467,7 +558,9 @@ commands:
 
 今後は:
 
-- TUIの実装。
+- READMEや古いdocの"not implemented"などstaleな記述の修正。
+- Mac / CI(Github Actions)での動作確認。
+- `zellij` driverの実装。
 - (書きながら追記)
 
 <!-- link section -->
@@ -494,11 +587,18 @@ commands:
 [codex]: https://developers.openai.com/codex/cli
 [Skills]: https://agentskills.io/home
 [Hooks]: https://code.claude.com/docs/en/hooks
+[agents-package]: https://github.com/ngicks/agents-package
+
+<!-- my other articles -->
+
+[go-os-root]: https://zenn.dev/ngicks/articles/go-os-root-based-abstraction
+[pinentry]: https://zenn.dev/ngicks/articles/pinentry-in-tmux-popup
 
 <!-- tools -->
 
 [tmux]: https://github.com/tmux/tmux/wiki
 [zellij]: https://zellij.dev/
+[WezTerm]: https://wezterm.org/index.html
 [podman]: https://github.com/containers/podman
 [docker]: https://www.docker.com/
 [docker compose]: https://docs.docker.com/compose/
