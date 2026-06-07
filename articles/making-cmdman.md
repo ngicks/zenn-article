@@ -315,40 +315,40 @@ prior art紹介セクション
   - プロダクト:
     - [podman]
       - Redhat主体、daemonless, cli/APIはdocker互換
-      - 本体は[Go]、[conmon](https://github.com/containers/conmon)などは[C]
+      - 開発言語: 本体は[Go]、[conmon](https://github.com/containers/conmon)などは[C]
     - [docker]
       - Docker Inc.主体、daemonプロセス、中央集権的configストア
-      - [Go],CGO経由で[C]を呼び出しているところもある
+      - 開発言語: [Go],CGO経由で[C]を呼び出しているところもある
 - タスクキュー系
   - 概説:
     - コマンドをキューに入れて順繰りに実行する
   - プロダクト:
     - [pueue]
       - シェルスクリプトやコマンドをpushすると`pueued`が順繰り/平行に実行する
-      - [Rust]
-      - Linux/Mac/Windows
+      - 開発言語: [Rust]
+      - プラットフォーム: Linux/Mac/Windows
 - ファイルでプロセス一覧を書く系
   - 概説:
     - ファイルにコマンドを書いてそれに基づいてプロセスが管理されるようなやつ
   - プロダクト:
     - [supervisord]
       - INI風のファイルでプロセスを管理できる
-      - [python]
-      - Linux/Mac/Solaris/FreeBSD(UNIX系全般)
+      - 開発言語: [python]
+      - プラットフォーム: Linux/Mac/Solaris/FreeBSD(UNIX系全般)
     - [foreman] / [goreman]
       - `Procfile`ファイルに記述されたコマンドを一気にフォアグラウンドで実行
-      - [foreman]は[Ruby], [goreman]は[Go]移植
-      - プラットフォームへの言及無し。[Ruby]/[Go]が動く環境すべてで動くのだと思われる
+      - 開発言語: [foreman]は[Ruby], [goreman]は[Go]移植
+      - プラットフォーム: プラットフォームへの言及無し。[Ruby]/[Go]が動く環境すべてで動くのだと思われる
     - [overmind]
       - `Procfile`ベース。各プロセスをtmuxセッション上で起動する
       - `overmind attach`は`tmux attach`のラッパー
-      - [Go]
-      - Linux/Mac/\*BSD
+      - 開発言語: [Go]
+      - プラットフォーム: Linux/Mac/\*BSD
         - [tmux]に依存しているからなところもあるがコード自体もPOSIX系の挙動に依存しているようだ
     - [process-compose]
-      - docker-compose風YAMLでコマンドを起動
+      - docker-compose風yamlでコマンドを起動
       - 疑似ターミナルを備えており、TUIで各コマンドの状態を閲覧可能
-      - Linux/Mac/Windows
+      - プラットフォーム: Linux/Mac/Windows
 
 `podman`, `forman`/`goreman`以外すべてdaemonありのクラサバモデルみたいです。
 
@@ -356,16 +356,16 @@ prior art紹介セクション
 
 - [dtach] / [shpool]
   - どちらもGNU Screen / tmuxからターミナル機能を取り除いたセッション管理のみを意識していると記述
-  - [C] / [Rust]
+  - 開発言語: [C] / [Rust]
 
 terminal multiplexerのレイアウト操作をするもの
 
 - [vde-layout]
   - yamlで定義したレイアウトでtmux / WezTermのwindowを分割し、コマンドを実行
-  - [TypeScript]\([Node.js]互換ランタイム\)
+  - 開発言語: [TypeScript]\(というか[Node.js]互換ランタイム\)
 - [tmuxinator]
   - yamlで定義したwindow / pane分割でセッションを管理できる。
-  - [Ruby]
+  - 開発言語: [Ruby]
 
 :::details LLMに調査させたら出てきたけど追い切れてないやつ
 
@@ -383,6 +383,22 @@ terminal multiplexerのレイアウト操作をするもの
 ## 既存のツールじゃダメな理由
 
 上記で上げたツール群は微妙に単体では私のニーズを満たしていないですね。
+
+私の要求は
+
+- (a)バックグラウンドでアプリを動作
+- (b)yamlファイルで順序を記述することで記述することで順序付きでアプリを起動
+- (c)yamlファイルでレイアウトを記述することで、tmuxなどでアプリを特定のレイアウトで表示
+- (d)tui管理
+
+です。
+
+- [process-compose]は(a), (b), (d)を満たせていそうですが(c)は無理そうに見える
+- [overmind]と[vde-layout]/[tmuxinator]の組み合わせが(d)以外を満たせそうに見えますが、これら、組み合わせるにも工夫がいりそうです。
+
+記事執筆にあたり調べているだけなので実は既存のものですべて満たせている可能性があるかもと思っていましたが、ドンピシャで満たすものはないのかもしれないです。
+
+--- ここから先LLMポンだしセクション
 
 ## できること
 
