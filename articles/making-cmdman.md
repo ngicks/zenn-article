@@ -17,6 +17,19 @@ published: false
 
 https://github.com/ngicks/cmdman
 
+インストール方法は下記
+
+```shell
+go install github.com/ngicks/cmdman/cmd/cmdman@latest
+```
+
+[mise][mise-en-place]を使う場合は下記
+
+```toml: mise.toml
+[tools]
+"go:github.com/ngicks/cmdman/cmd/cmdman" = { version = "latest", install_env = { CGO_ENABLED = "0" } }
+```
+
 ## cmdman(作ったアプリ)の概要
 
 まず作ったアプリのcli API shapeを確認してもらうことで、何を実現したかったのかとか、どういう話をしそうかについて想像がつくようにしましょう。
@@ -643,6 +656,33 @@ cmdman tui --popup
 
 これをしようと思うと疑似ターミナルの実装が必要なので重いのでこの程度で止めてあります(後述)
 
+## LLMの叩き方
+
+### 概要
+
+このアプリはほとんどLLMで作られています。
+
+- [claude code]\: Opus 4.7 max / Opus 4.8 xhigh
+  - Max5x($100/month)なのでこちらがメイン
+- [codex]\: gpt-5.5 medium
+  - Plus($20/month), ちょっと多めに実装タスク渡すとすぐ5hリミットが来る。
+
+これらのツールはtuiからチャットで命令を出すとコードの編集、テストの実行などをおこい、自律的に実装や調査などを行うことができます。基本的な使い方の知識は所与のものとします。
+
+これらは非常によくできたツールでout-of-boxでだいぶ良く動きますが、やはりなにかしかのカスタマイズを必要とします。
+
+やった工夫についていろいろ書きます。
+
+### apmによるパッケージ管理
+
+### AskUserQuestion
+
+### cliアプリ作成skill
+
+### Goのoutdatedな記法をチェックするskill
+
+### プロジェクト固有review skill
+
 --- ここから先LLMポンだしセクション
 
 ## インストール
@@ -779,6 +819,11 @@ go install github.com/ngicks/cmdman/cmd/cmdman@latest
 [pinentry]: https://zenn.dev/ngicks/articles/pinentry-in-tmux-popup
 
 <!-- tools -->
+
+[mise-en-place]: https://mise.jdx.dev/
+[apm]: https://github.com/microsoft/apm
+
+<!-- prior arts -->
 
 [tmux]: https://github.com/tmux/tmux/wiki
 [zellij]: https://zellij.dev/
