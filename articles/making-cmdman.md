@@ -413,7 +413,7 @@ terminal multiplexerのレイアウト操作をするもの
 
 ## 設計方針
 
-基本的なアイデアは既存の[podman] / [docker compose] / [vde-layout]もしくは[zellij]のレイアウト記法を踏襲しています。
+基本的なアイデア: [podman]からコンテナ関連機能を抜かして簡易化し、[docker compose]相当の機能をその上に乗せ、レイアウト系は[vde-layout]もしくは[zellij]の記法を踏襲しています。
 
 - 基本機能:
   - [podman]と同じくdaemonlessにします。
@@ -422,19 +422,20 @@ terminal multiplexerのレイアウト操作をするもの
 - `compose`機能:
   - composeファイルの構文は[docker compose]とほぼ同じです。
     - やれることが少ないのでかなりサブセットになっています。
-    - [docker compose]のcompose.yamlが`docker`コマンドのオプションを翻訳してファイルで書けるようになっている(厳密には違う[^1])のと同じく、`cmdman`の実行オプションをファイルで書いておけるフォーマットなので、`docker`がこうなっているのと同じ理由で似たようなフォーマットになっています。
+    - [docker compose]のcompose.yamlが`docker`コマンドのオプションを翻訳してファイルで書けるようになっている(厳密には違う[^1])のと同じく、`cmdman`の実行オプションをファイルで書いておけるフォーマットなので、`docker`に対して`docker compose`がこうなっているのと同じ理由で似たようなフォーマットになっています。
   - [docker compose]と同じく、基本のコマンド実行機能の上に、label（メタデータ)でプロジェクトを判別する構造にします。
     - [docker]はすべてのコンテナが単一のnamespace内でフラットに管理されます。
       - どのプロジェクトに参加しているコンテなのか、みたいな概念がないということです。
     - [docker compose]はプロジェクトの概念が導入され、
       - コンテナ名にプロジェクト名をprefixすることでプロジェクトの区別がつくようにし、
       - Label(コンテナに結びつくメタデータ)でどのプロジェクトとかを記録します。
-    - namespaceの概念はあったほうがいいような気もしますが、この構造はかなり作りやすい！このアイデアはそのまま採用します。
+    - namespaceの概念はあったほうがいいような気もしますが、この構造はかなり作りやすい！
+    - 単一namepaceでフラットな管理+メタデータで区別のアイデアはそのまま採用します。
     - [docker compose]とは違い、特定のディレクトリに対して実行するコマンドセットという体になっています
       - 筆者のよくやるワークフローが特定のディレクトリで`neovim`, `claude code`, `codex`を開くことなので、これを作業ディレクトリごとにできると便利だなと思ってこの決断になっています。
       - `cmdman compose ps`などは`work_dir`に結び付いたプロジェクト一覧を表示することにしました。
       - コマンド名はプロジェクト名だけではなく、working directoryのハッシュ値をprefixすることとします。
-    - `~/.config/cmdman/compose/`以下にあるcomposeファイルは
+    - `~/.config/cmdman/compose/`以下にあるcomposeファイルは名前のみで参照可能にします
 - `mux`機能:
   - tmuxのpaneを分割するshellscriptを再帰構造のyamlにしたような構文を用いることとします。
     - この記法は[vde-layout]や[zellijのLayouts](https://zellij.dev/documentation/layouts.html)を参考にしました。
@@ -448,6 +449,10 @@ terminal multiplexerのレイアウト操作をするもの
 
 ### 基本機能
 
+LLMにmanページ風の説明を書かせたらいい感じだったので詳細は下記。
+
+https://github.com/ngicks/cmdman/blob/main/doc/man/cmdman.1.md
+
 基本機能部分は下記図のような感じ。
 
 ![](/images/making-cmdman/architecture.jpg)
@@ -456,12 +461,187 @@ terminal multiplexerのレイアウト操作をするもの
 `--tty`オプションがついている場合は`pty`(Pseudo teleTYpewriter = 疑似ターミナル)をallocateしてターミナル付きでアプリを起動します。
 
 コマンドのログはlog-driverが`"none"`に指定されていない限り、log-driverを通じて書き込まれます。
-現状は`k8s-file`しかありません。ログローテーションでraceがないように工夫しているので実装形態は異なると思いますが、発想は[podman]のパクリです。podmanが`k8s-file`形式がデフォルトなのでそれがパクられています。
+現状は`k8s-file`しかありません。ログローテーションでraceがないように工夫しているので実装形態は異なると思いますが、発想は[podman]のパクリです。`podman`が`k8s-file`形式がデフォルトなのでそれがパクられています。
 
 状態は`commands.db`というSQLite3ファイルに書き込まれます。これも[podman]と一緒。
+コマンドが生成されたとか、開始したとか、終了したとか、削除されたとかはこのデータベースファイルが永続化します。
 
-コマンドが生成されたとか、開始したとか、終了したとか、削除されたとかは`event.log`に書き込まれます。
-これも[podman]の様式をそのままパクっていますが、実装形態は参考にしていないため異なります。こちらもrraceが翁ように気を遣っている。
+このイベント群のログは`event.log`にも書き込まれます。
+これも[podman]の様式をそのままパクっていますが、実装形態は参考にしていないため異なります。こちらもrraceが起きないように気を遣っている。
+
+### compose機能
+
+https://github.com/ngicks/cmdman/blob/main/doc/man/cmdman-compose.1.md
+
+https://github.com/ngicks/cmdman/blob/main/doc/man/cmdman-compose.5.md
+
+[docker compose]と同じ発想でcomposeファイルをyamlで書いたら順序付きでコマンドが実行できるものです。
+
+環境変数のinterpolation, afterでの順序付けなどができます。
+
+```yaml
+name: cmdman-compose-example
+commands:
+  yay1:
+    args:
+      - echo
+      - yay
+  yay2:
+    env:
+      - SLEEP_SECS=${INPUT_SLEEP:-3}
+    args:
+      - sleep
+      - ${SLEEP_SECS}
+  nay:
+    args:
+      - echo
+      - nay
+    after:
+      yay1:
+        condition: completed
+      yay2:
+        condition: completed
+```
+
+依存関係に基づいて起動順序が決まります。ロジックは`docker compose`とほとんど一緒のはず。
+
+```
+cmdman compose -f ./example.compose.yaml up
+⠴ yay1             Starting
+⠴ yay2             Waiting
+◌ nay              Created
+```
+
+`yay2`コマンドが3秒ブロックするので、`nay`は3秒後に実行されます。
+
+### mux機能
+
+https://github.com/ngicks/cmdman/blob/main/doc/man/cmdman-mux.1.md
+
+https://github.com/ngicks/cmdman/blob/main/doc/man/cmdman-mux.5.md
+
+`mux`サポートは例えば下記のようなyamlを書き、
+
+```yaml:devenv.yaml
+name: devenv
+commands:
+  nvim:
+    args:
+      - nvim
+    tty: true
+  shell:
+    args:
+      - $HOME/.nix-profile/bin/zsh
+    tty: true
+  claude:
+    args:
+      - $HOME/.dotfiles/devenv_run.sh
+      - ""
+      - -lc
+      - claude
+    tty: true
+  codex:
+    args:
+      - $HOME/.dotfiles/devenv_run.sh
+      - ""
+      - -lc
+      - codex
+    tty: true
+mux:
+  layouts:
+    - name: default
+      root:
+        dir: h
+        splits: [50%, 50%]
+        panes:
+          - dir: v
+            splits: [1, 20%]
+            panes:
+              - nvim
+              - shell
+          - dir: v
+            splits: [50%, 50%]
+            panes:
+              - command: claude
+                focus: true
+              - codex
+    - name: claude-focused
+      root:
+        dir: h
+        splits: [50%, 50%]
+        panes:
+          - dir: v
+            splits: [1, 20%]
+            panes:
+              - nvim
+              - shell
+          - command: claude
+            focus: true
+    - name: codex-focused
+      root:
+        dir: h
+        splits: [50%, 50%]
+        panes:
+          - dir: v
+            splits: [1, 20%]
+            panes:
+              - nvim
+              - shell
+          - command: codex
+            focus: true
+```
+
+`tmux`セッションの中で
+
+```
+$ cmdman compose -f ./devenv.yaml up
+$ cmdman compose -f ./devenv.yaml mux 0
+```
+
+を実行すると、下記のように`tmux`のwindowが分割されて、それぞれpaneがそれぞれのコマンドにattachします。
+
+![](/images/making-cmdman/mux-tmux.png)
+
+_(黒塗り部分隠す意味ない気がするけど一応隠してる)_
+
+```
+cmdman compose -f ./devenv.yaml mux
+```
+
+を繰り返し実行すると、複数レイアウトある場合サイクルする仕様としています。
+
+```
+cmdman compose -f ./devenv.yaml mux 2
+```
+
+みたいな感じで数字インデックスか、レイアウト名を指定するとそのレイアウトが表示されます。
+
+現在は[tmux]以外のdriverはサポートされていません。LLMに作らせるので別に作ってもいいんですが、一応自分でもチェックしてちゃんと動いてるかチェックしてるのでやろうと思うまでホールドされています。
+実装上`tmux`でないと動かない部分があるのでその辺をどうするかも決める必要があります(後述)。
+
+### tui機能
+
+https://github.com/ngicks/cmdman/blob/main/doc/man/cmdman-tui.1.md
+
+`tui`は[bubbletea]ベースの実装とします。
+
+`tui`は下記のような感じ
+
+```
+cmdman tui --popup
+```
+
+![](/images/making-cmdman/tui-popup.png)
+
+`--popup`オプションで`tmux popup`の中でtuiを表示します。
+
+この機能は極めてexperimentalなのでのちに滅茶苦茶変えようと思っています。
+
+コマンドログのPreviewセクションは`tty`が必要なターミナルアプリは正常に表示できず、ガチャガチャっとした表示になります。
+
+![](/images/making-cmdman/tui-popup-scrambled-tty-output.png)
+
+これをしようと思うと疑似ターミナルの実装が必要なので重いのでこの程度で止めてあります(後述)
 
 --- ここから先LLMポンだしセクション
 
@@ -580,6 +760,10 @@ go install github.com/ngicks/cmdman/cmd/cmdman@latest
 <!-- runtimes -->
 
 [Node.js]: https://nodejs.org
+
+<!-- lib -->
+
+[bubbletea]: https://github.com/charmbracelet/bubbletea
 
 <!-- llm stuff -->
 
