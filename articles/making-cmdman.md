@@ -30,6 +30,8 @@ go install github.com/ngicks/cmdman/cmd/cmdman@latest
 "go:github.com/ngicks/cmdman/cmd/cmdman" = { version = "latest", install_env = { CGO_ENABLED = "0" } }
 ```
 
+信用ならない他者のアプリなので、ソースをローカルに持ってきてあなたのLLMエージェントに「このアプリは危険に違いないからどこが危険か教えて」と聞いてみたほうがいいでしょう。言ってくる危険度が重大でないなら安全とみなせます。
+
 ## cmdman(作ったアプリ)の概要
 
 まず作ったアプリのcli API shapeを確認してもらうことで、何を実現したかったのかとか、どういう話をしそうかについて想像がつくようにしましょう。
@@ -667,7 +669,7 @@ cmdman tui --popup
 - [codex]\: gpt-5.5 medium
   - Plus($20/month), ちょっと多めに実装タスク渡すとすぐ5hリミットが来る。
 
-これらのツールはtuiからチャットで命令を出すとコードの編集、テストの実行などをおこい、自律的に実装や調査などを行うことができます。基本的な使い方の知識は所与のものとします。
+これらのツールはtuiからチャットで命令を出すとクラウド上のLLMエージェントが動作し、コードの編集、テストの実行などをおこい、自律的に実装や調査などを行うことができます。基本的な使い方の知識は所与のものとします。
 
 これらは非常によくできたツールでout-of-boxでだいぶ良く動きますが、やはりなにかしかのカスタマイズを必要とします。
 
@@ -675,13 +677,49 @@ cmdman tui --popup
 
 ### apmによるパッケージ管理
 
-### AskUserQuestion
+[apm]は`claude`, `codex`その他もろもろ向けのskills/hooksなどなどをよそからインポートすることができるagent向けパッケージマネージャです。agents向けのnpmとかそういうポジションのもの
 
-### cliアプリ作成skill
+> An open-source, community-driven dependency manager for AI agents.
 
-### Goのoutdatedな記法をチェックするskill
+基本的に信用ならないサードパーティのskillやhookをインポートするのは危険かと思いますが、自作なら問題ないだろということで自前のパッケージ群を用意してそれを再利用しています。
 
-### プロジェクト固有review skill
+https://github.com/ngicks/agents-package
+
+ほうぼうのプロジェクトで同じパッケージをコピーしてくるのは面倒なので、導入は割とおすすめかも。
+
+hooksや`AGENTS.md`は単一のファイルですが、各セクションごとにばらばらに管理してメンテ性を上げたい需要もあると思います。`apm`はそういう使い方ができるので、一か所からしか使わないようなhooksなどなども複数ファイルに分割する目的で`apm`で管理するというのも普通にありかなと思います。
+
+### AGENTS.mdでAskUserQuestionを使うように指示
+
+https://github.com/ngicks/agents-package/blob/ed8e52745ad217cfe5f1e1dbed1abc1b714dbe46/instructions/base-env.instructions.md
+
+> You may ask back the user to resolve unclear corners, using AskUserQuestion (if available) or just a response.
+
+これが地味によいです。
+
+`AskUserQuestion`は[claude code]の組み込みツールで、言葉通りユーザーに質問を行うツールです。特にplanモード中に使ってくると思いますが、instructionに加えておくとセッションの始めのほうは割と積極的に使ってくるようになる、と思う。
+
+見た目はググったら出てきます
+
+https://www.google.com/search?q=askuserquestion
+
+入れたほうが劇的にやり取りが楽になる。
+
+実は今は素でも割と使ってくるとかだったらすみません。私はずっとこのinstructionを入れたままなので素の挙動がわかりません。
+
+### cliアプリ作成skill(go-edit-cobra)
+
+https://github.com/ngicks/agents-package/tree/ed8e52745ad217cfe5f1e1dbed1abc1b714dbe46/skills/go-edit-cobra
+
+[Go]でサブコマンドありのリッチなcliアプリを作るとなると基本的に[github.com/spf13/cobra]か[github.com/urfave/cli]を用います。筆者は[github.com/spf13/cobra]のほうを好んで使っています。
+
+素の[claude code]でもいくらか`cobra`のプロジェクトを作成でききますが、`completion`をどうするのかとかどういう構造でプロジェクトを管理するのかとか、どうしても設計上の決断ポイントが出てきてしまうため何かしらの構成の指定をすることになります。これを何度も手作業でやるわけにはいかないため、skillに落とし込んだのがこれです。
+
+大雑把な内容
+
+### Goのoutdatedな記法をチェックするskill(go-check-outdated-patterns)
+
+### プロジェクト固有review skill(go-cmdman-review-checklist)
 
 --- ここから先LLMポンだしセクション
 
@@ -804,6 +842,8 @@ go install github.com/ngicks/cmdman/cmd/cmdman@latest
 <!-- lib -->
 
 [bubbletea]: https://github.com/charmbracelet/bubbletea
+[github.com/urfave/cli]: https://github.com/urfave/cli
+[github.com/spf13/cobra]: https://github.com/spf13/cobra
 
 <!-- llm stuff -->
 
