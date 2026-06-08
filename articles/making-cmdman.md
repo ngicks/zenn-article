@@ -677,17 +677,34 @@ cmdman tui --popup
 
 ### apmによるパッケージ管理
 
-[apm]は`claude`, `codex`その他もろもろ向けのskills/hooksなどなどをよそからインポートすることができるagent向けパッケージマネージャです。agents向けのnpmとかそういうポジションのもの
+[apm]は`claude`, `codex`その他もろもろ向けのskills/hooksなどなどをよそからインポートすることができるagent向けパッケージマネージャです。agents向けの[npm]とかそういうポジションのもの
 
 > An open-source, community-driven dependency manager for AI agents.
 
-基本的に信用ならないサードパーティのskillやhookをインポートするのは危険かと思いますが、自作なら問題ないだろということで自前のパッケージ群を用意してそれを再利用しています。
+基本的に信用ならないサードパーティのskillやhookをインポートするのは危険かと思いますが、自作なら問題ないだろということで自前のパッケージ群を用意してそれを利用しています。
 
 https://github.com/ngicks/agents-package
 
-ほうぼうのプロジェクトで同じパッケージをコピーしてくるのは面倒なので、導入は割とおすすめかも。
+agents向けの[npm]みたいなものという通り、`npm`でいうところの`package.json`にあたる`apm.y[a]ml`を定義して管理します。
+[cmdman]の`apm.yml`は下記のように
 
-hooksや`AGENTS.md`は単一のファイルですが、各セクションごとにばらばらに管理してメンテ性を上げたい需要もあると思います。`apm`はそういう使い方ができるので、一か所からしか使わないようなhooksなどなども複数ファイルに分割する目的で`apm`で管理するというのも普通にありかなと思います。
+https://github.com/ngicks/cmdman/blob/732a3fe0cc0c88803dc250fa6e6a8d4acc233f86/apm.yml
+
+```shell
+apm install --update -t claude,codex
+apm compile -t codex
+```
+
+で`.claude/`, `.codex/`, `.agents/`, `AGENTS.md`などなどが作成されます。
+`CLAUDE.md`は生成しないようにしています。`install`時点で`.claude/rules`が生成されるので必要ないためです。
+
+[apm]の管理機能は
+
+- 中央管理したskills / hooksをほうぼうで利用
+- 複数のhooks / instructions(`AGENTS.md`のこと)を合成して単一の`settings.json`(hook定義)/`AGENTS.md`を生成
+
+など便利です。
+より良い代替ツールが出るまではこれを使えばいいと思います。
 
 ### AGENTS.mdでAskUserQuestionを使うように指示
 
@@ -697,131 +714,81 @@ https://github.com/ngicks/agents-package/blob/ed8e52745ad217cfe5f1e1dbed1abc1b71
 
 これが地味によいです。
 
-`AskUserQuestion`は[claude code]の組み込みツールで、言葉通りユーザーに質問を行うツールです。特にplanモード中に使ってくると思いますが、instructionに加えておくとセッションの始めのほうは割と積極的に使ってくるようになる、と思う。
+`AskUserQuestion`は[claude code]の組み込みツールで、言葉通りユーザーに質問を行うツールです。特にplanモード中に使ってくると思いますが、instructionに加えておくと質問があるときに使ってくれるようになります。
 
-見た目はググったら出てきます
+画像を取り損なっているのでググってどういうものか見てください
 
 https://www.google.com/search?q=askuserquestion
 
-入れたほうが劇的にやり取りが楽になる。
-
-実は今は素でも割と使ってくるとかだったらすみません。私はずっとこのinstructionを入れたままなので素の挙動がわかりません。
+これがかなりいいです。
+[codex]にはこのツールがないので利用できません。早く実装してくれないかなあ
 
 ### cliアプリ作成skill(go-edit-cobra)
 
+以下です。
+
 https://github.com/ngicks/agents-package/tree/ed8e52745ad217cfe5f1e1dbed1abc1b714dbe46/skills/go-edit-cobra
 
-[Go]でサブコマンドありのリッチなcliアプリを作るとなると基本的に[github.com/spf13/cobra]か[github.com/urfave/cli]を用います。筆者は[github.com/spf13/cobra]のほうを好んで使っています。
+[Go]でサブコマンドありのリッチなcliアプリを作るとなると基本的に[github.com/spf13/cobra]か[github.com/urfave/cli]を用います。
 
-素の[claude code]でもいくらか`cobra`のプロジェクトを作成でききますが、`completion`をどうするのかとかどういう構造でプロジェクトを管理するのかとか、どうしても設計上の決断ポイントが出てきてしまうため何かしらの構成の指定をすることになります。これを何度も手作業でやるわけにはいかないため、skillに落とし込んだのがこれです。
+筆者は[github.com/spf13/cobra]のほうを好んで使っています。基本的には多分こちらのほうがお勧め。
 
-大雑把な内容
+素の[claude code]でもいくらか`cobra`のプロジェクトを作成でききますが、いろいろカスタマイズできるところがあるので素のままだと[claude code]の機嫌次第でプロジェクトごとに構成が異なってしまいます。
+ずれを抑えるためにはこういったskillが必要になってきます。
+
+結局ノウハウや好みはすべてskillに書いてあるので、ここでは大雑把な話しにとどめます。大体以下をするように言っています。
+
+- `cmd/<<app-name>>`以下に`main`を定義
+- `package main`ではほぼ何もせずに、直下の`commands`にすべての動作を委譲
+  - `main`でいろいろやると単体テストが書けなくなることへの反省
+- `cmd/<<app-name>>/commands/root.go`にroot commandを定義
+- `cmd/<<app-name>>/commands/<<subcommand-name>>.go`にサブコマンドを定義
+- `cmd/<<app-name>>/commands/`以下では、パッケージトップスコープに変数を定義しない。
+  - フラグ変数などはすべて関数内で定義。
+    - こうしないとサブコマンドの単体テストが書きづらい
+- `pkg/<<app-name>>`を定義し、アプリのロジックはすべてそこに委譲する
+  - cliコマンドの表示に関するロジックは`pkg/<<app-name>>/cli`を定義し、そこにすべて委譲する
+  - このように書いておかないと`cmd/`以下の層でロジックがいっぱい書かれて切り分けが変になる
+  - `pkg`というサブパッケージを切るのは悪しき習慣と言われがちですが、ないとトップディレクトリが煩雑になる問題があってこうしています。(そのうちやめるかも)
+- 常に[log/slog](https://pkg.go.dev/log/slog)でロガーを定義
+  - `--log`, `--log-level`というグローバルフラグを常に定義し、これらのオプションを設定することで有効化する
+  - `ctx context.Context`にロガーオブジェクトを収め、デバッグ用ロガーは必ずそこからとり出す
+- 必ず`version`サブコマンドを用意すること`<<app-name>> --version`は`version`サブコマンドへのエイリアスとすること
+  - `pkg/<<app-name>>/version.go`を用意し、ここにバージョンを埋め込む
+  - `release`ヘルパーを定義し、これをプロジェクトにコピペする
+    - `release`ヘルパーは`go run internal/cmd/release v0.0.1`みたいにすることで`version.go`の内容を`v0.0.1`に置き換てコミット -> `v0.0.1`のタグ付け -> `version.go`を`v0.0.2-devel`に置き換えてコミットという一連のバージョンダンスを行う
+- 各種ヘルパーを定義してあるので必要に応じてコピーして利用する
+  - ヘルパーはモジュールとして切り出してもよかったんですが、各アプリで独自に変化していく必要がある場合にモジュールだと不自然になるのでLLMにコピペさせる形式をとっています。
+  - (1) `cmdsignals`:
+    - `[...]os.Signal`
+    - `main`パッケージ内で`signal.NotifyContext(context.Background(), cmdsignals.ExitSignals[:]...)`で、使用する
+    - 定義理由:
+      - graceful exit実装のために必要。ないと`Ctrl+c`(`SIGINT`)や`SIGTERM`時の挙動がいきなりプロセス終了になる。
+      - 込み入ったcliアプリを作ろうとするとシグナルハンドラを取り除きたくなるケースがよくあるが、引数なしの[signal.Reset()](https://pkg.go.dev/os/signal#Reset)はすべてのハンドラをリセットしてしまうので依存先ライブラリの挙動を破壊しかねない。適当に絞るためのリストが必要だった。
+        - `cmdman attach`は`Ctrl+c`をアタッチ先にフォワードするのでアタッチ開始時に`signal.Reset`必須
+        - 依存先ライブラリがハンドラを使う例: [bubbletea]は`SIGWINCH`などをトラップする。
+        - 書きながら思ったけどReset使わずに[Stop](https://pkg.go.dev/os/signal#Stop)使えばいいだけなんじゃ・・・(今後の課題)
+  - (2) `loggerfactory`:
+    - 前述の`--log`フラグのワイヤリング。
+    - 環境変数(`<<APP_NAME>>_LOG_FORMAT`, `<<APP_NAME>>_LOG_LEVEL`)からでも設定できる
+    - `OpenTelemetry`用のlog-level, `Trace` / `Fatal`も用意しておいた
+  - (3) `versioninfo`:
+    - ddd
+  - (4) `stdiopipe`:
+    - bbb
+
+こんな感じ。
+このskillは筆者の好みに合わせてガンガン変える予定なので、別に使うのを推奨しているわけですが、似たようなskillを作ることはお勧めです。
+上記で上げた視点も多分いくらか役に立つのではないかと。
 
 ### Goのoutdatedな記法をチェックするskill(go-check-outdated-patterns)
 
 ### プロジェクト固有review skill(go-cmdman-review-checklist)
 
---- ここから先LLMポンだしセクション
-
-## インストール
-
-`go install`一発で入る、ぐらいの最短経路を書く。`mux`や`--popup`を使うなら`tmux`が要る、という前提も添える。
-
-```shell
-go install github.com/ngicks/cmdman/cmd/cmdman@latest
-```
-
-- 動作確認した前提(`tmux`のバージョンなど)に軽く触れる。
-- 「中央のdaemonはいない」「`run`した時にコマンドごとのmonitorプロセスが勝手に立ち上がる」点をここで一言予告しておく。詳細はアーキテクチャ節に譲る。
-
-## アーキテクチャ / 全体像
-
-`cmdman`がどう動いているのかをざっくり解説する。`root.go`の自己紹介よろしく`podman without pods, tmux without terminals`を合言葉に、**中央daemonを持たず、コマンド1つにつきmonitorプロセス1つ**というモデルになっていることを最初に図(`/images/making-cmdman/`配下に置く想定)で示す。
-
-### daemonlessなプロセスモデル
-
-`cmdman <verb>`(Service/CLI)は短命でステートレス、状態はぜんぶディスク(SQLite)に置いてある、という割り切りから説明する。
-
-- `start`すると同じバイナリの隠しサブコマンド`__monitor`を`setsid`でdetachして再exec、stdioを`/dev/null`に飛ばして親から切り離す(`detach_posix.go`)。
-- CLI側はSQLiteのstateを50msごとにpollして`starting`→`running`を待つだけ、という非同期な作り。
-- monitorはPIDファイルに`flock`を取って多重起動を防ぎ、自分のPIDとsocketのパスをstateに書き込む。
-- `run` = `create` + `start`(+ お好みで`--attach`)である、という小ネタも。
-
-### CLI ⇔ monitor間のIPC
-
-コマンドごとのunix socketの上でgRPCをしゃべる、という構成を説明する。
-
-- protobufのスキーマから`buf generate`で生成しているコードの話。
-- socketのパスをstateに保存しているのでレジストリ的なものが要らない(どのCLIプロセスからでもsocketを見つけられる)点。
-- `Attach`(双方向stream) / `Subscribe`(ログのserver stream) / `WriteStdin` / `Signal` / `Stop` / `Status`というサービス定義をざっと並べる。
-
-### 状態とログの永続化
-
-`modernc.org/sqlite`(pure-Go・CGOなし)を選んだ理由と、ログの取り回しを書く。
-
-- config / state / 終了コード履歴をSQLiteに持つ(WALモード、スキーマが古ければ`cmdman migrate`で移行)。
-- 子プロセスの出力をring buffer(スクロールバック) + ログファイル(`podman`のk8s-file形式) + broadcaster(ライブ配信)に**fan-out**している構造。
-
-### compose: 依存順序の解決
-
-`docker compose`相当の依存解決をどう実装したかを書く。`spec`→DAG→plan→reconcileの流れ。
-
-- `after`の`condition`をトポロジカルソートで解いてlayerごとに起動する話。
-- `${VAR}`展開やデフォルト値(`${INPUT_SLEEP:-3}`)も実装している点を`example.compose.yaml`を引きながら示す。
-- 締めとして、実際にこのzennリポジトリで`zenn preview`を常駐させるのに使っている、という実例。
-
-### mux / muxctl: 使い捨てのビューア
-
-`mux`の設計原則「multiplexerは使い捨てのビューア」を強調する。
-
-- セッションを閉じたり組み直したりしても、supervisedなプロセスは絶対に止まらない、という分離が肝。
-- `muxctl`はdriver非依存のspec、今は`tmux` driverだけ実装(`zellij`は枠だけ)、という現状。
-
-### TUI
-
-`bubbletea`製のTUIは**実装済み**(READMEの"not implemented"は直し忘れ)。`--popup`で`tmux popup`の中に出す話を書く。
-
-## 作り込みで気を付けたところ / ハマったところ
-
-こういう「アプリを裏で生かす」系を作るときのコアな気を付けどころを拾う。書きながら埋めるセクション。
-
-- blocking commandをどう生かし続けるか — `setsid`でセッションから切り離し、`Setpgid`でプロセスグループをまとめ、終了時はグループごとシグナルを送る話。
-- `tty`有効時はPTY(`creack/pty`)、無効時はpipe、という分岐とraw modeの扱い、`send-keys`/`attach`の実現方法。
-- シグナル伝播とゾンビプロセス回避(`cmdsignals`)、graceful shutdownの順序(SIGTERM→ctx cancel→子のプロセスグループへシグナル→`GracefulStop`)。
-- daemonlessゆえの「いつの間にか起動している」体験を、pollingと`flock`でどう破綻なく作ったか。
-
-## LLMにほぼ書かせた — どう作らせたか
-
-ここが本題。ソースはほぼ手でいじっていないが、それを成立させるためにした足場づくりについて書く。
-
-- **skills / hooks / instructionsをパッケージ管理**: `apm.yml`で自分の[agents-package]からskill(`go-edit-cobra` / `go-review-checklist`など)・hook・instructionを引いてきて、`AGENTS.md`を生成している構成を紹介する。
-- **編集のたびにlintを回すhook**: `PostToolUse`で`golangci-lint fmt` + `run`を毎回走らせて、`modernize`/`gocritic`で古い書き方を機械的に潰し、LLMの出力を矯正している話。
-- **context7 MCPで新しめのAPIを補う**: 別記事([go-os-root])でも触れた「新しいAPIは学習されてない」問題への対処。`bubbletea`や`compose-go`などの最新の使い方をMCP経由で引かせる。
-- **plan駆動 / 仕様を先に書く**: `doc/plan`配下にPLAN/STATEを置いて段階的に実装させたやり方(`compose`→`mux`→`tui`の順)。
-- **TUIアプリのフィードバックをどう与えるか**: [pinentryの記事][pinentry]で詰まった「TUIをLLMに評価させる」問題の続き。今回どう折り合いをつけたか。
-- **claude codeとcodexの使い分け / 雑感**: 2つを併用してみての得意不得意、どっちに何を任せたか。
-
-## Goでやるときの苦しみともがき
-
-`Go`でLLM主導のプロジェクトを回すときに踏んだ泥を書く。とはいえそこまで高度なことはしていない、という但し書き付きで。
-
-- ビルドタグ(`*_posix.go` / `linux` vs それ以外)が絡む部分で片側しか直してくれない、みたいなあるある。
-- gRPC/protobufの生成コードや、レイヤリング規約(`./cmd`にロジックを置かない等)をLLMに守らせる難しさ。
-- (書きながら追記)
-
-## おわりに
-
-- 何を作って何ができるようになったかを2-3行でまとめる。
-- 普段の自分の使い方(`drawio`や`zenn preview`の常駐)が快適になった、という所感。
-
-今後は:
-
-- READMEや古いdocの"not implemented"などstaleな記述の修正。
-- Mac / CI(Github Actions)での動作確認。
-- `zellij` driverの実装。
-- (書きながら追記)
-
 <!-- link section -->
+<!-- MINE!!!! -->
+
+[cmdman]: https://github.com/ngicks/cmdman
 
 <!-- programming language -->
 
@@ -862,6 +829,7 @@ go install github.com/ngicks/cmdman/cmd/cmdman@latest
 
 [mise-en-place]: https://mise.jdx.dev/
 [apm]: https://github.com/microsoft/apm
+[npm]: https://www.npmjs.com/
 
 <!-- prior arts -->
 
