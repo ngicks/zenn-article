@@ -773,9 +773,14 @@ https://github.com/ngicks/agents-package/tree/ed8e52745ad217cfe5f1e1dbed1abc1b71
     - 環境変数(`<<APP_NAME>>_LOG_FORMAT`, `<<APP_NAME>>_LOG_LEVEL`)からでも設定できる
     - `OpenTelemetry`用のlog-level, `Trace` / `Fatal`も用意しておいた
   - (3) `versioninfo`:
-    - ddd
+    - [debug.ReadBuildInfo](https://pkg.go.dev/runtime/debug#ReadBuildInfo)から情報を読んでstructにまとめ直す
+    - 前述の`version`サブコマンドから呼ぶ。
   - (4) `stdiopipe`:
-    - bbb
+    - stdin/stdout/stderrを[io.Pipe](https://pkg.go.dev/io#Pipe)経由で読めるようにしたもの。
+    - `os.Stdin.Read`, `os.Stdout.Write`は、`os.Stdin`/`os.Stdout`の`Close`を呼ぶことで**アンブロックすることができません**
+    - `Close`によるアンブロックを実現するにはいったんpipeをかませるしか現状方法がありません。
+    - アンブロック出来なければ終了しないgoroutineが残されえます。
+    - わかりにくいトラブルが起きないたようにするためにも、終了できないgoroutineは発生しないようにしましょう。
 
 こんな感じ。
 このskillは筆者の好みに合わせてガンガン変える予定なので、別に使うのを推奨しているわけですが、似たようなskillを作ることはお勧めです。
