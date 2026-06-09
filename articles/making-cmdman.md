@@ -788,6 +788,8 @@ https://github.com/ngicks/agents-package/tree/ed8e52745ad217cfe5f1e1dbed1abc1b71
 
 ### Goのoutdatedな記法をチェックするskill(go-check-outdated-patterns)
 
+https://github.com/ngicks/agents-package/blob/ed8e52745ad217cfe5f1e1dbed1abc1b714dbe46/skills/go-check-outdated-patterns/SKILL.md
+
 ### プロジェクト固有review skill(go-cmdman-review-checklist)
 
 <!-- link section -->
