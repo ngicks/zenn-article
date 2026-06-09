@@ -792,6 +792,8 @@ https://github.com/ngicks/agents-package/blob/ed8e52745ad217cfe5f1e1dbed1abc1b71
 
 ### プロジェクト固有review skill(go-cmdman-review-checklist)
 
+https://github.com/ngicks/cmdman/blob/637fd046b8e87c37804f84aa41a6d0045caad0a9/.apm/skills/go-cmdman-review-checklist/SKILL.md
+
 <!-- link section -->
 <!-- MINE!!!! -->
 
