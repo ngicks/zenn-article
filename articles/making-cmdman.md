@@ -6,7 +6,7 @@ topics: ["go", "cli", "tmux"]
 published: false
 ---
 
-## cmdman: command daemonを作った話
+## cmdman: バックグラウンドでアプリを動かすマネージャーをLLM叩いて作った話
 
 こんにちは。
 
@@ -36,15 +36,32 @@ go install github.com/ngicks/cmdman/cmd/cmdman@latest
 
 まず作ったアプリのcli API shapeを確認してもらうことで、何を実現したかったのかとか、どういう話をしそうかについて想像がつくようにしましょう。
 
-- 渡されたcliアプリをバックグラウンドで実行でき
-  - `ls`: アプリの一覧を見たり
-  - `start/stop/restart`: 停止したり、開始したり
-  - `send-keys`: 任意の入力をstdinに送ったり
-  - `compose`: yamlファイルを書くことで一連のコマンドを起動順序をつけて実行できたり
-  - `mux`: yamlファイルを書くことで、`tmux`のようなterminal multiplexerにバックグラウンドアプリをアタッチしたり
-  - `tui`: それらを`tui`上から管理できます
+### 各機能
 
-できます。
+[cmdman]はコマンドをバックグラウンドで実行できるアプリです。
+
+- 基本機能:
+  - life-cycle(`cmdman create`, `cmdman run`, `cmdman stop`, `cmdman rm`):
+    - [podman]風なcliオプションで動くコマンドの設定や開始、終了のコントロール
+  - `cmdman ls`:
+    - アプリの一覧の閲覧
+  - `cmdman send-keys`:
+    - 任意の入力をstdinに送る
+    - [tmux]のsend-keysと同じ様式
+  - `cmdman attach`:
+    - 手元のターミナルとコマンドのstdioを接続
+- `compose`機能:
+  - [docker compose]風のyamlファイルを書くことで複数のコマンドを実行
+  - コマンド間の依存関係を記述可能で、順序をつけてアプリを起動可能
+- `mux`機能:
+  - `compose`のプロジェクト内ないしはスタンドアロンなyamlファイルを書くことで、[tmux]などのpaneを分割し、ダッシュボードを作成
+  - 複数のレイアウトを記述しておき、サイクル可能
+- `tui`機能
+  - 上記を`tui`上から管理できます
+
+みたいな感じ。
+
+### 基本機能: 単コマンドをバックグラウンド実行
 
 例として`drawio`を起動するならこう
 
@@ -117,9 +134,13 @@ cmdman compose -f ./example.compose.yaml up
 ◌ nay              Created
 ```
 
+### mux機能
+
 `mux`サポートは例えば下記のようなyamlを書き、
 
-```yaml:devenv.yaml
+:::details 長いので省略
+
+```yaml
 name: devenv
 commands:
   nvim:
@@ -129,6 +150,8 @@ commands:
   shell:
     args:
       - $HOME/.nix-profile/bin/zsh
+      - -l
+    stop_signal: SIGHUP
     tty: true
   claude:
     args:
@@ -136,6 +159,7 @@ commands:
       - ""
       - -lc
       - claude
+    scale: 3
     tty: true
   codex:
     args:
@@ -143,6 +167,7 @@ commands:
       - ""
       - -lc
       - codex
+    scale: 3
     tty: true
 mux:
   layouts:
@@ -186,7 +211,102 @@ mux:
               - shell
           - command: codex
             focus: true
+    - name: claude-focused-portrait
+      root:
+        dir: v
+        splits: [50%, 50%]
+        panes:
+          - command: claude
+            focus: true
+          - dir: h
+            splits: [1, 20%]
+            panes:
+              - nvim
+              - shell
+    - name: codex-focused-portrait
+      root:
+        dir: v
+        splits: [50%, 50%]
+        panes:
+          - command: codex
+            focus: true
+          - dir: h
+            splits: [1, 20%]
+            panes:
+              - nvim
+              - shell
+    - name: claude-two-right
+      root:
+        dir: h
+        splits: [50%, 50%]
+        panes:
+          - dir: v
+            splits: [1, 20%]
+            panes:
+              - nvim
+              - shell
+          - dir: v
+            splits: [50%, 50%]
+            panes:
+              - command: claude
+                scale: 1
+                focus: true
+              - command: claude
+                scale: 2
+    - name: claude-3col
+      root:
+        dir: h
+        splits: [1, 1, 1]
+        panes:
+          - command: claude
+            scale: 1
+            focus: true
+          - command: claude
+            scale: 2
+          - command: claude
+            scale: 3
+    - name: codex-3col
+      root:
+        dir: h
+        splits: [1, 1, 1]
+        panes:
+          - command: codex
+            scale: 1
+            focus: true
+          - command: codex
+            scale: 2
+          - command: codex
+            scale: 3
+    - name: all-agents
+      root:
+        dir: h
+        splits: [1, 1, 1]
+        panes:
+          - dir: v
+            splits: [1, 1]
+            panes:
+              - command: claude
+                scale: 1
+                focus: true
+              - command: codex
+                scale: 1
+          - dir: v
+            splits: [1, 1]
+            panes:
+              - command: claude
+                scale: 2
+              - command: codex
+                scale: 2
+          - dir: v
+            splits: [1, 1]
+            panes:
+              - command: claude
+                scale: 3
+              - command: codex
+                scale: 3
 ```
+
+:::
 
 `tmux`セッションの中で
 
@@ -201,6 +321,25 @@ $ cmdman compose -f ./devenv.yaml mux 0
 
 _(黒塗り部分隠す意味ない気がするけど一応隠してる)_
 
+以下のコマンドで`compose` spec上の各コマンドの同時実行数を増やしたりできます。
+
+```
+$ cmdman compose -f devenv scale codex=5
+```
+
+コマンドは末尾に`-1`とか`-2`みたいなscale indexがつくのでこれで区別されます。(`docker compose`と同じような仕様)
+
+`mux`機能は、yaml側で表示するscale indexをopt-inで指定できます。　　
+指定がない場合はデフォルトではscale index 1が表示さ、`cycle-scale`入れ替えることができます。
+
+```
+$ cmdman compose -f ./devenv.yaml mux cycle-scale codex
+```
+
+割と便利！！！
+
+### tui機能
+
 `tui`は下記のような感じ
 
 ```
@@ -210,6 +349,9 @@ cmdman tui --popup
 ![](/images/making-cmdman/tui-popup.png)
 
 `--popup`オプションで`tmux popup`の中でtuiを表示します。
+
+とりあえず作っただけでこれでなにすべきかは考え中です。  
+`mux`のレイアウトを選ぶのに使おうかなあ
 
 ## 環境
 
@@ -240,13 +382,13 @@ tmux 3.6a
 ```
 
 ```
-❯ cmdman --version
-version:     v0.0.11
+❯ cmdman version
+version:     v0.0.12
 go version:  go1.26.3
 ```
 
 Native Linux / Macでも動くと思うけど(特にMacで)なにも試していない。
-Github Actionsでテストぐらいは走らせようかなあ？
+Github Actionsでテストぐらいは走らせようかなあ
 
 ## 対象読者
 
@@ -410,7 +552,7 @@ terminal multiplexerのレイアウト操作をするもの
 
 ## 既存のツールじゃダメな理由
 
-上記で上げたツール群は微妙に単体では私のニーズを満たしていないですね。
+上記で上げたツール群は微妙に単体では私のニーズを満たしていません。
 
 私の要求は
 
@@ -421,12 +563,66 @@ terminal multiplexerのレイアウト操作をするもの
 
 です。
 
+### 既存ツールの組み合わせ
+
 - [process-compose]は(a), (b), (d)を満たせていそうですが(c)は無理そうに見える
 - [overmind]と[vde-layout]/[tmuxinator]の組み合わせが(d)以外を満たせそうに見えますが、これら、組み合わせるにも工夫がいりそうです。
 
 記事執筆にあたり調べているだけなので実は既存のものですべて満たせている可能性があるかもと思っていましたが、ドンピシャで満たすものはないのかもしれないです。
 
+### そもそもtmuxだけで実現できてね？
+
+manより
+
+```
+man tmux
+```
+
+以下の2コマンドがあります。
+
+```
+     break-pane [-abdP] [-F format] [-n window-name] [-s src-pane] [-t dst-window]
+                   (alias: breakp)
+             Break src-pane off from its containing window to make it the only pane in dst-window.  With
+             -a or -b, the window is moved to the next index after or before (existing windows are moved
+             if necessary).  If -d is given, the new window does not become the current window.  The  -P
+             option  prints  information about the new window after it has been created.  By default, it
+             uses the format ‘#{session_name}:#{window_index}.#{pane_index}’ but a different format  may
+             be specified with -F.
+
+```
+
+```
+     join-pane [-bdfhv] [-l size] [-s src-pane] [-t dst-pane]
+                   (alias: joinp)
+             Like split-window, but instead of splitting dst-pane and creating a new pane, split it  and
+             move  src-pane  into  the  space.   This  can be used to reverse break-pane.  The -b option
+             causes src-pane to be joined to left of or above dst-pane.
+
+             If -s is omitted and a marked pane is present (see select-pane -m), the marked pane is used
+             rather than the current pane.
+```
+
+フォアグラウンド用のセッション、バックグラウンド用のセッションの二つを用意し、  
+これらのコマンドを駆使してレイアウトなどの変更を行うことで所望の挙動は満たせてそうに思います。
+
+しいて言うなら
+
+- [tmux]/[zellij]などに強く結びつき、共通部がくくりだしにくいこと
+- コマンドのログの保持がやりづらいこと
+- コマンドの動作/停止状態の監視、restart policyの実装が難しいこと
+
+などがこの方法をとらない理由といえます。
+
 ## 設計方針
+
+- [podman]と同じくdaemonlessにすることにしました。
+  - つまり`cmdman run`などがコマンドモニターをspawnしてdaemonizeし、モニターは子プロセスとして与えられたコマンドを実行します。
+  - コンテナ内を含めた様々な状況で使うことを考えたため、「daemonをあらかじめ起動しておく」というワンステップを排除したかった意図があります。
+- コマンドモニターとの通信は[gRPC]で行うことにしました。
+  - schemaを定義すると
+- [docker compose]を見習って、基本機能をラップする形で複数コマンドをまとめて管理できる機能を付けます。
+- aaa
 
 基本的なアイデア: [podman]からコンテナ関連機能を抜かして簡易化し、[docker compose]相当の機能をその上に乗せ、レイアウト系は[vde-layout]もしくは[zellij]の記法を踏襲しています。
 
@@ -470,7 +666,7 @@ https://github.com/ngicks/cmdman/blob/main/doc/man/cmdman.1.md
 
 基本機能部分は下記図のような感じ。
 
-![](/images/making-cmdman/architecture.jpg)
+![](/images/making-cmdman/architecture.webp)
 
 `cmdman` cliコマンドは、いわゆる`monitor`プロセスを`daemonize`し、受け取った実行したいコマンドを子プロセスとして実行します。
 `--tty`オプションがついている場合は`pty`(Pseudo teleTYpewriter = 疑似ターミナル)をallocateしてターミナル付きでアプリを起動します。
@@ -760,7 +956,7 @@ https://github.com/ngicks/agents-package/tree/ed8e52745ad217cfe5f1e1dbed1abc1b71
 - 各種ヘルパーを定義してあるので必要に応じてコピーして利用する
   - ヘルパーはモジュールとして切り出してもよかったんですが、各アプリで独自に変化していく必要がある場合にモジュールだと不自然になるのでLLMにコピペさせる形式をとっています。
   - (1) `cmdsignals`:
-    - `[...]os.Signal`
+    - graceful exit用の`[...]os.Signal`を定義するだけ
     - `main`パッケージ内で`signal.NotifyContext(context.Background(), cmdsignals.ExitSignals[:]...)`で、使用する
     - 定義理由:
       - graceful exit実装のために必要。ないと`Ctrl+c`(`SIGINT`)や`SIGTERM`時の挙動がいきなりプロセス終了になる。
@@ -793,6 +989,10 @@ https://github.com/ngicks/agents-package/blob/ed8e52745ad217cfe5f1e1dbed1abc1b71
 ### プロジェクト固有review skill(go-cmdman-review-checklist)
 
 https://github.com/ngicks/cmdman/blob/637fd046b8e87c37804f84aa41a6d0045caad0a9/.apm/skills/go-cmdman-review-checklist/SKILL.md
+
+### カスタムlinter: オレオレvettoolで任意のlinterを作成
+
+pkg.go.dev/golang.org/x/tools/go/analysis
 
 <!-- link section -->
 <!-- MINE!!!! -->
@@ -839,6 +1039,7 @@ https://github.com/ngicks/cmdman/blob/637fd046b8e87c37804f84aa41a6d0045caad0a9/.
 [mise-en-place]: https://mise.jdx.dev/
 [apm]: https://github.com/microsoft/apm
 [npm]: https://www.npmjs.com/
+[gRPC]: https://grpc.io/
 
 <!-- prior arts -->
 
