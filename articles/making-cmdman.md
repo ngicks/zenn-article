@@ -660,31 +660,27 @@ https://github.com/ngicks/cmdman/blob/main/doc/man/cmdman.1.md
 
 ![](/images/making-cmdman/architecture.webp)
 
-`cmdman` cliコマンドは、いわゆる`monitor`プロセスを`daemonize`し、受け取った実行したいコマンドを`monitor`の子プロセスとして実行します。
+- `cmdman` cliコマンドは、いわゆる`monitor`プロセスを`daemonize`し、受け取った実行したいコマンドを`monitor`の子プロセスとして実行します。
+  - (読者のレベル感の設定がよくわからないので、釈迦に説法、もしくは不十分な説明でしかない気がしてならないですが)Linuxなどにおいて、コマンドはそれを呼び出しているターミナルが終了するとシグナル`SIGHUP`を受け取り、`SIGHUP`のデフォルトハンドラによって即時終了します。  
+    [podman]のようなアプリ(コンテナ)をバックグラウンドで実行し、呼び出したターミナルが終了しても処理が続行できるようにするには`daemonize`とよく呼ばれる一連の処理をする必要があります。
+- `monitor`プロセスはunix domain socketをlistenし、[gRPC]サーバーを立てて`cmdman stop`などが行うIPCを待ち受けます。
+  - IPCに[gRPC]を用いることにします。  
+    `gRPC`は[Protocol Buffers]というschema中心のRPCフォーマット/ツールのエコシステムと言えばよいでしょうか。  
+    HTTP/2, /3をトランスポートとし、双方向通信のRPCをいい感じに実装可能です。元からコードジェネレーターありきで成り立っている仕組みなので、schemaを定義するとclient / server stubを各種言語向けに生成可能であるため、めんどうなclient作成の作業がスキップ可能です。LLMに使わせる場合でもコードジェネレーターがガードレールとして機能するため更新が漏れにくくなってりしていいと思います。
+  - `JSON`を用いたRPCも考えられますが、`JSON`の取り扱いがプログラミング言語によってばらばらで落とし穴が割とあったので避けています。
+- `--tty`オプションがついている場合は`pty`(Pseudo teleTYpewriter = 疑似ターミナル)をallocateしてターミナル付きでアプリを起動します。  
+  `pty`には[github.com/creack/pty](https://github.com/creack/pty)を用います。おそらくもっとも有名な`pty`ライブラリかなと思います。`v2`系のタグも存在しますが、事故で間違えてつけてしまっただけらしいので`v1`系を使いましょう。
+  - アプリはしばしばそれがターミナルで実行されているのか、スクリプトなどから呼び出されているのかなどを確認するために、stdinやstdoutがターミナルかチェックするものがあります。そういったアプリはファイルなどに出力がredirectされている際には、ファイルで読みやすいように出力内容を変えるようなことをします。  
+    実際のターミナルに接続していないバックグラウンドで実行されているアプリをどうやってターミナルで実行しているかのように見せかけるかというと、`pty`としてターミナルを取得してアプリのstdin, stdout, stderrをそれに差し替えることで行います。`tmux`の`client`が`pts`などを示すのはそういう理由です。詳しくはAdvanced Programming in the Unix Environmentとか読んでください。[line discipline](https://en.wikipedia.org/wiki/Line_discipline)がどうの言う図の部分で混乱して筆者はいまいちよくわかりませんでした。
+- コマンドのログはlog-driverを通じてディスクに書き出されます。  
+  現状は`k8s-file` log-driverしかありません。[podman]のデフォルトロギングドライバです。誰がどういう経緯で`k8s`(=`kubernetes`)と名付けたのかいまいちわかりません。
+  - ログローテーション時にrace conditionが起きないようになど、いろいろ私の事情でフォーマット改変しちゃってるから完全同じ仕様ではなくなって様な記憶がります。
 
-(読者のレベル感の設定がよくわからないので、釈迦に説法、もしくは不十分な説明でしかない気がしてならないですが)Linuxなどにおいて、コマンドはそれを呼び出しているターミナルが終了するとシグナル`SIGHUP`を受け取り、`SIGHUP`のデフォルトハンドラによって即時終了します。  
-[podman]のようなアプリ(コンテナ)をバックグラウンドで実行し、呼び出したターミナルが終了しても処理が続行できるようにするには`daemonize`とよく呼ばれる一連の処理をする必要があります。
-
-`monitor`プロセスはunix domain socketをlistenし、[gRPC]サーバーを立てて`cmdman stop`などが行うIPCを待ち受けます。
-
-IPCに[gRPC]を用いているため、schemaを[Protocol Buffers]
-
-`--tty`オプションがついている場合は`pty`(Pseudo teleTYpewriter = 疑似ターミナル)をallocateしてターミナル付きでアプリを起動します。  
-`pty`には[github.com/creack/pty](https://github.com/creack/pty)を用います。おそらくもっとも有名な`pty`ライブラリかなと思います。`v2`系のタグも存在しますが、事故で間違えてつけてしまっただけらしいので`v1`系を使いましょう。
-
-アプリはしばしばそれがターミナルで実行されているのか、スクリプトなどから呼び出されているのかなどを確認するために、stdinやstdoutがターミナルかチェックするものがあります。そういったアプリはファイルなどに出力がredirectされている際には、ファイルで読みやすいように出力内容を変えるようなことをします。  
-実際のターミナルに接続していないバックグラウンドで実行されているアプリをどうやってターミナルで実行しているかのように見せかけるかというと、`pty`としてターミナルを取得してアプリのstdin, stdout, stderrをそれに差し替えることで行います。`tmux`の`client`が`pts`などを示すのはそういう理由です。詳しくはAdvanced Programming in the Unix Environmentとか読んでください。[line discipline](https://en.wikipedia.org/wiki/Line_discipline)がどうの言う図の部分で混乱して筆者はいまいちよくわかりませんでした。
-
-コマンドのログはlog-driverを通じてディスクに書き出されます。  
-現状は`k8s-file` log-driverしかありません。[podman]のデフォルトロギングドライバです。誰がどういう経緯で`k8s`(=`kubernetes`)と名付けたのかいまいちわかりません。  
-ログローテーション時にrace conditionが起きないようになど、いろいろ私の事情でフォーマット改変しちゃってるから完全同じ仕様ではなくなって様な記憶がります。
-
-コマンドの起動、実行など、現在の状態は`commands.db`というSQLite3ファイルに書き込まれます。これも[podman]の挙動をそのまままねています。  
-`cmdman ls`などはここを参照します。`cmdman attach`, `cmdman send-keys`などがIPCを行うためにUnix domain socketのパスもここに記録されます。
-
-起動、実行、終了などの状態変化のログは`event.log`に書き込まれます。
-これも[podman]の方式をパクってます。`podman`と違ってこちらは`journald`に書き出す設定はなく、`file`ドライバオンリーです。  
-`cmdman events`はこのログファイルを[inotify(7)](https://man7.org/linux/man-pages/man7/inotify.7.html)などで監視して更新を取り込みます。
+- コマンドの起動、実行など、現在の状態は`commands.db`というSQLite3ファイルに書き込まれます。これも[podman]の挙動をそのまままねています。
+  - `cmdman ls`などはここを参照します。`cmdman attach`, `cmdman send-keys`などがIPCを行うためにUnix domain socketのパスもここに記録されます。
+- 起動、実行、終了などの状態変化のログは`event.log`に書き込まれます。
+  - これも[podman]の方式をパクってます。`podman`と違ってこちらは`journald`に書き出す設定はなく、`file`ドライバオンリーです。  
+    `cmdman events`はこのログファイルを[inotify(7)](https://man7.org/linux/man-pages/man7/inotify.7.html)などで監視して更新を取り込みます。
 
 ### compose機能
 
@@ -955,8 +951,10 @@ $ cmdman compose -f ./devenv.yaml mux cycle-scale codex
 ```
 
 中立的な`mux spec`に基づいてpaneを分割します。
-現在は[tmux]以外のdriverはサポートされていません。LLMに作らせるので別に作ってもいいんですが、一応自分でもチェックしてちゃんと動いてるかチェックしてるのでやろうと思うまでホールドされています。
-実装上`tmux`でないと動かない部分があるのでその辺をどうするかも決める必要があります(後述)。
+そこで複数のterminal multiplexerをサポートできるように中立的なinterfaceを定義し、[tmux]など向けの実装を作る形にします。
+
+...といいつつ現在は[tmux]以外向けのドライバは実装されていません。  
+terminal multiplexerのwindowにドライバ固有の値や、今どのレイアウトを表示しているかなどを埋め込む必要がありますが、`zellij`や`wezterm`では難しいので現在は実装していません(後述)。
 
 ### tui機能
 
@@ -993,46 +991,59 @@ cmdman tui --popup
 - [codex]\: gpt-5.5 medium
   - Plus($20/month), ちょっと多めに実装タスク渡すとすぐ5hリミットが来る。
 
-これらのツールはtuiからチャットで命令を出すとクラウド上のLLMエージェントが動作し、コードの編集、テストの実行などをおこい、自律的に実装や調査などを行うことができます。基本的な使い方の知識は所与のものとします。
+本記事でいうこれらはターミナルアプリです。同名のデスクトップアプリも存在します。デスクトップアプリから使ってる人も多そうに感じますのでそっちもいいかも。
 
-これらは非常によくできたツールでout-of-boxでだいぶ良く動きますが、やはりなにかしかのカスタマイズを必要とします。
+これらのツールはLLMエージェントがあなたのPCを操作できるようにする橋渡し役のようなもので、よく教育されているのか、out-of-boxでだいぶいい感じにソフトウェアを作成することができます。  
+ただし何をやるにしても、好みや細かな拘束条件に合わせて変えなければならないところが出てきます。いわゆるmoving partsというやつです。  
+LLMエージェントは指示があいまいでも行間を保管していい感じに作ってくれますが、その補完のしかたは時々によって異なります。似たような指示で似たようなものを４～５個作ってみてください。多分何回かはぶれて作り方が変わるところが出てくると思います。
 
-やった工夫についていろいろ書きます。
+そこでそれらがある程度固定されるようにしたり、同じ改善指示を何度もしなくていいように、ある程度のカスタマイズやツールの整備が必要となります。  
+以下ではそれらについて述べます。
 
-### apmによるパッケージ管理
+### apm(agents向けのパッケージマネージャー)でskills/hooksを管理
 
-[apm]は`claude`, `codex`その他もろもろ向けのskills/hooksなどなどをよそからインポートすることができるagent向けパッケージマネージャです。agents向けの[npm]とかそういうポジションのもの
+https://github.com/microsoft/apm
+
+[npm]とか[uv]のagents向け版みたいなやつで、よそのgit repositoryから[skill][Skills]や[hook][Hooks]をインポートして管理したりするものです。
 
 > An open-source, community-driven dependency manager for AI agents.
 
-基本的に信用ならないサードパーティのskillやhookをインポートするのは危険かと思いますが、自作なら問題ないだろということで自前のパッケージ群を用意してそれを利用しています。
+この記事をここまで読んでいる人対して[Skills]や[Hooks]の説明は必要はないかと思いますが一応説明すると、
+
+- [Skills]は`./.claude/skills/`などに格納される`SKILL.md`を含むディレクトリのことです。
+  - `SKILL.md`に特定のタスクを行うための知識や手順を記述して起き、ディレクトリにスクリプトや関連するリソースをまとめておきます。
+  - `SKILL.md`はfrontmatterでname, descriptionなどを記述可能です
+  - descriptionは起動時にロードされます。
+  - `SKILL.md`の本文は使用時にロードされます。
+  - descriptionの内容からLLMはそれを使用すべきかを判断し、自動的に使用します。
+  - もしくは`/<name>`で明示的に呼び出すこともできます。
+- [Hooks]は、`JSON`で記述され、LLM agentのToolUseや各種ライフサイクルをhookしてコマンドを実行可能です。
+
+再配布可能な割に管理の方法そのものは定義されていなかったので[apm]がそのニッチを埋めたんだと思います。
+
+再利用可能なように下記で自前のパッケージ群を管理することにしています。
 
 https://github.com/ngicks/agents-package
 
-agents向けの[npm]みたいなものという通り、`npm`でいうところの`package.json`にあたる`apm.y[a]ml`を定義して管理します。
 [cmdman]の`apm.yml`は下記のように
 
-https://github.com/ngicks/cmdman/blob/732a3fe0cc0c88803dc250fa6e6a8d4acc233f86/apm.yml
+https://github.com/ngicks/cmdman/blob/897a4ac18d5b53fd4943bfeeeda5a4d744415f0e/apm.yml
+
+これがある状態で下記で依存先をインストール可能です。
 
 ```shell
 apm install --update -t claude,codex
 apm compile -t codex
 ```
 
-で`.claude/`, `.codex/`, `.agents/`, `AGENTS.md`などなどが作成されます。
-`CLAUDE.md`は生成しないようにしています。`install`時点で`.claude/rules`が生成されるので必要ないためです。
+`apm install`で`.claude/`, `.codex/`, `.agents/`などが作成れます。`claude`を対象に取るとinsructionsは[rules](https://code.claude.com/docs/en/memory#organize-rules-with-claude/rules/)に変換されます。
 
-[apm]の管理機能は
-
-- 中央管理したskills / hooksをほうぼうで利用
-- 複数のhooks / instructions(`AGENTS.md`のこと)を合成して単一の`settings.json`(hook定義)/`AGENTS.md`を生成
-
-など便利です。
-より良い代替ツールが出るまではこれを使えばいいと思います。
+`apm compile -t codex`でinstructionsを統合して`AGENTS.md`が出力されます。  
+`claude`には`rules`がすでに出力されているので`compile`は`codex`のみを対象とします。
 
 ### AGENTS.mdでAskUserQuestionを使うように指示
 
-https://github.com/ngicks/agents-package/blob/ed8e52745ad217cfe5f1e1dbed1abc1b714dbe46/instructions/base-env.instructions.md
+https://github.com/ngicks/agents-package/blob/632e76121d26524d67c4e2d17f79ef65e0d2dd5a/instructions/base-env.instructions.md
 
 > You may ask back the user to resolve unclear corners, using AskUserQuestion (if available) or just a response.
 
@@ -1040,18 +1051,18 @@ https://github.com/ngicks/agents-package/blob/ed8e52745ad217cfe5f1e1dbed1abc1b71
 
 `AskUserQuestion`は[claude code]の組み込みツールで、言葉通りユーザーに質問を行うツールです。特にplanモード中に使ってくると思いますが、instructionに加えておくと質問があるときに使ってくれるようになります。
 
-画像を取り損なっているのでググってどういうものか見てください
+画像を取り損なっているので見た目は下記の記事などを参照。
 
-https://www.google.com/search?q=askuserquestion
+https://zenn.dev/rakuten_tech/articles/claude-code-askuserquestion
 
 これがかなりいいです。
 [codex]にはこのツールがないので利用できません。早く実装してくれないかなあ
 
-### cliアプリ作成skill(go-edit-cobra)
+### go-edit-cobra: Goのcliアプリ作成/編集skill
 
 以下です。
 
-https://github.com/ngicks/agents-package/tree/ed8e52745ad217cfe5f1e1dbed1abc1b714dbe46/skills/go-edit-cobra
+https://github.com/ngicks/agents-package/tree/632e76121d26524d67c4e2d17f79ef65e0d2dd5a/skills/go-edit-cobra
 
 [Go]でサブコマンドありのリッチなcliアプリを作るとなると基本的に[github.com/spf13/cobra]か[github.com/urfave/cli]を用います。
 
@@ -1153,19 +1164,15 @@ pkg.go.dev/golang.org/x/tools/go/analysis
 
 [claude code]: https://code.claude.com/docs/en/overview
 [codex]: https://developers.openai.com/codex/cli
+[apm]: https://github.com/microsoft/apm
 [Skills]: https://agentskills.io/home
 [Hooks]: https://code.claude.com/docs/en/hooks
 [agents-package]: https://github.com/ngicks/agents-package
 
-<!-- my other articles -->
-
-[go-os-root]: https://zenn.dev/ngicks/articles/go-os-root-based-abstraction
-[pinentry]: https://zenn.dev/ngicks/articles/pinentry-in-tmux-popup
-
 <!-- tools -->
 
 [mise-en-place]: https://mise.jdx.dev/
-[apm]: https://github.com/microsoft/apm
+[uv]: https://docs.astral.sh/uv/
 [npm]: https://www.npmjs.com/
 [gRPC]: https://grpc.io/
 [Protocol Buffers]: https://protobuf.dev/
