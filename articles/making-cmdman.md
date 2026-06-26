@@ -400,7 +400,7 @@ Github Actionsでテストぐらいは走らせようかなあ
 - [tmux]のある程度の習熟
 - [podman] / [docker compose]の動作モデル。
   - 軽く説明しますが基本的には既知であるとします。
-- daemonizeだのptyだの言われてもなんとなくわかる
+- `daemonize`だの`pty`だの言われてもなんとなくわかる
 - [Go]の読解
   - ほかのプログラミング言語が読み書きできればなんとなくわかる気も
 - [claude code] / [codex]の使い方
@@ -412,9 +412,54 @@ Github Actionsでテストぐらいは走らせようかなあ
 - [Go]でLLMのプロジェクトを動かすときの苦しみともがきを見たい
   - しかしてそこまで高度なことはしていない
 
-## Overview(TL;DR)
+## 用語・前提解説
 
-TODO: やったことかく
+以降で所与のものとされる知識なりなんなりの説明。わかってる人は飛ばしていい。
+
+### daemonize
+
+普通ssh先とかでコマンドを呼び出したとき実行中にsshの接続が切れたらコマンドって止まりますよね。これは呼び出したコマンドが接続しているsshのttyの子プロセスだからです。  
+`daemonize`は親プロセスを`/init`にしたり、stdin, stdout/stderrの接続を呼び出しターミナルから切ることでバックグラウンドにプロセスを回すことを言います。
+
+`libc`に[daemon(3)](https://man7.org/linux/man-pages/man3/daemon.3.html)としてこの機能が実装されています。
+
+普通は
+
+- [fork(2)]
+- [setsid(2)]
+- [fork(2)]
+- stdin/stdout/stderrを含めてすべての`fd`を`close`
+- stdin/stdout/stderrに`/dev/null`をセット
+
+という手順を踏みます。  
+２回`fork(2)`を呼ぶのでこれをdouble-forkとよく呼びます。
+
+Advanced Programming in the UNIX Environment (Addison-Wesley Professional Computing Series), W. Richard Stevensによると２回目の`fork(2)`はSVR4(System V Release 4)準拠システムではしたほうがよい（とアドバイスされることもあるだろう、という言い回し）。  
+現代でいうとSolarisがSVR4にあたる。  
+基本はいらないけどポータビリティを意識してるコードではdouble-forkをする、って感じ、多分。
+
+[fork(2)]: https://man7.org/linux/man-pages/man2/fork.2.html
+[setsid(2)]: https://man7.org/linux/man-pages/man2/setsid.2.html
+
+### pty
+
+PTY = Pseudo teleTYpewriter = 疑似端末
+
+プログラムを動作させるとき、stdin, stdout, stderrっていう入出力のチャネルが存在すると思いますが、ここにptyを接続すると、プルグラムにターミナルにつながっていると思わせることができます。  
+あらゆるターミナルエミュレーター(Windows Terminal、WezTerm, etc)はptyを使ってターミナルとしてふるまっています。
+
+プログラムがさらにptyを使用してターミナル風にふるまうこともできます。VS Codeの組み込みターミナルや、[tmux]がpane分割ができるのもptyをallocateしているからです。
+
+stdin, stdout, stderrはターミナルでないときがあります。`cat foo | bar > baz`とすれば`bar`プログラムのstdinは`foo`, stdoutは`baz`となります。
+ターミナルアプリは、例えば`vim`のようにターミナル画面全体をコントロールしたり、文字に色を付けたりすることがあります。  
+単にファイルである`stdout`には「画面」はないわけですから、全体をコントロールするという概念そのものがありません。  
+ptyが必要なのはこういう画面という概念があって特殊なシーケンスを書き込むと操作できたりするから、だと思う。  
+筆者の不勉強によりこれ以上は書けません。
+
+ptyはmaster - slaveのペアです。プログラムのstdin,stdout,stderrに渡して読み書きしてもらう側と、実際にターミナルとして画面を描画する側で相互にやり取りするわけですから、ペアになる必要があります。ペアにならないといけない理由は[pipe(2)](https://man7.org/linux/man-pages/man2/pipe.2.html)と似ていますね。
+
+[pty(7)](https://man7.org/linux/man-pages/man7/pty.7.html)によると、歴史的経緯とシステム間(BSD系、Solaris系、Linux、etc)でいろいろ異なるインターフェイスの形態があるみたいですが、  
+[pts(4)](https://man7.org/linux/man-pages/man4/pts.4.html)によるとLinuxでは`/dev/ptmx`を開いてmasterを得て、library function[ptsnane(3)](https://man7.org/linux/man-pages/man3/ptsname.3.html)でslaveの名前を得るようです。
 
 ## Motivation
 
@@ -1546,9 +1591,6 @@ https://github.com/creack/pty/blob/v1.1.24/run.go
 ### daemonizeはsingle-forkでいいらしいけどconmonがdouble-forkだからdouble-forkにした
 
 `cmdman run`などは`__monitor`隠しサブコマンドをよんで、それが自らを`daemonize`します。
-
-普通ssh先とかでコマンドを呼び出したとき実行中にsshの接続が切れたらコマンドって止まりますよね。これは呼び出したコマンドが接続しているsshのttyの子プロセスだからです。  
-`daemonize`は親プロセスを`/init`にしたり、stdin, stdout/stderrの接続を呼び出しターミナルから切ることでバックグラウンドにプロセスを回すことを言います。
 
 https://sleepy-yoshi.hatenablog.com/entry/20100228/p1
 
