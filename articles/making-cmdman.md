@@ -1788,16 +1788,42 @@ https://github.com/F1bonacc1/process-compose/blob/v1.116.0/src/tui/ansi_terminal
 - `cmdman events`でinotify
   - [ReadDirectoryChangesW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw)実装を足す
 
-ConPTYの実装は2018年と割と最近です。それまでアプリの中にさらにコンソールを組み込んでいるものはpty的なものがない状況で作られていたことになります。
-[VSCodeの1.5のリリースは2016-04](https://code.visualstudio.com/updates/v1_5)であるので、これよりは確実に前ということになります。
+:::details おまけ: ConPTY以前の組み込みターミナル
 
-逆に言うと、それ以前のWindowsには「向こうにptyがいる」前提のescape streamを供給する仕組みが無かった。じゃあConPTY以前はどうしてたかというと、有名なのが[winpty]の力技で、**子プロセスを隠しコンソール(hidden console)に繋いで起動し、そのコンソールのscreen bufferをポーリングして変化を拾い、escape sequenceのストリームに変換し直す**というもの。READMEにそのまま書いてある:
+ConPTYの実装は2018年と割と最近です。それまでWindowsでアプリの中にさらにコンソールを組み込んでいるものはpty的なものがない状況で作られていたことになります。
+確認できる中でかなり古いほうの[VSCodeの1.5のリリースは2016-04](https://code.visualstudio.com/updates/v1_5)であるので、これよりは確実に前ということになります。
 
-https://github.com/rprichard/winpty/blob/master/README.md
+例えば、VSCode 1.10のリリースは2017-02です
 
-> The software works by starting the `winpty-agent.exe` process with a new, hidden console window, which bridges between the console API and terminal input/output escape codes. It polls the hidden console's screen buffer for changes and generates a corresponding stream of output.
+https://code.visualstudio.com/updates/v1_10
 
-VSCodeの統合ターミナルが使ってる[node-pty]も、ConPTYが来るまではこのwinptyをバックエンドにしていて、build 18309以降でConPTYをデフォルトに切り替えています。前のセクションで「tuiでアプリを表示するには自前のターミナルエミュレータが要る」と書きましたが、Windowsの旧来のやり方はそれを**OS側のコンソールに肩代わりさせてscreen bufferから読み戻す**という、ちょうど裏返しのアプローチなのがちょっとおもしろい。
+以下より`"node-pty"`を使用しています
+
+https://github.com/microsoft/vscode/blob/1.10.2/package.json#L34
+
+その中で[github.com/rprichard/winpty](https://github.com/rprichard/winpty)を利用しており、
+
+https://github.com/microsoft/node-pty/blob/0.6.2/deps/winpty/README.md
+
+> The software works by starting the winpty-agent.exe process with a new, hidden console window, which bridges between the console API and terminal input/output escape codes. It polls the hidden console's screen buffer for changes and generates a corresponding stream of output.
+
+だそうです。荒業ですね。
+
+VScodeは2019-01からopt-inでConPTYサポートを開始
+
+https://code.visualstudio.com/updates/v1_31#_conpty-support-on-windows
+
+:::
+
+## おわりに
+
+`cmdman`の作成を通じてわかったあれこれを書きました。
+
+- こんな規模感のソフトウェアをこんな短期間で作るとかLLMがなければ考えられません。
+- おかげでいろんなトラブルにぶち当たり、非常にいろいろ勉強になります。
+- `cmdman`はほしかったツールなので普通に便利で自分で使ってます。
+- これからは自分向けツールをガンガン自作する時代になってると思います。
+- あと何年(あるいは何十年)か後にAIに話しかけるだけですべて完結するようになるかも。そうなるまでせいぜいものを作る喜びを享受しましょう。
 
 <!-- link section -->
 <!-- MINE!!!! -->
