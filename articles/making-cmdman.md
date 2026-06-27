@@ -1610,21 +1610,79 @@ https://github.com/containers/conmon/blob/535294085c5603dfa2923a4f0ccddda28d6442
 
 readmeにもがっつりdouble-forkと載ってます。
 
-cmdmanは全く移植性を意識していないですがdouble-forkを採用します！
+cmdmanは全くSolarisを意識していないですがdouble-forkを採用します！
 
-### podman attachはterminal stateを回復しない
+### term.Restoreだけではterminal stateは不十分
 
-`attach`は手元のターミナルをraw modeにして([`term.MakeRaw`](https://pkg.go.dev/golang.org/x/term#MakeRaw))、detach時にtermiosを戻します(`term.Restore`)。が、これだけだと**detach後にterminal stateが崩れます**。カーソルが消えたまま戻らなかったり、画面がおかしくなったり。`clear`を叩くと直る、というよくあるやつ。
+`cmdman attach`は`--tty`フラグのついたアプリにアタッチして、呼び出しているターミナルにコマンドを表示します。
+`vim`にアタッチしたら画面全体が`vim`になるみたいな感じです。
 
-原因は、termiosの復元はline disciplineを戻すだけで、**画面のモード(alternate screen, カーソル表示, マウス, bracketed paste...)は戻さない**から。例えばneovimにattachしている最中にdetachすると、neovimが有効にしたalt screenやマウスモードが自分のターミナルに残ったままになる。
+これをするには[termios(3)](https://man7.org/linux/man-pages/man3/termios.3.html)より、`cfmakeraw(3)`で`struct termios`をraw modeに設定し, `tcsetattr(3)`で適用します。元に戻すには`cfmakeraw(3)`を呼び出す前の`termios(3)`をコピーしておいて`tcsetattr(3)`で適用しなおすことで行います。
 
-cmdmanはdetach時にbest-effortで[固定のリセットシーケンス](https://github.com/ngicks/cmdman/blob/897a4ac18d5b53fd4943bfeeeda5a4d744415f0e/pkg/cmdman/cli/attach.go#L556-L568)を流すことにしました。カーソル表示、alt screenから抜ける、マウス/focus/bracketed pasteを切る、SGRリセット、application keypadから抜ける、みたいなのを並べたやつ。
+`Go`では[term.MakeRaw](https://pkg.go.dev/golang.org/x/term#MakeRaw)/[term.Restore](https://pkg.go.dev/golang.org/x/term#Restore)を用います。
 
-これがあくまでheuristicなのは、`attach`は「中で何が動いてたか分からない任意のプログラム」の後始末をしてるから。[bubbletea]の`restoreTerminal`はもっと賢くて、**自分が有効にしたモードだけ**を狙って戻します(自分で有効にしたから何を戻せばいいか分かる)。cmdmanはリモートのプログラムが何をやったか観測できないので、広めに無条件で投げる方式に倒しています。
+当初は単にこの`MakeRaw` / `Restore`しか実装していなかったんですが、`cmdman attach`してから`ctrl-p,ctrl-q`でdetachするとカーソルが消えたり、表示状態が壊れることがわかりました。
 
-ちなみに半分インタラクティブな`cmdman attach ID | tee out.log`みたいなケースも考慮していて、stdinはtty(termios復元は有効)だがstdoutはpipe(リセットシーケンスを書いてもパイプにゴミが流れるだけ)、というときはstdoutがttyのときだけ画面リセットを流します。
+ここで`podman`/`docker`のソースを洗ってどうやってattachから復帰すべきかの参考にしようとしましたが・・・全く何もない！
 
-おもしろかったのが、「これ本家podmanはどう実装してるんだ？」とソースを漁ったら**どこにも回復処理が書いてない**。おかしいなと思って実際に`podman container run ... watch ls -ls /tmp`に`podman attach`してdetachしてみたら、やっぱりterminal stateは崩れたまま。つまり実装されてなかっただけでした。たぶんdockerも同じ。
+では[bubbletea]はどうしているのでしょう？
+
+https://github.com/charmbracelet/bubbletea/blob/v2.0.7/cursed_renderer.go#L143-L246
+
+https://github.com/charmbracelet/bubbletea/blob/v2.0.7/tty.go#L33-L53
+
+ansiコードを使ってターミナル状態をリセットしていました。見てのとおり、ターミナルは特定のエスケープシーケンスを書き出すと、対応した機能が動作します。ちょうどLLMのtool useが特殊なトークンでかこまれたテキストを出力すると読む側がそれを解釈して実行しているのと似たようなものです。
+
+`cmdman`は任意のコマンドを実行するため状態がどうなるかわかりません。ということでベストエフォートで戻せるもんは戻します。
+
+https://github.com/ngicks/cmdman/blob/897a4ac18d5b53fd4943bfeeeda5a4d744415f0e/pkg/cmdman/cli/attach.go#L556-L568
+
+シーケンスの一覧は[XTerm Control Sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)で確認できます。一部はデファクトスタンダードなようです。
+
+> CSI ? Pm h
+> Ps = 2 5 ⇒ Show cursor (DECTCEM), VT220.
+
+ちょっと読みにくいですがesacpe(`\033`) + `[?` + `25`(Pm) + `h`ってことみたいですね。
+
+で結局`podman`にそういうコードがなかったのはどういう仕組み何だろうと思い、attachとdetachを試してみました。
+
+```shell
+container_id=$(podman container run -td --rm --init docker.io/library/ubuntu:noble-20260113 watch ls -la /tmp)
+podman container attach $container_id
+```
+
+でアタッチしたのちに`ctrl-p,ctrl-q`でデタッチすると・・・２度以降のアタッチで`watch`が表示されない！
+どういう現象かわかりませんがこの辺そもそもちゃんと実装されてないから`podman`にそういうコードがなかったっぽい。
+確かに今回調べるまで`attach`があるの知らなかった・・・
+[私の前の記事](https://zenn.dev/ngicks/articles/using-krun-in-podman)で説明した`libkrun`によるコンテナごとのマイクロVM文理を行っている場合、`libkrun`の制限によって`podman container exec`でコンテナのnamespace内で新しくコマンドを実行したりできないので、そういうケースなどで`attach`が便利なのかなと思います。
+
+### attach時に特定のシーケンスはリプレイしないとだめそう
+
+ある日、`cmdman compose mux up`と`cmdman compose mux down`何度か繰り返していると、`neovim`を表示しているターミナルで`tmux`マウスサポートが動作していました。  
+この時点でようやく気付いたんですが、よく考えると`tmux`の組み込まれたマウスサポート機能って`neovim`みたいなマウスサポートのあるアプリ上では機能しないようになっているんですね。
+
+調べてみるとこのマウスサポートのON/OFFは`tmux`の以下の行でコントロールされているらしく、
+
+https://github.com/tmux/tmux/blob/3.6/input.c#L1968-L1979
+
+調べて突き合わせると[console_codes(4)](https://man7.org/linux/man-pages/man4/console_codes.4.html)dで述べられる` ESC [ ? 1000 h`で有効化されるらしい
+
+>       DEC Private Mode (DECSET/DECRST) sequences
+>
+>       These are not described in ECMA-48.  We list the Set Mode
+>       sequences; the Reset Mode sequences are obtained by replacing the
+>       final 'h' by 'l'.
+
+>       ESC [ ? 1000 h
+>              X11 Mouse Reporting (default off): Set reporting mode to 2
+>              (or reset to 0) —see below—.
+
+`cmdman attach`は、というかmonitorはスクロールバックを保存するためにリングバッファを備えており、`cmdman attach`時にはこのバッファ内容がリプレイすることでスクロールバックを再建します。  
+挙動から見るに`neovim`は起動時に１度しか`ESC [ ? 1000 h`を発火しないため、しばらく操作してから`mux up`を行うとバッファからこのコントロールシーケンスがあふれてしまうのですね。
+
+ということで以下でこの手の状態の変更を行うシーケンスを貯めてバッファあふれて消えないように対策することにしました
+
+https://github.com/ngicks/cmdman/blob/897a4ac18d5b53fd4943bfeeeda5a4d744415f0e/pkg/cmdman/terminal_state.go
 
 ### zellij / weztermに実装を広げるのが大変な理由
 
@@ -1642,34 +1700,62 @@ cmdmanはdetach時にbest-effortで[固定のリセットシーケンス](https:
 
 「じゃあサイドカーのレジストリファイル(identity→window idのJSON)を置けばいいのでは？」も検討して却下しました。サイドカーはsource of truthにはなれず、せいぜいキャッシュ。読むたびにliveness(手動でwindowを閉じた / サーバー再起動でidが再利用された)とownershipをライブのmultiplexerに対して再検証しないといけなくて、それには結局multiplexer内のマークが要る。「ネイティブstamp + サイドカー + ロック + クラッシュ時掃除」に膨らむだけなので、ネイティブに格納手段があるtmuxではネイティブが厳密に上位互換でした。
 
-### attach時に特定のシーケンスはリプレイしないとだめそう
-
-`mux`のセッションで遭遇したバグ。普通のtmuxなら、paneでneovimを開くとそのpaneではtmux側のマウス操作が無効になる(=マウスがneovimに渡る)んですが、cmdmanのmux越しのattachセッションだとそれが効かず、**neovim上でもtmuxのマウス操作が生きてしまう**。
-
-tmuxのソースを追うと、tmuxは各paneの出力をターミナルエミュレータとしてパースしていて(`input.c`)、`\x1b[?1000h`(や1002/1006)を見つけると、そのpaneのscreenに`MODE_MOUSE_*`フラグを立てます。これが「このpaneはマウスを欲しがってるからtmuxは横取りするな」の合図になる。
-
-https://github.com/tmux/tmux/blob/dd62c2f9467f975388f4a2701022752961bdb086/input.c#L1982-L1992
-
-問題は、このモードを有効にするescape sequenceはneovim起動時に**１回だけ**流れること。cmdmanはattach時にscrollback(リングバッファのバイト列)をリプレイしますが、有効化シーケンスはとっくにリングバッファから押し出されて消えている。だからmux down→upで張り直すと、新しいtmux paneは`\x1b[?1000h`を二度と観測できず、`MODE_MOUSE_*`が立たないままになって、tmuxがマウスを横取りし続ける、というわけ。
-
-直し方は、monitor側でscrollbackとは別に[`terminalPaneState`](https://github.com/ngicks/cmdman/blob/897a4ac18d5b53fd4943bfeeeda5a4d744415f0e/pkg/cmdman/terminal_state.go)を持たせて、コマンドの出力をパースしながら**今アクティブなDEC private mode**を追跡しておく。[attach時](https://github.com/ngicks/cmdman/blob/897a4ac18d5b53fd4943bfeeeda5a4d744415f0e/pkg/cmdman/mon_server.go#L59-L72)はscrollbackを送った後に、アクティブな入力系モードだけを合成してリプレイ(`\x1b[?1;1000;1006h`みたいなやつ)を送る。元のシーケンスが流れ去っていても、新しいtmux paneがフラグを再構築できる。
-
-ここで地味に大事なのが、**リプレイするのは入力に影響するモードだけ**ということ(cursor-key, マウス, focus reporting, bracketed paste)。alternate screen(1049)やカーソル表示(25)やsynchronized output(2026)みたいな出力/画面系のモードは**わざと除外**しています。scrollbackの後にこれらを投げ直すと、バッファを切り替えたり、さっきクライアントに送ったばかりの画面をクリアしたりしちゃうので。RIS(`\x1bc`)やDECSTR(`CSI ! p`)を観測したら追跡状態もリセットします。
-
 ### tuiでターミナルアプリを表示するには
 
-fill this section mimicking my writing sytle.
+前述の通り、`tui`のログPreviewはtty必須のアプリ(neovimとかtopとか)を流すとガチャガチャに崩れます。原因はシンプルで、cmdmanのtuiはコマンドの出力バイト列をそのままPreview領域に流し込んでるだけだから。出力には生のescape sequence(カーソル移動の`ESC[H`、色の`ESC[31m`、alt screen切り替え...)が混ざっていて、それを解釈せずに描くとああなる。
 
-tui needs pty and terminal emulator implenetation when it wants to display terminal inside it.
+ちゃんと表示しようと思うと、結局**自前のターミナルエミュレータが要る**。tty必須のアプリは「向こう側に本物のターミナルがいる」前提でescape sequenceを吐いてくるので、それを自分のtuiの中の小さな矩形領域にレンダリングするには、
 
-As example, cite process-compose imlpements and uses its own termianl emulator.
+1. ptyを割り当ててアプリにttyを掴ませ(=アプリにtty向けの出力を吐かせ)、
+2. ptyから返ってくるバイト列をパースして**カーソル位置 + styled cellの2次元グリッド**(=画面状態)を自前で持ち、
+3. そのグリッドをtuiの矩形にcell単位で描き直す、
+
+という三段構えが要る。ptyは「アプリにtty向けの出力を吐かせるtransport」、ターミナルエミュレータは「そのescape streamを画面グリッドに解釈するinterpreter/renderer」で役割が別もの。どっちが欠けてもダメで、ptyだけだとアプリは喋るけど生のescape codeが画面に見えるし、エミュレータだけだとそもそもアプリがtty出力を吐いてくれない。
+
+実例として[process-compose]がこれをやっています。`tview`ベースのtuiの中で管理プロセスの出力を表示するために、サードパーティのVTエミュレータ(vt10xとか)に乗っかるんじゃなくて**自前のANSI/VTパーサ + cellグリッド**をin-treeで実装している。型にそのままコメントが付いてる:
+
+https://github.com/F1bonacc1/process-compose/blob/1057510943cfa642cf34cb001bb356350e2da87b/src/tui/ansi_terminal.go#L17-L24
+
+> ```go
+> // AnsiTerminal is a simple ANSI escape sequence parser and terminal emulator
+> ```
+
+ptyから読んだバイト列をこのエミュレータに食わせてグリッドを更新し、それをtuiの矩形に描き出す、という流れ。要するにtuiの中にミニ・ターミナルエミュレータを丸ごと抱えることになる。
+
+別にprocess-composeみたいに手書きする必要があるわけでもなくて、cmdmanのtuiが乗ってる[bubbletea]側のエコシステムには出来合いの[charmbracelet/x/vt]があります。"a virtual terminal emulator that can be used to emulate a modern terminal application"と銘打たれた、まさにこれ用のVTエミュレータ:
+
+https://github.com/charmbracelet/x/blob/25656177ba8e62179605964fc9075a5226d93b0b/vt/vt.go#L1-L3
+
+> ```go
+> // Package vt is a virtual terminal emulator that can be used to emulate a
+> // modern terminal application.
+> ```
+
+ただ中身はフルのVTパーサ + screen cellグリッド + scrollback(デフォルト10000行) + DEC private modes(マウス・focus・bracketed paste・alt screen...)一式で、前述のリプレイの節で自前で苦労してたモード追跡なんかも全部入った、process-composeが手書きしたのと同じレイヤーをそっくり持つ重量級です。乗っかれば楽ではあるんですが、ログをチラ見するだけのPreviewにこの machinery を引きずり込むのはcmdmanにはオーバースペックなので入れていません。ちゃんと操作したいときは`attach`でネイティブのターミナルにstdioを繋ぐ方に倒す、という割り切りにしています。
 
 ### Windows移植
 
-fill this section too.
+完全に移植性を捨てて書いてるので今のところWindowsでは動きませんが、もし移植するなら何が大変で何が楽かだけ整理しておきます。
 
-Cite fact creack/pty does not implement Windows support. It did try, but not merged.
-ConPTY support is relatively new. Refer to old trick that VSCode on Window did with evidence (link to code, or comment on code is prefereable
+**本丸はpty**。cmdmanが使ってる[github.com/creack/pty]はそもそもWindows非対応です。`start_windows.go`は`ErrUnsupported`を返すだけのスタブで、中身がない:
+
+https://github.com/creack/pty/blob/master/start_windows.go
+
+ConPTY対応を入れようとしたPRは何度か出てるんですが、どれもマージされていません([#155](https://github.com/creack/pty/pull/155)はopenのまま放置、[#109](https://github.com/creack/pty/pull/109)・[#208](https://github.com/creack/pty/pull/208)はcloseされた)。[Windows対応のトラッキングissue](https://github.com/creack/pty/issues/95)も2020年から開きっぱなし。なので移植するなら自前でConPTYを叩くか、ConPTYラッパーの別ライブラリを使うことになる。
+
+そのConPTY(`CreatePseudoConsole` API)自体が割と最近の代物で、Windows 10 version 1809(build 17763, 2018年10月)でようやく入ったものです。
+
+https://learn.microsoft.com/en-us/windows/console/createpseudoconsole
+
+逆に言うと、それ以前のWindowsには「向こうにptyがいる」前提のescape streamを供給する仕組みが無かった。じゃあConPTY以前はどうしてたかというと、有名なのが[winpty]の力技で、**子プロセスを隠しコンソール(hidden console)に繋いで起動し、そのコンソールのscreen bufferをポーリングして変化を拾い、escape sequenceのストリームに変換し直す**というもの。READMEにそのまま書いてある:
+
+https://github.com/rprichard/winpty/blob/master/README.md
+
+> The software works by starting the `winpty-agent.exe` process with a new, hidden console window, which bridges between the console API and terminal input/output escape codes. It polls the hidden console's screen buffer for changes and generates a corresponding stream of output.
+
+VSCodeの統合ターミナルが使ってる[node-pty]も、ConPTYが来るまではこのwinptyをバックエンドにしていて、build 18309以降でConPTYをデフォルトに切り替えています。前のセクションで「tuiでアプリを表示するには自前のターミナルエミュレータが要る」と書きましたが、Windowsの旧来のやり方はそれを**OS側のコンソールに肩代わりさせてscreen bufferから読み戻す**という、ちょうど裏返しのアプローチなのがちょっとおもしろい。
+
+一方で**daemonizeはむしろ楽**。Windowsにはforkが無くてCreateProcessでプロセスを作るので、double-forkみたいな小細工が要らない。detached生成のフラグを渡すだけでバックグラウンド化できるので、前述のfork談義はWindowsでは丸ごと不要になる。要するに、Windows移植の重さはほぼ全部pty側に乗っかってる、という話でした。
 
 <!-- link section -->
 <!-- MINE!!!! -->
@@ -1699,9 +1785,13 @@ ConPTY support is relatively new. Refer to old trick that VSCode on Window did w
 <!-- lib -->
 
 [bubbletea]: https://github.com/charmbracelet/bubbletea
+[charmbracelet/x/vt]: https://github.com/charmbracelet/x/tree/main/vt
 [github.com/urfave/cli]: https://github.com/urfave/cli
 [github.com/spf13/cobra]: https://github.com/spf13/cobra
 [github.com/creack/pty]: https://github.com/creack/pty
+[process-compose]: https://github.com/F1bonacc1/process-compose
+[winpty]: https://github.com/rprichard/winpty
+[node-pty]: https://github.com/microsoft/node-pty
 
 <!-- llm stuff -->
 
