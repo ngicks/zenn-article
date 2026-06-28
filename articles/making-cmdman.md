@@ -1782,7 +1782,7 @@ https://github.com/F1bonacc1/process-compose/blob/v1.116.0/src/tui/ansi_terminal
   - `cmdman stop`が任意のSIGNALを送れる実装になっているのはWindowsではほとんど意味がないが、目的が単にgraceful exitの実装であるならば
     - IPC経由でexitを通知する方法がある。
       - `cmdman`側は任意コマンド実行程度になるだろう。
-  - 一般的にはおそらく[GenerateConsoleCtrlEvent](https://learn.microsoft.com/en-us/windows/console/generateconsolectrlevent)で`CTRL_BREAK_EVENT`をプロセスグループに送って、`SetConsoleCtrlHandler`でgraceful exitするのが一般的なのだと思うが、`DETACHED_PROCESS`で起動するためconsoleが存在しないので、使用することができない。
+    - 一般的にはおそらく[GenerateConsoleCtrlEvent](https://learn.microsoft.com/en-us/windows/console/generateconsolectrlevent)で`CTRL_BREAK_EVENT`をプロセスグループに送って、`SetConsoleCtrlHandler`でgraceful exitするのが一般的なのだと思うが、`DETACHED_PROCESS`で起動するためconsoleが存在しないので、使用することができない。
 - 0でsignalするpid生存確認
   - windowsでは[os.FindProcess](https://pkg.go.dev/os#FindProcess)が[OpenProcess](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-openprocess)の[ラッパー](https://github.com/golang/go/blob/go1.26.4/src/os/exec_windows.go#L84-L92)なのでこれを用いればよい
 - `cmdman events`でinotify
