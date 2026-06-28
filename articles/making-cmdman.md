@@ -314,7 +314,7 @@ mux:
 
 ```
 $ cmdman compose -f ./devenv.yaml up
-$ cmdman compose -f ./devenv.yaml mux 0
+$ cmdman compose -f ./devenv.yaml mux up 0
 ```
 
 を実行すると、下記のように`tmux`のwindowが分割されて、それぞれpaneがそれぞれのコマンドにattachします。
