@@ -1614,7 +1614,7 @@ readmeにもがっつりdouble-forkと載ってます。
 
 cmdmanは全くSolarisを意識していないですがdouble-forkを採用します！
 
-### term.Restoreだけではterminal stateは不十分
+### term.Restoreだけではterminal stateの復元は不十分
 
 `cmdman attach`は`--tty`フラグのついたアプリにアタッチして、呼び出しているターミナルにコマンドを表示します。
 `vim`にアタッチしたら画面全体が`vim`になるみたいな感じです。
