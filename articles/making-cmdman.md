@@ -1118,7 +1118,6 @@ https://github.com/ngicks/agents-package/blob/632e76121d26524d67c4e2d17f79ef65e0
 
 https://zenn.dev/rakuten_tech/articles/claude-code-askuserquestion
 
-これがかなりいいです。
 [codex]にはこのツールがないので利用できません。`codex`に対しても同じ`instructions`を用いたい場合、`AskUserQuestion`がなければ単にchat messageにフォールバックしなさいと書いておいたほうがいいでしょう。早く実装してくれないかなあ
 
 ### Skill
