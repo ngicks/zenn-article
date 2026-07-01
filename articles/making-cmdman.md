@@ -313,8 +313,8 @@ mux:
 `tmux`セッションの中で
 
 ```
-$ cmdman compose -f ./devenv.yaml up
-$ cmdman compose -f ./devenv.yaml mux up 0
+$ cmdman compose -f devenv up
+$ cmdman compose -f devenv mux up 0
 ```
 
 を実行すると、下記のように`tmux`のwindowが分割されて、それぞれpaneがそれぞれのコマンドにattachします。
@@ -333,7 +333,7 @@ $ cmdman compose -f devenv scale codex=5
 指定がない場合はデフォルトではscale index 1が表示され、`cycle-scale`で入れ替えることができます。
 
 ```
-$ cmdman compose -f ./devenv.yaml mux cycle-scale codex
+$ cmdman compose -f devenv mux cycle-scale codex
 ```
 
 割と便利！！！
@@ -957,8 +957,8 @@ mux:
 `tmux`セッションの中で
 
 ```
-$ cmdman compose -f ./devenv.yaml up
-$ cmdman compose -f ./devenv.yaml mux up 0
+$ cmdman compose -f devenv up
+$ cmdman compose -f devenv mux up 0
 ```
 
 を実行すると、下記のように`tmux`のwindowが分割されて、それぞれpaneがそれぞれのコマンドにattachします。
@@ -966,7 +966,7 @@ $ cmdman compose -f ./devenv.yaml mux up 0
 ![](/images/making-cmdman/mux-tmux-default.webp)
 
 ```
-cmdman compose -f ./devenv.yaml mux
+cmdman compose -f devenv mux
 ```
 
 を繰り返し実行すると、複数レイアウトある場合サイクルする仕様としています。
@@ -979,7 +979,7 @@ _claude 3 col layout_
 (claudeのfull screen render modeはサイズかえたらスクロールバック全体を再描画するのでこうやって入れ替えてもキレイに表示されていいです。)
 
 ```
-cmdman compose -f ./devenv.yaml mux 2
+cmdman compose -f devenv mux 2
 ```
 
 みたいな感じで数字インデックスか、レイアウト名を指定するとそのレイアウトが表示されます。
@@ -996,7 +996,7 @@ $ cmdman compose -f devenv scale codex=5
 指定がない場合はデフォルトではscale index 1が表示され、`cycle-scale`で入れ替えることができます。
 
 ```
-$ cmdman compose -f ./devenv.yaml mux cycle-scale codex
+$ cmdman compose -f devenv mux cycle-scale codex
 ```
 
 中立的な`mux spec`に基づいてpaneを分割します。
