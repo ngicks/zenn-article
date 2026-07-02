@@ -1324,7 +1324,6 @@ import (
 
 func main() {
 	go func() {
-		// Nothing is ever written to p[1], so this Read blocks forever.
 		var buf [1]byte
 		n, err := os.Stdin.Read(buf[:])
 		fmt.Printf("Read returned: n=%d err=%v\n", n, err)
@@ -1346,9 +1345,7 @@ func main() {
 // => Read is still blocked: a blocking, non-pollable fd cannot be unblocked by a deadline
 ```
 
-ちなみに`/dev/stdin`を開いても同じくdeadlineはつけられない。
-
-pipeして`/proc/self/fd/p[0]`を開くようにするとdeadlineをつけられる模様。
+ちなみに`/dev/stdin`を開くと解決します
 
 ```go
 package main
@@ -1357,25 +1354,70 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"syscall"
 	"time"
 )
 
 func main() {
-	var p [2]int
-	if err := syscall.Pipe(p[:]); err != nil {
+	stdin, err := os.Open("/dev/stdin")
+	if err != nil {
 		panic(err)
 	}
-	// For real stdin you would just write os.Open("/dev/stdin").
-	r, err := os.Open(fmt.Sprintf("/proc/self/fd/%d", p[0]))
+
+	go func() {
+		var buf [64]byte
+		n, err := stdin.Read(buf[:])
+		if n > 0 {
+			fmt.Println(string(buf[:n]))
+		}
+		fmt.Printf("Read returned: n=%d err=%v\n", n, err)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	err = stdin.SetReadDeadline(time.Now())
+	if err == nil {
+		fmt.Printf("SetReadDeadline: ok\n")
+	} else {
+		fmt.Printf("SetReadDeadline: %v (ErrNoDeadline=%v)\n",
+			err, errors.Is(err, os.ErrNoDeadline))
+	}
+
+	err = stdin.Close()
+	fmt.Printf("Close: %v\n", err)
+	time.Sleep(100 * time.Millisecond)
+}
+
+// SetReadDeadline: file type does not support deadline (ErrNoDeadline=true)
+// Close: <nil>
+```
+
+`echo yaay | go run .`とかしてみて、きちんとstdinから読めていることも確認してください。
+
+:::details `/proc/self/fd/0`を開いてもいい
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"time"
+)
+
+func main() {
+	r, err := os.Open("/proc/self/fd/0")
 	if err != nil {
 		panic(err)
 	}
 
 	done := make(chan error, 1)
 	go func() {
-		var buf [1]byte
-		_, err := r.Read(buf[:]) // blocks (nothing written to p[1])
+		var buf [64]byte
+		n, err := r.Read(buf[:])
+		if n > 0 {
+			fmt.Println(string(buf[:n]))
+		}
 		done <- err
 	}()
 
@@ -1386,11 +1428,14 @@ func main() {
 	fmt.Printf("Read returned: err=%v (ErrDeadlineExceeded=%v)\n",
 		err, errors.Is(err, os.ErrDeadlineExceeded))
 }
+
 // SetReadDeadline: <nil>
-// Read returned: err=read /proc/self/fd/4: i/o timeout (ErrDeadlineExceeded=true)
+// Read returned: err=read /proc/self/fd/0: i/o timeout (ErrDeadlineExceeded=true)
 ```
 
-ただしどうもこのハックはLinuxオンリーかもしれない。少なくともBSD系ではドキュメントを読む限り動きません。
+:::
+
+ただしどうもこのハックはLinuxオンリーかもしれない。少なくともBSD系ではドキュメントを読む限り動かなそうに見えます。
 
 FreeBSD fd(4) — https://man.freebsd.org/cgi/man.cgi?query=fd&sektion=4
 
@@ -1408,6 +1453,8 @@ FreeBSD fd(4) — https://man.freebsd.org/cgi/man.cgi?query=fd&sektion=4
 >       are equivalent.
 
 他のBSD派生でも同じなはずなので、同様にmacでもこの挙動でしょう。
+
+(気が向いたらVMでFreeBSDとか動かして検証してみます。)
 
 `io.Pipe`をかませる方法はそれどころかWindowsでも同様に動くので、多少効率が悪かろうとこの方法をとったほうが良いといえます。
 
